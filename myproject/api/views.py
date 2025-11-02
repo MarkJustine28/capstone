@@ -1,0 +1,3210 @@
+import time
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from django.db import transaction, IntegrityError
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from django.db.models import Q, Count
+import json
+import logging
+from django.db import models
+from datetime import datetime
+
+# Import your models (adjust these imports based on your actual models)
+from .models import Student, Teacher, Counselor, Report, Notification, ViolationType, StudentViolationRecord, StudentViolationTally
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Authentication Views
+@csrf_exempt
+@api_view(['POST'])
+def login_view(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        logger.info(f"Login attempt for username: {username}")
+        
+        if not username or not password:
+            return Response({
+                'success': False,
+                'error': 'Username and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = authenticate(username=username, password=password)
+        logger.info(f"Authentication result for {username}: {user is not None}")
+        
+        if user:
+            # ✅ Check if user account is active
+            if not user.is_active:
+                logger.warning(f"❌ Inactive account login attempt: {username}")
+                
+                # ✅ Check if it's a teacher with pending approval
+                if hasattr(user, 'teacher'):
+                    teacher = user.teacher
+                    approval_status = teacher.approval_status
+                    
+                    logger.info(f"Teacher approval status: {approval_status}")
+                    
+                    if approval_status == 'pending':
+                        return Response({
+                            'success': False,
+                            'error': 'Your account is pending admin approval. Please wait for approval.',
+                            'approval_status': 'pending'
+                        }, status=status.HTTP_403_FORBIDDEN)
+                    elif approval_status == 'rejected':
+                        return Response({
+                            'success': False,
+                            'error': 'Your account has been rejected. Please contact the administrator.',
+                            'approval_status': 'rejected'
+                        }, status=status.HTTP_403_FORBIDDEN)
+                
+                # For other inactive accounts
+                return Response({
+                    'success': False,
+                    'error': 'Your account has been deactivated. Please contact administration.'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ✅ Double-check teacher approval status even if is_active=True
+            if hasattr(user, 'teacher'):
+                teacher = user.teacher
+                if not teacher.is_approved or teacher.approval_status != 'approved':
+                    logger.warning(f"❌ Unapproved teacher login attempt: {username}")
+                    return Response({
+                        'success': False,
+                        'error': f'Your account is {teacher.get_approval_status_display().lower()}. Please wait for approval.',
+                        'approval_status': teacher.approval_status
+                    }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ✅ User is authenticated and approved - generate token
+            token, created = Token.objects.get_or_create(user=user)
+            logger.info(f"Token created/retrieved for {username}: {token.key[:10]}...")
+            
+            # Determine user role with error handling
+            role = 'student'  # default
+            profile_data = {}
+            
+            try:
+                if hasattr(user, 'teacher'):
+                    logger.info(f"User {username} is a teacher")
+                    role = 'teacher'
+                    teacher = user.teacher
+                    profile_data = {
+                        'employee_id': getattr(teacher, 'employee_id', '') or '',
+                        'department': getattr(teacher, 'department', '') or '',
+                        'advising_grade': getattr(teacher, 'advising_grade', '') or '',
+                        'advising_strand': getattr(teacher, 'advising_strand', '') or '',
+                        'advising_section': getattr(teacher, 'advising_section', '') or '',
+                        'approval_status': teacher.approval_status,
+                        'is_approved': teacher.is_approved,
+                    }
+                    logger.info(f"Teacher profile data: {profile_data}")
+                    
+                elif hasattr(user, 'counselor'):
+                    logger.info(f"User {username} is a counselor")
+                    role = 'counselor'
+                    counselor = user.counselor
+                    profile_data = {
+                        'employee_id': getattr(counselor, 'employee_id', '') or '',
+                        'department': getattr(counselor, 'department', '') or '',
+                    }
+                    logger.info(f"Counselor profile data: {profile_data}")
+                    
+                elif hasattr(user, 'student'):
+                    logger.info(f"User {username} is a student")
+                    role = 'student'
+                    student = user.student
+                    profile_data = {
+                        'student_id': getattr(student, 'student_id', '') or '',
+                        'grade_level': getattr(student, 'grade_level', '') or '',
+                        'section': getattr(student, 'section', '') or '',
+                        'strand': getattr(student, 'strand', '') or '',
+                    }
+                    logger.info(f"Student profile data: {profile_data}")
+                else:
+                    logger.warning(f"User {username} has no associated profile (teacher/student/counselor)")
+                    
+            except Exception as profile_error:
+                logger.error(f"Profile error for user {username}: {str(profile_error)}")
+                logger.error(f"Profile error traceback: ", exc_info=True)
+                # Continue with basic profile if there's an error
+                profile_data = {}
+            
+            response_data = {
+                'success': True,
+                'token': token.key,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'first_name': user.first_name or '',
+                    'last_name': user.last_name or '',
+                    'email': user.email or '',
+                    'role': role,
+                    **profile_data
+                },
+                'message': f'Welcome back, {user.first_name or user.username}!'
+            }
+            
+            logger.info(f"✅ Login successful for {username}, role: {role}")
+            return Response(response_data)
+            
+        else:
+            logger.warning(f"❌ Authentication failed for username: {username}")
+            return Response({
+                'success': False,
+                'error': 'Invalid credentials'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+            
+    except json.JSONDecodeError as json_error:
+        logger.error(f"JSON decode error: {str(json_error)}")
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Login error: {str(e)}")
+        logger.error(f"❌ Login traceback: ", exc_info=True)
+        return Response({
+            'success': False,
+            'error': f'Login failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST'])
+def register_view(request):
+    try:
+        data = json.loads(request.body)
+        
+        # Extract user data
+        username = data.get('username')
+        password = data.get('password')
+        email = data.get('email')
+        first_name = data.get('first_name', '')
+        last_name = data.get('last_name', '')
+        role = data.get('role', 'student')
+        
+        # Validate required fields
+        if not all([username, password, email]):
+            return Response({
+                'success': False,
+                'error': 'Username, password, and email are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if user already exists
+        if User.objects.filter(username=username).exists():
+            return Response({
+                'success': False,
+                'error': 'Username already exists'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if User.objects.filter(email=email).exists():
+            return Response({
+                'success': False,
+                'error': 'Email already registered'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            # ✅ Create user with appropriate is_active status
+            user = User.objects.create_user(
+                username=username,
+                password=password,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                is_active=True if role != 'teacher' else False  # ✅ Teachers need approval
+            )
+            
+            logger.info(f"✅ User created: {username}, role: {role}, is_active: {user.is_active}")
+            
+            # Create role-specific profile
+            if role == 'student':
+                Student.objects.create(
+                    user=user,
+                    grade_level=data.get('grade_level', ''),
+                    section=data.get('section', ''),
+                    strand=data.get('strand', ''),
+                    contact_number=data.get('contact_number', ''),
+                    guardian_name=data.get('guardian_name', ''),
+                    guardian_contact=data.get('guardian_contact', '')
+                )
+                logger.info(f"✅ Student profile created for {username}")
+                
+            elif role == 'teacher':
+                # ✅ Create teacher with pending approval status
+                teacher = Teacher.objects.create(
+                    user=user,
+                    employee_id=data.get('employee_id', ''),
+                    department=data.get('department', ''),
+                    specialization=data.get('specialization', ''),
+                    advising_grade=data.get('advising_grade', ''),
+                    advising_strand=data.get('advising_strand', ''),
+                    advising_section=data.get('advising_section', ''),
+                    approval_status='pending',  # ✅ Set to pending
+                    is_approved=False,  # ✅ Not approved yet
+                )
+                
+                logger.info(f"✅ Teacher profile created for {username} - Status: pending approval")
+                
+                # ✅ Notify all admins about new teacher registration
+                admin_users = User.objects.filter(is_staff=True, is_active=True)
+                for admin in admin_users:
+                    Notification.objects.create(
+                        user=admin,
+                        title="New Teacher Registration",
+                        message=(
+                            f"New teacher registration requires approval:\n\n"
+                            f"Name: {first_name} {last_name}\n"
+                            f"Username: {username}\n"
+                            f"Email: {email}\n"
+                            f"Employee ID: {data.get('employee_id', 'Not provided')}\n"
+                            f"Department: {data.get('department', 'Not provided')}\n\n"
+                            f"Please review and approve/reject in the admin panel."
+                        ),
+                        type='teacher_reg'
+                    )
+                
+                logger.info(f"✅ Notified {admin_users.count()} admin(s) about new teacher registration")
+                
+            elif role == 'counselor':
+                Counselor.objects.create(
+                    user=user,
+                    employee_id=data.get('employee_id', ''),
+                    department=data.get('department', ''),
+                    specialization=data.get('specialization', '')
+                )
+                logger.info(f"✅ Counselor profile created for {username}")
+            
+            # ✅ Only create token for non-teachers or approved teachers
+            if role == 'teacher':
+                # Teachers in pending approval don't get token yet
+                return Response({
+                    'success': True,
+                    'approval_status': 'pending',
+                    'message': 'Registration submitted. Your account is pending admin approval.',
+                    'user': {
+                        'id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'email': user.email,
+                        'role': role
+                    }
+                }, status=status.HTTP_201_CREATED)
+            else:
+                # Students and counselors get immediate access
+                token = Token.objects.create(user=user)
+                
+                return Response({
+                    'success': True,
+                    'approval_status': 'approved',
+                    'token': token.key,
+                    'user': {
+                        'id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'email': user.email,
+                        'role': role
+                    },
+                    'message': 'Registration successful!'
+                }, status=status.HTTP_201_CREATED)
+            
+    except json.JSONDecodeError:
+        logger.error("❌ Invalid JSON data in registration")
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': f'Registration failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST'])
+def forgot_password_view(request):
+    return Response({
+        'success': True,
+        'message': 'Password reset functionality not implemented yet'
+    })
+
+# Profile Views
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    try:
+        user = request.user
+        profile_data = {
+            'id': user.id,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+        }
+        
+        # Add role-specific data
+        if hasattr(user, 'student'):
+            student = user.student
+            profile_data.update({
+                'role': 'student',
+                'student_id': getattr(student, 'student_id', '') or '',
+                'grade_level': student.grade_level,
+                'section': student.section,
+                'strand': getattr(student, 'strand', '') or '',
+                'contact_number': getattr(student, 'contact_number', '') or '',
+                'guardian_name': getattr(student, 'guardian_name', '') or '',
+                'guardian_contact': getattr(student, 'guardian_contact', '') or '',
+            })
+        elif hasattr(user, 'teacher'):
+            teacher = user.teacher
+            profile_data.update({
+                'role': 'teacher',
+                'employee_id': teacher.employee_id,
+                'department': teacher.department,
+                'advising_grade': teacher.advising_grade,
+                'advising_strand': teacher.advising_strand,
+                'advising_section': teacher.advising_section,
+            })
+        elif hasattr(user, 'counselor'):
+            counselor = user.counselor
+            profile_data.update({
+                'role': 'counselor',
+                'employee_id': counselor.employee_id,
+                'department': counselor.department,
+            })
+        
+        return Response({
+            'success': True,
+            'user': profile_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Profile error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': 'Failed to retrieve profile'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Teacher Views
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_profile(request):
+    """Get teacher profile information"""
+    try:
+        if not hasattr(request.user, 'teacher'):
+            return Response({
+                'success': False,
+                'error': 'Teacher profile not found',
+                'profile': None  # ✅ Add default profile
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        teacher = request.user.teacher
+        user = request.user
+        
+        # ✅ Build full name properly
+        first_name = user.first_name or ''
+        last_name = user.last_name or ''
+        full_name = f"{first_name} {last_name}".strip()
+        
+        # If no name is set, use username as fallback
+        if not full_name:
+            full_name = user.username
+        
+        teacher_data = {
+            'id': teacher.id,
+            'user_id': user.id,
+            'username': user.username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'full_name': full_name,  # ✅ Add explicit full_name field
+            'email': user.email or '',
+            'employee_id': teacher.employee_id or '',
+            'department': teacher.department or '',
+            'advising_grade': teacher.advising_grade or '',
+            'advising_strand': teacher.advising_strand or '',
+            'advising_section': teacher.advising_section or '',
+            'contact_number': getattr(teacher, 'contact_number', '') or '',  # ✅ Add if field exists
+            'created_at': teacher.created_at.isoformat() if hasattr(teacher, 'created_at') and teacher.created_at else None,
+        }
+        
+        logger.info(f"✅ Teacher profile retrieved: {full_name} ({user.username})")
+        
+        return Response({
+            'success': True,
+            'profile': teacher_data,  # ✅ Changed from 'teacher' to 'profile' for consistency
+            'message': 'Teacher profile retrieved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Teacher profile error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e),
+            'profile': None  # ✅ Add default profile
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_advising_students(request):
+    """Get students in teacher's advising section"""
+    try:
+        if not hasattr(request.user, 'teacher'):
+            return Response({
+                'success': False,
+                'error': 'Teacher profile not found',
+                'students': []
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        teacher = request.user.teacher
+        
+        # Check if teacher has an advising section
+        if not teacher.advising_section:
+            return Response({
+                'success': True,
+                'students': [],
+                'message': 'No advising section assigned'
+            })
+        
+        # Filter students ONLY by section (since that's what exists in your Student table)
+        students_query = Student.objects.select_related('user').filter(
+            section=teacher.advising_section
+        )
+        
+        logger.info(f"🔍 Teacher: {teacher.user.username}")
+        logger.info(f"🔍 Advising Section: {teacher.advising_section}")
+        logger.info(f"🔍 Found {students_query.count()} students in section {teacher.advising_section}")
+        
+        students_data = []
+        for student in students_query:
+            students_data.append({
+                'id': student.id,
+                'user_id': student.user.id,
+                'first_name': student.user.first_name or '',
+                'last_name': student.user.last_name or '',
+                'username': student.user.username,
+                'email': student.user.email or '',
+                'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'grade_level': getattr(student, 'grade_level', '') or '',
+                'strand': getattr(student, 'strand', '') or '',
+                'section': student.section or '',
+                'contact_number': getattr(student, 'contact_number', '') or '',
+                'guardian_name': getattr(student, 'guardian_name', '') or '',
+                'guardian_contact': getattr(student, 'guardian_contact', '') or '',
+                'created_at': student.created_at.isoformat() if hasattr(student, 'created_at') and student.created_at else None,
+            })
+        
+        return Response({
+            'success': True,
+            'students': students_data,
+            'total_count': len(students_data),
+            'advising_info': {
+                'section': teacher.advising_section or '',
+                'grade': getattr(teacher, 'advising_grade', '') or '',
+                'strand': getattr(teacher, 'advising_strand', '') or '',
+            },
+            'filter_applied': f"section = {teacher.advising_section}"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching advising students: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'students': []
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def teacher_reports(request):
+    """Get or create teacher reports"""
+    
+    if request.method == 'GET':
+        try:
+            # Get teacher profile
+            teacher = Teacher.objects.get(user=request.user)
+            
+            # Get all reports submitted by this teacher
+            reports = Report.objects.filter(
+                reported_by=request.user,
+                report_type='teacher_report'
+            ).select_related('student', 'violation_type').order_by('-created_at')
+            
+            reports_data = []
+            for report in reports:
+                # Get student name from either student object or student_name field
+                student_name = 'Unknown Student'
+                if report.student:
+                    student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+                    if not student_name:
+                        student_name = report.student.user.username
+                elif hasattr(report, 'student_name') and report.student_name:
+                    student_name = report.student_name
+                
+                reports_data.append({
+                    'id': report.id,
+                    'title': report.title,
+                    'content': report.content,
+                    'status': report.status,
+                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                    'created_at': report.created_at.isoformat(),
+                    'student_name': student_name,
+                    'student_id': report.student.id if report.student else None,
+                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
+                    'is_reviewed': report.is_reviewed,
+                    'reviewed_at': report.reviewed_at.isoformat() if report.reviewed_at else None,
+                })
+            
+            return Response({
+                'success': True,
+                'reports': reports_data
+            })
+            
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Teacher profile not found',
+                'reports': []
+            }, status=404)
+        except Exception as e:
+            print(f"❌ Error fetching teacher reports: {e}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'reports': []
+            }, status=500)
+    
+    elif request.method == 'POST':
+        try:
+            data = request.data
+            print(f"📝 Received report data: {data}")
+            
+            # Get teacher profile
+            teacher = Teacher.objects.get(user=request.user)
+            
+            # Get student if student_id is provided (for advising section students)
+            student = None
+            student_name = data.get('student_name', '')
+            
+            # Check if reporting student from advising section
+            if not data.get('is_other_student', False) and data.get('student_id'):
+                try:
+                    student = Student.objects.get(id=data['student_id'])
+                    student_name = f"{student.user.first_name} {student.user.last_name}".strip()
+                    if not student_name:
+                        student_name = student.user.username
+                    print(f"✅ Found student: {student_name} (ID: {student.id})")
+                except Student.DoesNotExist:
+                    return Response({
+                        'success': False,
+                        'error': 'Student not found'
+                    }, status=404)
+            else:
+                # Reporting other student - just use the name provided
+                student = None
+                student_name = data.get('student_name', data.get('other_student_name', ''))
+                print(f"📝 Reporting other student: {student_name}")
+            
+            # Get violation type if provided
+            violation_type = None
+            if data.get('violation_type_id'):
+                try:
+                    violation_type = ViolationType.objects.get(id=data['violation_type_id'])
+                except ViolationType.DoesNotExist:
+                    pass
+            
+            # Parse incident date
+            incident_date = None
+            if data.get('incident_date'):
+                try:
+                    from django.utils import timezone
+                    from datetime import datetime
+                    
+                    # Parse the GMT+8 datetime string
+                    date_str = data['incident_date']
+                    if '+' in date_str:
+                        date_str = date_str.split('+')[0]
+                    
+                    incident_date = datetime.fromisoformat(date_str)
+                    # Make it timezone-aware
+                    if timezone.is_naive(incident_date):
+                        incident_date = timezone.make_aware(incident_date)
+                    
+                    print(f"📅 Parsed incident date: {incident_date}")
+                except Exception as e:
+                    print(f"⚠️ Could not parse incident date: {e}")
+                    incident_date = timezone.now()
+            else:
+                from django.utils import timezone
+                incident_date = timezone.now()
+            
+            # Create the report - ONLY use fields that exist in the model
+            report = Report.objects.create(
+                student=student,  # Can be None for "other student" reports
+                student_name=student_name,  # Store the name
+                reported_by=request.user,
+                title=data.get('title', 'Untitled Report'),
+                content=data.get('content', ''),
+                description=data.get('description', ''),  # Short description
+                report_type='teacher_report',
+                status=data.get('status', 'pending'),
+                incident_date=incident_date,
+                violation_type=violation_type,
+                custom_violation=data.get('custom_violation'),
+            )
+            
+            print(f"✅ Report created successfully (ID: {report.id})")
+            
+            # Create notification for counselor
+            try:
+                counselors = User.objects.filter(counselor__isnull=False)
+                for counselor_user in counselors:
+                    Notification.objects.create(
+                        user=counselor_user,
+                        title=f"New Teacher Report: {report.title}",
+                        message=f"Teacher {teacher.user.first_name} {teacher.user.last_name} reported: {student_name}",
+                        type='report_submitted',
+                        related_report=report
+                    )
+                print(f"✅ Notifications created for counselors")
+            except Exception as e:
+                print(f"⚠️ Could not create notifications: {e}")
+            
+            return Response({
+                'success': True,
+                'message': 'Report submitted successfully',
+                'report': {
+                    'id': report.id,
+                    'title': report.title,
+                    'status': report.status,
+                    'student_name': student_name,
+                    'created_at': report.created_at.isoformat(),
+                }
+            }, status=201)
+            
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Teacher profile not found'
+            }, status=404)
+        except Exception as e:
+            print(f"❌ Error creating teacher report: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_notifications(request):
+    """Get notifications for the teacher"""
+    try:
+        notifications = Notification.objects.filter(
+            user=request.user
+        ).order_by('-created_at')
+        
+        notifications_data = []
+        for notification in notifications:
+            notifications_data.append({
+                'id': notification.id,
+                'title': notification.title,
+                'message': notification.message,
+                'type': getattr(notification, 'type', 'info'),
+                'is_read': notification.is_read,
+                'created_at': notification.created_at.isoformat(),
+                'related_report_id': notification.related_report.id if hasattr(notification, 'related_report') and notification.related_report else None,
+            })
+        
+        return Response({
+            'success': True,
+            'notifications': notifications_data,
+            'unread_count': notifications.filter(is_read=False).count(),
+            'total_count': len(notifications_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching teacher notifications: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'notifications': []
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Student Views
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_notifications(request):
+    try:
+        notifications = Notification.objects.filter(
+            user=request.user
+        ).order_by('-created_at')
+        
+        notifications_data = []
+        for notification in notifications:
+            notifications_data.append({
+                'id': notification.id,
+                'title': notification.title,
+                'message': notification.message,
+                'type': getattr(notification, 'type', 'info'),
+                'is_read': notification.is_read,
+                'created_at': notification.created_at.isoformat(),
+            })
+        
+        return Response({
+            'success': True,
+            'notifications': notifications_data,
+            'unread_count': notifications.filter(is_read=False).count()
+        })
+        
+    except Exception as e:
+        logger.error(f"Student notifications error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': 'Failed to fetch notifications'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST', 'GET'])
+@permission_classes([IsAuthenticated])
+def student_reports(request):
+    """Handle student report submissions and retrieval"""
+    
+@csrf_exempt
+@api_view(['POST', 'GET'])
+@permission_classes([IsAuthenticated])
+def student_reports(request):
+    """Handle student report submissions and retrieval"""
+    
+    if request.method == 'POST':
+        # Handle report submission
+        try:
+            # Get the student instance
+            try:
+                student = Student.objects.get(user=request.user)
+            except Student.DoesNotExist:
+                logger.error(f"❌ Student profile not found for user: {request.user.username}")
+                return Response({
+                    'success': False,
+                    'error': 'Student profile not found. Please contact administration.'
+                }, status=400)
+            
+            # Extract data from request
+            title = request.data.get('title', '')
+            content = request.data.get('content', '')
+            violation_type_id = request.data.get('violation_type_id')
+            custom_violation = request.data.get('custom_violation')
+            incident_date = request.data.get('incident_date')
+            reported_student_name = request.data.get('reported_student_name', '')
+            report_type = request.data.get('report_type', 'peer_report')
+            
+            logger.info(f"📝 Report submission by: {student.user.username}")
+            logger.info(f"📝 Student being reported: {reported_student_name}")
+            logger.info(f"📝 Violation type ID: {violation_type_id}")
+            logger.info(f"📝 Report type: {report_type}")
+            
+            # Validate required fields
+            if not title or not content or not reported_student_name:
+                return Response({
+                    'success': False,
+                    'error': 'Missing required fields: title, content, and reported_student_name'
+                }, status=400)
+            
+            # Get violation type if provided
+            violation_type = None
+            if violation_type_id:
+                try:
+                    violation_type = ViolationType.objects.get(id=violation_type_id)
+                    logger.info(f"📝 Found violation type: {violation_type.name}")
+                except ViolationType.DoesNotExist:
+                    logger.warning(f"📝 Violation type ID {violation_type_id} not found")
+            
+            # Parse incident date
+            parsed_incident_date = None
+            if incident_date:
+                try:
+                    from datetime import datetime
+                    parsed_incident_date = datetime.fromisoformat(incident_date.replace('Z', '+00:00'))
+                except Exception as e:
+                    logger.warning(f"📝 Could not parse incident date: {e}")
+                    parsed_incident_date = timezone.now()
+            else:
+                parsed_incident_date = timezone.now()
+            
+            reported_student = None
+            try:
+                reported_student_name_clean = reported_student_name.strip()
+                logger.info(f"🔍 Searching for student: '{reported_student_name_clean}'")
+                
+                # Method 1: Try exact full name match (case-insensitive)
+                name_parts = reported_student_name_clean.split()
+                if len(name_parts) >= 2:
+                    first_name = name_parts[0]
+                    last_name = ' '.join(name_parts[1:])
+                    
+                    logger.info(f"🔍 Trying exact match: first_name='{first_name}', last_name='{last_name}'")
+                    
+                    # Try exact match first
+                    reported_student = Student.objects.filter(
+                        user__first_name__iexact=first_name,
+                        user__last_name__iexact=last_name
+                    ).first()
+                    
+                    if reported_student:
+                        logger.info(f"✅ Found student (exact match): {reported_student.user.first_name} {reported_student.user.last_name}")
+                
+                # Method 2: Try contains match (partial matching)
+                if not reported_student and len(name_parts) >= 2:
+                    logger.info(f"🔍 Trying contains match...")
+                    reported_student = Student.objects.filter(
+                        user__first_name__icontains=first_name,
+                        user__last_name__icontains=last_name
+                    ).first()
+                    
+                    if reported_student:
+                        logger.info(f"✅ Found student (contains match): {reported_student.user.first_name} {reported_student.user.last_name}")
+                
+                # Method 3: Try searching by username or student_id
+                if not reported_student:
+                    logger.info(f"🔍 Trying username/student_id match...")
+                    reported_student = Student.objects.filter(
+                        models.Q(user__username__icontains=reported_student_name_clean) |
+                        models.Q(student_id__icontains=reported_student_name_clean)
+                    ).first()
+                    
+                    if reported_student:
+                        logger.info(f"✅ Found student (username/id match): {reported_student.user.username}")
+                
+                # Method 4: Try full name as single field search
+                if not reported_student:
+                    logger.info(f"🔍 Trying full name search in database...")
+                    for student in Student.objects.select_related('user').all():
+                        db_full_name = f"{student.user.first_name} {student.user.last_name}".strip().lower()
+                        if reported_student_name_clean.lower() == db_full_name:
+                            reported_student = student
+                            logger.info(f"✅ Found student (full name match): {student.user.first_name} {student.user.last_name}")
+                            break
+                
+                if not reported_student:
+                    logger.warning(f"⚠️ Could not find student: '{reported_student_name_clean}'")
+                    logger.info(f"📋 Available students in database:")
+                    for s in Student.objects.select_related('user').all()[:10]:
+                        logger.info(f"  - {s.user.first_name} {s.user.last_name} (username: {s.user.username})")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error finding reported student: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # ✅ CREATE REPORT (with better error handling)
+            if not reported_student:
+                logger.error(f"❌ Cannot create report: Student '{reported_student_name}' not found in database")
+                return Response({
+                    'success': False,
+                    'error': f"Student '{reported_student_name}' not found in the system. Please check the spelling or contact the guidance office to register this student first."
+                }, status=400)
+
+            # CREATE REPORT
+            report = Report.objects.create(
+                title=title,
+                content=content,
+                student=reported_student,  # Now guaranteed to not be None
+                reported_by=request.user,
+                violation_type=violation_type,
+                custom_violation=custom_violation,
+                incident_date=parsed_incident_date,
+                report_type=report_type,
+                status='pending',
+                location=f"Reported Student: {reported_student_name}",
+            )
+
+            logger.info(f"✅ Report created with ID: {report.id}, Status: {report.status}")
+            logger.info(f"✅ Reported student: {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+            
+            # Prepare response data
+            report_data = {
+                'id': report.id,
+                'title': report.title,
+                'content': report.content,
+                'status': report.status,
+                'created_at': report.created_at.isoformat(),
+                'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                'reporter': {
+                    'id': request.user.id,
+                    'name': f"{student.user.first_name} {student.user.last_name}".strip(),
+                    'username': request.user.username,
+                },
+                'reported_student_name': reported_student_name,
+                'reported_student': {
+                    'id': reported_student.id,
+                    'name': f"{reported_student.user.first_name} {reported_student.user.last_name}".strip(),
+                    'student_id': reported_student.student_id,
+                } if reported_student else None,
+                'violation_type': violation_type.name if violation_type else custom_violation,
+                'custom_violation': custom_violation,
+                'report_type': report_type,
+            }
+            
+            return Response({
+                'success': True,
+                'message': 'Report submitted successfully.',
+                'report': report_data
+            }, status=201)
+            
+        except Exception as e:
+            logger.error(f"❌ Error submitting report: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': f'Failed to submit report: {str(e)}'
+            }, status=500)
+    
+    elif request.method == 'GET':
+        # Handle fetching student's reports
+        try:
+            student = Student.objects.get(user=request.user)
+            reports = Report.objects.filter(
+                reported_by=request.user
+            ).order_by('-created_at')
+            
+            reports_data = []
+            for report in reports:
+                reports_data.append({
+                    'id': report.id,
+                    'title': report.title,
+                    'content': report.content,
+                    'status': report.status,
+                    'created_at': report.created_at.isoformat(),
+                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                })
+            
+            return Response({
+                'success': True,
+                'reports': reports_data
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching reports: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+
+# General utility views (existing ones)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_students_list(request):
+    """Get students list"""
+    try:
+        students = Student.objects.select_related('user').all()
+        
+        students_data = []
+        for student in students:
+            students_data.append({
+                'id': student.id,
+                'user_id': student.user.id,
+                'first_name': student.user.first_name,
+                'last_name': student.user.last_name,
+                'username': student.user.username,
+                'email': student.user.email,
+                'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'grade_level': student.grade_level,
+                'strand': getattr(student, 'strand', ''),
+                'section': student.section,
+                'contact_number': getattr(student, 'contact_number', ''),
+                'guardian_name': getattr(student, 'guardian_name', ''),
+                'guardian_contact': getattr(student, 'guardian_contact', ''),
+            })
+        
+        return Response({
+            'success': True,
+            'students': students_data,
+            'total_count': len(students_data)
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e),
+            'students': []
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def violation_types(request):
+    """Get all violation types"""
+    try:
+        violation_types = ViolationType.objects.all().order_by('category', 'name')
+        
+        violation_types_data = []
+        for vt in violation_types:
+            violation_types_data.append({
+                'id': vt.id,
+                'name': vt.name,
+                'description': vt.description or '',
+                'category': vt.category,
+                'severity_level': vt.severity_level,
+                'points': getattr(vt, 'points', 0) or 0,
+                'is_active': getattr(vt, 'is_active', True),
+                'created_at': vt.created_at.isoformat() if hasattr(vt, 'created_at') else None,
+            })
+        
+        return Response({
+            'success': True,
+            'violation_types': violation_types_data,
+            'count': len(violation_types_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"Violation types error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'violation_types': [],
+            'count': 0
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_violation_types(request):
+    """Get violation types - alias for violation_types"""
+    return violation_types(request)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_student(request):
+    """Add a single student"""
+    try:
+        # Check if user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        data = json.loads(request.body)
+        
+        # Create username from name
+        first_name = data.get('first_name', '').strip()
+        last_name = data.get('last_name', '').strip()
+        
+        if not first_name or not last_name:
+            return Response({
+                'success': False,
+                'error': 'First name and last name are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate username
+        base_username = f"{first_name.lower()}.{last_name.lower()}".replace(' ', '')
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}{counter}"
+            counter += 1
+        
+        with transaction.atomic():
+            # Create user
+            user = User.objects.create_user(
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                email=data.get('email', ''),
+                password='student123'  # Default password
+            )
+            
+            # Generate student ID
+            student_id = data.get('student_id') or f"STU-{user.id:04d}"
+            
+            # Create student
+            student = Student.objects.create(
+                user=user,
+                student_id=student_id,
+                grade_level=data.get('grade_level'),
+                section=data.get('section'),
+                strand=data.get('strand', ''),
+                contact_number=data.get('contact_number', ''),
+                guardian_name=data.get('guardian_name', ''),
+                guardian_contact=data.get('guardian_contact', '')
+            )
+        
+        return Response({
+            'success': True,
+            'message': 'Student added successfully',
+            'student': {
+                'id': student.id,
+                'username': username,
+                'student_id': student_id,
+                'name': f"{first_name} {last_name}"
+            }
+        }, status=status.HTTP_201_CREATED)
+        
+    except json.JSONDecodeError:
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Add student error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_student(request, student_id):
+    """Update a student"""
+    try:
+        # Check if user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        data = json.loads(request.body)
+        
+        # Update user fields
+        user = student.user
+        if 'first_name' in data:
+            user.first_name = data['first_name']
+        if 'last_name' in data:
+            user.last_name = data['last_name']
+        if 'email' in data:
+            user.email = data['email']
+        user.save()
+        
+        # Update student fields
+        if 'grade_level' in data:
+            student.grade_level = data['grade_level']
+        if 'section' in data:
+            student.section = data['section']
+        if 'strand' in data:
+            student.strand = data['strand']
+        if 'contact_number' in data:
+            student.contact_number = data['contact_number']
+        if 'guardian_name' in data:
+            student.guardian_name = data['guardian_name']
+        if 'guardian_contact' in data:
+            student.guardian_contact = data['guardian_contact']
+        
+        student.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Student updated successfully'
+        })
+        
+    except json.JSONDecodeError:
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Update student error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_student(request, student_id):
+    """Delete a student"""
+    try:
+        # Check if user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Delete the user (this will cascade delete the student)
+        user = student.user
+        user.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Student deleted successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Delete student error: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def record_violation(request):
+    """Record a new violation after report verification"""
+    try:
+        # Check if user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        data = request.data
+        logger.info(f"📝 Recording violation with data: {data}")
+        
+        student_id = data.get('student_id')
+        violation_type_id = data.get('violation_type_id')
+        
+        if not student_id or not violation_type_id:
+            return Response({
+                'success': False,
+                'error': 'Student ID and violation type ID are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            student = Student.objects.select_related('user').get(id=student_id)
+            violation_type = ViolationType.objects.get(id=violation_type_id)
+        except Student.DoesNotExist:
+            logger.error(f"❌ Student with ID {student_id} not found")
+            return Response({
+                'success': False,
+                'error': f'Student with ID {student_id} not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except ViolationType.DoesNotExist:
+            logger.error(f"❌ Violation type with ID {violation_type_id} not found")
+            return Response({
+                'success': False,
+                'error': f'Violation type with ID {violation_type_id} not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Parse incident date and make it timezone-aware
+        incident_date = timezone.now()
+        if data.get('incident_date'):
+            try:
+                parsed_date = parse_datetime(data.get('incident_date'))
+                if parsed_date:
+                    # Make timezone-aware if it's naive
+                    if timezone.is_naive(parsed_date):
+                        incident_date = timezone.make_aware(parsed_date)
+                    else:
+                        incident_date = parsed_date
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse incident_date: {e}")
+                incident_date = timezone.now()
+        
+        # Get counselor
+        counselor = request.user.counselor
+        
+        # Get related report if provided
+        related_report = None
+        if data.get('related_report_id'):
+            try:
+                related_report = Report.objects.get(id=data.get('related_report_id'))
+            except Report.DoesNotExist:
+                logger.warning(f"⚠️ Report {data.get('related_report_id')} not found")
+        
+        # Create violation record
+        violation_record = StudentViolationRecord.objects.create(
+            student=student,
+            violation_type=violation_type,
+            counselor=counselor,
+            incident_date=incident_date,
+            description=data.get('description', ''),
+            location=data.get('location', ''),
+            status=data.get('status', 'active'),
+            counselor_notes=data.get('counselor_notes', ''),
+            related_report=related_report,
+        )
+        
+        logger.info(f"✅ Violation record created with ID: {violation_record.id}")
+        
+        # ✅ FIX: Update violation tally using the correct model structure
+        # Get or create tally record for this student
+        tally, created = StudentViolationTally.objects.get_or_create(
+            student=student,
+            defaults={
+                'total_violations': 0,
+                'first_violation_date': incident_date,
+                'last_violation_date': incident_date,
+            }
+        )
+        
+        # ✅ Update the appropriate violation type field based on violation name
+        violation_name = violation_type.name.lower()
+        
+        # Increment total violations
+        tally.total_violations += 1
+        tally.last_violation_date = incident_date
+        
+        # ✅ Increment specific violation type counter
+        if 'bullying' in violation_name:
+            tally.bullying_violations += 1
+        elif 'tardiness' in violation_name or 'late' in violation_name:
+            tally.tardiness_violations += 1
+        elif 'absent' in violation_name:
+            tally.absenteeism_violations += 1
+        elif 'cutting' in violation_name or 'skip' in violation_name:
+            tally.cutting_classes_violations += 1
+        elif 'vape' in violation_name or 'cigarette' in violation_name or 'smoking' in violation_name:
+            tally.using_vape_cigarette_violations += 1
+        elif 'cheat' in violation_name:
+            tally.cheating_violations += 1
+        elif 'misbehavior' in violation_name or 'behavioral' in violation_name:
+            tally.misbehavior_violations += 1
+        elif 'gambl' in violation_name:
+            tally.gambling_violations += 1
+        elif 'uniform' in violation_name or 'dress code' in violation_name:
+            tally.not_wearing_uniform_violations += 1
+        elif 'hair' in violation_name:
+            tally.haircut_violations += 1
+        else:
+            tally.other_violations += 1
+        
+        # Update severity counters
+        severity = violation_type.severity_level.lower()
+        if severity == 'low':
+            tally.low_severity_count += 1
+        elif severity == 'medium':
+            tally.medium_severity_count += 1
+        elif severity == 'high':
+            tally.high_severity_count += 1
+        elif severity == 'critical':
+            tally.critical_severity_count += 1
+        
+        # Update active/resolved counters based on status
+        if data.get('status', 'active').lower() in ['active', 'pending']:
+            tally.active_violations += 1
+        elif data.get('status', 'active').lower() in ['resolved', 'closed']:
+            tally.resolved_violations += 1
+        
+        tally.save()
+        
+        logger.info(f"✅ Tally updated: {tally.total_violations} total violations for student {student.user.username}")
+        
+        # 🔔 Notify all counselors about the new violation
+        counselors = Counselor.objects.select_related('user').all()
+        
+        for counselor_obj in counselors:
+            if counselor_obj.user:
+                student_name = f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username
+                
+                notification_title = "🆕 New Violation Recorded"
+                notification_message = (
+                    f"A violation has been recorded for {student_name}.\n\n"
+                    f"Violation Type: {violation_type.name}\n"
+                    f"Category: {violation_type.category}\n"
+                    f"Severity: {violation_type.severity_level}\n"
+                    f"Total Count: {tally.total_violations}"
+                )
+                
+                if data.get('description'):
+                    notification_message += f"\n\nDescription: {data.get('description')}"
+                
+                create_notification(
+                    user=counselor_obj.user,
+                    title=notification_title,
+                    message=notification_message,
+                    notification_type='violation_recorded',
+                    related_report=related_report
+                )
+        
+        logger.info(f"✅ Notifications sent to {len(counselors)} counselor(s)")
+        
+        # 🔔 Notify the student about the violation
+        if student.user:
+            student_notification_title = "Violation Notice"
+            student_notification_message = (
+                f"A violation has been recorded in your file.\n\n"
+                f"Violation Type: {violation_type.name}\n"
+                f"Date: {incident_date.strftime('%B %d, %Y')}\n"
+                f"Total Violations: {tally.total_violations}\n\n"
+                f"Please visit the guidance office if you have any questions."
+            )
+            
+            create_notification(
+                user=student.user,
+                title=student_notification_title,
+                message=student_notification_message,
+                notification_type='violation_recorded',
+                related_report=related_report
+            )
+            
+            logger.info(f"✅ Notification sent to student {student.user.username}")
+        
+        return Response({
+            'success': True,
+            'message': 'Violation recorded successfully and notifications sent',
+            'violation': {
+                'id': violation_record.id,
+                'tally_count': tally.total_violations,
+                'student_id': student.id,
+                'student_name': f"{student.user.first_name} {student.user.last_name}".strip(),
+                'violation_type': violation_type.name,
+                'incident_date': incident_date.isoformat(),
+            },
+            'notifications_sent': len(counselors) + (1 if student.user else 0)
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"❌ Error recording violation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': f'Failed to record violation: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_report_reviewed(request):
+    """Mark a report as reviewed"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        report_id = request.data.get('report_id')
+        new_status = request.data.get('status', 'reviewed')
+        
+        if not report_id:
+            return Response({
+                'success': False,
+                'error': 'Report ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            report = Report.objects.get(id=report_id)
+            report.status = new_status
+            report.save()
+            
+            return Response({
+                'success': True,
+                'message': f'Report marked as {new_status}',
+                'report_id': report_id
+            })
+            
+        except Report.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_teacher_reports(request):
+    """Get all teacher-submitted reports for counselor review"""
+    try:
+        # Get all reports submitted by teachers
+        reports = Report.objects.filter(
+            report_type='teacher_report'
+        ).select_related(
+            'student',
+            'reported_by',  # ✅ Fixed: Changed from 'reporter' to 'reported_by'
+            'violation_type'
+        ).order_by('-created_at')
+        
+        reports_data = []
+        for report in reports:
+            # Get student name
+            student_name = 'Unknown Student'
+            if report.student:
+                student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+                if not student_name:
+                    student_name = report.student.user.username
+            elif hasattr(report, 'student_name') and report.student_name:
+                student_name = report.student_name
+            
+            # Get reporter info
+            reporter_info = None
+            if report.reported_by:
+                reporter_info = {
+                    'id': report.reported_by.id,
+                    'username': report.reported_by.username,
+                    'first_name': report.reported_by.first_name,
+                    'last_name': report.reported_by.last_name,
+                }
+            
+            reports_data.append({
+                'id': report.id,
+                'title': report.title,
+                'content': report.content,
+                'description': report.description if hasattr(report, 'description') else None,
+                'status': report.status,
+                'report_type': report.report_type,
+                'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                'created_at': report.created_at.isoformat(),
+                'updated_at': report.updated_at.isoformat(),
+                'student_id': report.student.id if report.student else None,
+                'student_name': student_name,
+                'reported_by': reporter_info,
+                'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
+                'violation_type_id': report.violation_type.id if report.violation_type else None,
+                'custom_violation': report.custom_violation,
+                'severity_assessment': report.severity_assessment if hasattr(report, 'severity_assessment') else None,
+                'is_reviewed': report.is_reviewed if hasattr(report, 'is_reviewed') else False,
+                'reviewed_at': report.reviewed_at.isoformat() if hasattr(report, 'reviewed_at') and report.reviewed_at else None,
+                'location': report.location if hasattr(report, 'location') else None,
+                'witnesses': report.witnesses if hasattr(report, 'witnesses') else None,
+            })
+        
+        print(f"✅ Successfully fetched {len(reports_data)} teacher reports")
+        
+        return Response({
+            'success': True,
+            'reports': reports_data,
+            'count': len(reports_data)
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching teacher reports: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'message': f'Error fetching teacher reports: {str(e)}',
+            'reports': []
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_dashboard_analytics(request):
+    """Get comprehensive analytics for counselor dashboard"""
+    try:
+        # Verify counselor authentication
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Counselor profile not found'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Basic counts
+        total_students = Student.objects.count()
+        total_reports = Report.objects.count()
+        total_violations = StudentViolationRecord.objects.count()
+        
+        # Report status breakdown
+        pending_reports = Report.objects.filter(status='pending').count()
+        under_review_reports = Report.objects.filter(status='under_review').count()
+        reviewed_reports = Report.objects.filter(status='reviewed').count()
+        resolved_reports = Report.objects.filter(status='resolved').count()
+        
+        # Violation analytics by type
+        violation_type_counts = {}
+        violation_records = StudentViolationRecord.objects.select_related('violation_type').all()
+        
+        for record in violation_records:
+            if record.violation_type:
+                type_name = record.violation_type.name
+                if type_name not in violation_type_counts:
+                    violation_type_counts[type_name] = {
+                        'count': 0,
+                        'category': record.violation_type.category,
+                        'severity': record.violation_type.severity_level
+                    }
+                violation_type_counts[type_name]['count'] += 1
+        
+        # Sort by count
+        top_violations = sorted(
+            violation_type_counts.items(),
+            key=lambda x: x[1]['count'],
+            reverse=True
+        )[:5]
+        
+        # Monthly trend (last 6 months)
+        from datetime import datetime, timedelta
+        from django.db.models import Count
+        from django.db.models.functions import TruncMonth
+        
+        six_months_ago = datetime.now() - timedelta(days=180)
+        
+        monthly_reports = Report.objects.filter(
+            created_at__gte=six_months_ago
+        ).annotate(
+            month=TruncMonth('created_at')
+        ).values('month').annotate(
+            count=Count('id')
+        ).order_by('month')
+        
+        monthly_trends = []
+        for item in monthly_reports:
+            monthly_trends.append({
+                'month': item['month'].strftime('%B %Y'),
+                'count': item['count']
+            })
+        
+        # Status distribution for charts
+        status_distribution = [
+            {'status': 'Pending', 'count': pending_reports},
+            {'status': 'Under Review', 'count': under_review_reports},
+            {'status': 'Reviewed', 'count': reviewed_reports},
+            {'status': 'Resolved', 'count': resolved_reports},
+        ]
+        
+        # Recent activity (last 7 days)
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        recent_reports_count = Report.objects.filter(created_at__gte=seven_days_ago).count()
+        recent_violations_count = StudentViolationRecord.objects.filter(
+            incident_date__gte=seven_days_ago
+        ).count()
+        
+        logger.info(f"✅ Dashboard analytics retrieved for counselor {counselor.user.username}")
+        
+        return Response({
+            'success': True,
+            'analytics': {
+                'overview': {
+                    'total_students': total_students,
+                    'total_reports': total_reports,
+                    'total_violations': total_violations,
+                    'pending_reports': pending_reports,
+                },
+                'report_status': {
+                    'pending': pending_reports,
+                    'under_review': under_review_reports,
+                    'reviewed': reviewed_reports,
+                    'resolved': resolved_reports,
+                },
+                'status_distribution': status_distribution,
+                'top_violations': [
+                    {
+                        'name': name,
+                        'count': data['count'],
+                        'category': data['category'],
+                        'severity': data['severity']
+                    }
+                    for name, data in top_violations
+                ],
+                'monthly_trends': monthly_trends,
+                'recent_activity': {
+                    'reports_this_week': recent_reports_count,
+                    'violations_this_week': recent_violations_count,
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching dashboard analytics: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Also add the counselor_update_teacher_report_status function if it's missing:
+
+@csrf_exempt
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def counselor_update_teacher_report_status(request, report_id):
+    """Update teacher report status (same as update_report_status but explicit endpoint)"""
+    return update_report_status(request, report_id)
+
+
+# Add the tally_records function if missing:
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def tally_records(request):
+    """Get or create tally records"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Counselor profile not found'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        if request.method == 'GET':
+            # Get all tally records
+            tallies = StudentViolationTally.objects.select_related(
+                'student',
+                'student__user',
+                'violation_type'
+            ).all().order_by('-last_incident_date')
+            
+            tallies_data = []
+            for tally in tallies:
+                tallies_data.append({
+                    'id': tally.id,
+                    'student': {
+                        'id': tally.student.id,
+                        'name': f"{tally.student.user.first_name} {tally.student.user.last_name}",
+                        'student_id': tally.student.student_id,
+                    },
+                    'violation_type': {
+                        'id': tally.violation_type.id,
+                        'name': tally.violation_type.name,
+                        'category': tally.violation_type.category,
+                        'severity': tally.violation_type.severity_level,
+                    },
+                    'count': tally.count,
+                    'last_incident_date': tally.last_incident_date.isoformat() if tally.last_incident_date else None,
+                    'created_at': tally.created_at.isoformat() if hasattr(tally, 'created_at') else None,
+                })
+            
+            return Response({
+                'success': True,
+                'tallies': tallies_data,
+                'count': len(tallies_data)
+            })
+        
+        elif request.method == 'POST':
+            # Create or update tally record
+            student_id = request.data.get('student_id')
+            violation_type_id = request.data.get('violation_type_id')
+            
+            if not student_id or not violation_type_id:
+                return Response({
+                    'success': False,
+                    'error': 'student_id and violation_type_id are required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                student = Student.objects.get(id=student_id)
+                violation_type = ViolationType.objects.get(id=violation_type_id)
+            except (Student.DoesNotExist, ViolationType.DoesNotExist):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid student or violation type'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get or create tally
+            tally, created = StudentViolationTally.objects.get_or_create(
+                student=student,
+                violation_type=violation_type,
+                defaults={'count': 1, 'last_incident_date': timezone.now()}
+            )
+            
+            if not created:
+                tally.count += 1
+                tally.last_incident_date = timezone.now()
+                tally.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Tally record updated',
+                'tally': {
+                    'id': tally.id,
+                    'count': tally.count,
+                    'last_incident_date': tally.last_incident_date.isoformat()
+                }
+            }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"❌ Error with tally records: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_dashboard(request):
+    """Get counselor dashboard data"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Basic dashboard data
+        return Response({
+            'success': True,
+            'message': 'Counselor dashboard data retrieved',
+            'data': {
+                'total_students': Student.objects.count(),
+                'total_reports': Report.objects.count(),
+                'pending_reports': Report.objects.filter(status='pending').count(),
+                'violation_types_count': ViolationType.objects.count(),
+            }
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_student_reports(request):
+    """Get student reports for counselor review"""
+    try:
+        # Check if user has counselor permissions
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get all reports submitted by students
+        reports = Report.objects.filter(
+            report_type__in=['peer_report', 'self_report', 'incident']
+        ).select_related(
+            'reported_by', 
+            'violation_type', 
+            'student',
+            'student__user'
+        ).order_by('-created_at')
+        
+        reports_data = []
+        for report in reports:
+            try:
+                # Get reporter information
+                reported_by_info = None
+                if report.reported_by:
+                    try:
+                        reporter_student = Student.objects.get(user=report.reported_by)
+                        reported_by_info = {
+                            'id': report.reported_by.id,
+                            'name': f"{report.reported_by.first_name} {report.reported_by.last_name}".strip(),
+                            'username': report.reported_by.username,
+                            'student_id': reporter_student.student_id,
+                            'grade_level': reporter_student.grade_level,
+                            'section': reporter_student.section,
+                        }
+                    except Student.DoesNotExist:
+                        reported_by_info = {
+                            'id': report.reported_by.id,
+                            'name': f"{report.reported_by.first_name} {report.reported_by.last_name}".strip(),
+                            'username': report.reported_by.username,
+                        }
+                
+                # Get student being reported (THIS IS WHO SHOULD GET THE VIOLATION)
+                reported_student_info = None
+                if report.student:
+                    reported_student_info = {
+                        'id': report.student.id,
+                        'name': f"{report.student.user.first_name} {report.student.user.last_name}".strip(),
+                        'student_id': report.student.student_id,
+                        'grade_level': report.student.grade_level,
+                        'section': report.student.section,
+                        'strand': getattr(report.student, 'strand', 'N/A'),
+                    }
+                
+                # Extract reported student name from location field if not found
+                reported_student_name = 'Unknown Student'
+                if reported_student_info:
+                    reported_student_name = reported_student_info['name']
+                elif hasattr(report, 'location') and report.location and 'Reported Student:' in report.location:
+                    reported_student_name = report.location.replace('Reported Student:', '').strip()
+                
+                # ✅ FIX: Safely check for evidence_files attribute
+                evidence_url = None
+                if hasattr(report, 'evidence_files') and report.evidence_files:
+                    try:
+                        evidence_url = report.evidence_files.url
+                    except:
+                        evidence_url = None
+                
+                report_data = {
+                    'id': report.id,
+                    'title': report.title,
+                    'description': getattr(report, 'content', ''),
+                    'content': getattr(report, 'content', ''),
+                    'status': report.status,
+                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                    'incident_location': getattr(report, 'location', ''),
+                    'created_at': report.created_at.isoformat(),
+                    'reporter_type': 'Student',
+                    
+                    # CRITICAL: Add both field names for compatibility
+                    'reported_student_id': report.student.id if report.student else None,
+                    'reported_student': reported_student_info,
+                    'student': reported_student_info,
+                    'student_name': reported_student_name,
+                    
+                    # Reporter info
+                    'reporter': reported_by_info,
+                    'reported_by': reported_by_info,
+                    
+                    # Violation details
+                    'violation_type': report.violation_type.name if report.violation_type else getattr(report, 'custom_violation', 'Other'),
+                    'custom_violation': getattr(report, 'custom_violation', ''),
+                    'report_type': report.report_type,
+                    'severity_level': getattr(report, 'severity_assessment', 'Medium'),
+                    'severity_assessment': getattr(report, 'severity_assessment', 'Medium'),
+                    'witnesses': getattr(report, 'witnesses', ''),
+                    'evidence_files': evidence_url,  # ✅ Safe access
+                    'counselor_notes': getattr(report, 'counselor_notes', ''),
+                }
+                reports_data.append(report_data)
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error processing report {report.id}: {e}")
+                continue
+        
+        logger.info(f"📋 Found {len(reports_data)} student reports for counselor {counselor.user.username}")
+        
+        return Response({
+            'success': True,
+            'reports': reports_data,
+            'count': len(reports_data),
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching counselor student reports: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e),
+            'reports': [],
+            'count': 0
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_students_list(request):
+    """Get students list for counselor"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        students = Student.objects.select_related('user').all()
+        
+        students_data = []
+        for student in students:
+            students_data.append({
+                'id': student.id,
+                'name': student.user.get_full_name() or student.user.username,
+                'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'grade_level': student.grade_level,
+                'section': student.section,
+                'username': student.user.username,
+                'email': student.user.email,
+            })
+        
+        return Response({
+            'success': True,
+            'students': students_data,
+            'count': len(students_data)
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e),
+            'students': [],
+            'count': 0
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Update counselor_student_violations (around line 1470):
+
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_student_violations(request):
+    """Get all student violations for counselor dashboard"""
+    try:
+        # Verify counselor authentication
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'message': 'Counselor profile not found'
+            }, status=403)
+
+        # Get all student violation records with related data
+        violations = StudentViolationRecord.objects.select_related(
+            'student',
+            'student__user',
+            'violation_type',
+            'counselor',
+            'counselor__user',
+            'related_report'  # ✅ Add this to include related report
+        ).all().order_by('-incident_date')
+        
+        violations_data = []
+        for violation in violations:
+            try:
+                # Build violation data with safe attribute access
+                violation_data = {
+                    'id': violation.id,
+                    'student_id': violation.student.id if violation.student else None,
+                    'student': {
+                        'id': violation.student.id,
+                        'name': f"{violation.student.user.first_name} {violation.student.user.last_name}",
+                        'student_id': violation.student.student_id,
+                        'user_id': violation.student.user.id,
+                        'grade_level': violation.student.grade_level,
+                        'section': violation.student.section,
+                    } if violation.student else None,
+                    'violation_type': {
+                        'id': violation.violation_type.id,
+                        'name': violation.violation_type.name,
+                        'category': violation.violation_type.category,
+                        'severity_level': violation.violation_type.severity_level,
+                    } if violation.violation_type else None,
+                    'counselor': {
+                        'id': violation.counselor.id,
+                        'name': f"{violation.counselor.user.first_name} {violation.counselor.user.last_name}",
+                    } if violation.counselor else None,
+                    'incident_date': violation.incident_date.isoformat() if violation.incident_date else None,
+                    'description': violation.description,
+                    'location': violation.location,
+                    'status': violation.status,
+                    'severity_level': violation.violation_type.severity_level if violation.violation_type else 'Medium',
+                    'counselor_notes': violation.counselor_notes,
+                    'action_taken': violation.action_taken if hasattr(violation, 'action_taken') else '',
+                    'recorded_at': violation.recorded_at.isoformat() if hasattr(violation, 'recorded_at') and violation.recorded_at else violation.incident_date.isoformat(),
+                    
+                    # ✅ ADD THESE FIELDS
+                    'related_report_id': violation.related_report_id,
+                    'related_report': {
+                        'id': violation.related_report.id,
+                        'title': violation.related_report.title,
+                        'status': violation.related_report.status,
+                    } if violation.related_report else None,
+                }
+                
+                violations_data.append(violation_data)
+                
+            except Exception as e:
+                logger.warning(f"Error processing violation {violation.id}: {e}")
+                continue
+
+        logger.info(f"✅ Returning {len(violations_data)} student violations for counselor {counselor.user.username}")
+        
+        # Count tallied violations
+        tallied_count = sum(1 for v in violations_data if v.get('related_report_id'))
+        logger.info(f"📊 Tallied violations (with related_report_id): {tallied_count}")
+        logger.info(f"📊 Direct violations (without related_report_id): {len(violations_data) - tallied_count}")
+
+        return JsonResponse({
+            'success': True,
+            'violations': violations_data,
+            'count': len(violations_data),
+            'tallied_count': tallied_count,
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching counselor student violations: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'message': f'Error fetching student violations: {str(e)}'
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_violation_types(request):
+    """Get violation types for counselor"""
+    return violation_types(request)  # Reuse existing function
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_violation_analytics(request):
+    """Get violation analytics for counselor dashboard"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Basic analytics - you can expand this later
+        violation_analytics = {}
+        status_distribution = []
+        monthly_trends = []
+        
+        # Get violation type counts
+        violation_records = StudentViolationRecord.objects.select_related('violation_type').all()
+        for record in violation_records:
+            violation_name = record.violation_type.name if record.violation_type else 'Unknown'
+            if violation_name not in violation_analytics:
+                violation_analytics[violation_name] = {'count': 0}
+            violation_analytics[violation_name]['count'] += 1
+        
+        # Get status distribution
+        status_counts = {}
+        for record in violation_records:
+            status = record.status or 'active'
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        for status, count in status_counts.items():
+            status_distribution.append({'status': status, 'count': count})
+        
+        return Response({
+            'success': True,
+            'violation_analytics': violation_analytics,
+            'status_distribution': status_distribution,
+            'monthly_trends': monthly_trends,
+            'message': 'Violation analytics retrieved successfully'
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e),
+            'violation_analytics': {},
+            'status_distribution': [],
+            'monthly_trends': []
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+def create_notification(user, title, message, notification_type='general', related_report=None):
+    """Helper function to create a notification"""
+    try:
+        notification = Notification.objects.create(
+            user=user,
+            title=title,
+            message=message,
+            type=notification_type,
+            related_report=related_report
+        )
+        logger.info(f"✅ Notification created for {user.username}: {title}")
+        return notification
+    except Exception as e:
+        logger.error(f"❌ Error creating notification: {str(e)}")
+        return None
+
+
+# Now update the existing update_report_status function (around line 1450)
+# Replace the entire function with this:
+
+@csrf_exempt
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_report_status(request, report_id):
+    """Update the status of a report and send notifications"""
+    try:
+        data = json.loads(request.body)
+        status_value = data.get('status')
+        counselor_notes = data.get('counselor_notes', '')
+        tally_notes = data.get('tally_notes', '')
+        
+        logger.info(f"📝 Updating report {report_id} status to {status_value}")
+        logger.info(f"📝 Counselor notes: {counselor_notes}")
+        logger.info(f"📝 Tally notes: {tally_notes}")
+        
+        # Verify user is authenticated
+        if not request.user.is_authenticated:
+            return JsonResponse({
+                'success': False,
+                'message': 'Authentication required'
+            }, status=401)
+        
+        # Get counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'message': 'Only counselors can update report status'
+            }, status=403)
+        
+        # Get the report
+        try:
+            report = Report.objects.select_related(
+                'student', 
+                'student__user', 
+                'reported_by'
+            ).get(id=report_id)
+            
+            old_status = report.status
+            
+            # Update status
+            valid_statuses = ['pending', 'under_review', 'reviewed', 'investigating', 'resolved', 'dismissed', 'escalated']
+            if status_value == 'tallied':
+                report.status = 'resolved'
+                report.resolved_at = timezone.now()
+            elif status_value in valid_statuses:
+                report.status = status_value
+                if status_value == 'resolved':
+                    report.resolved_at = timezone.now()
+                elif status_value == 'reviewed':
+                    report.is_reviewed = True
+                    report.reviewed_at = timezone.now()
+            else:
+                report.status = 'under_review'
+            
+            # Add notes
+            notes_to_add = []
+            if counselor_notes:
+                notes_to_add.append(f"Counselor Notes: {counselor_notes}")
+            if tally_notes:
+                notes_to_add.append(f"Tally Notes: {tally_notes}")
+            
+            if notes_to_add:
+                timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+                current_action = report.disciplinary_action or ''
+                new_notes = f"\n\n[{timestamp}]\n" + "\n".join(notes_to_add)
+                report.disciplinary_action = (current_action + new_notes).strip()
+            
+            if counselor_notes and hasattr(report, 'counselor_notes'):
+                report.counselor_notes = counselor_notes
+            
+            report.updated_at = timezone.now()
+            report.save()
+            
+            logger.info(f"✅ Report {report_id} status updated from {old_status} to {report.status}")
+            
+            # 🔔 SEND NOTIFICATIONS
+            
+            # 1. Notify the reporter (teacher or student who submitted the report)
+            if report.reported_by:
+                notification_title = f"Report Update: {report.title}"
+                notification_message = f"Your report has been updated to '{report.status}'."
+                
+                if counselor_notes:
+                    notification_message += f"\n\nCounselor notes: {counselor_notes}"
+                
+                create_notification(
+                    user=report.reported_by,
+                    title=notification_title,
+                    message=notification_message,
+                    notification_type='report_reviewed',
+                    related_report=report
+                )
+                logger.info(f"✅ Notification sent to reporter: {report.reported_by.username}")
+            
+            # 2. Notify the student who was reported (if different from reporter)
+            if report.student and report.student.user:
+                # Only notify if the student is not the one who reported
+                if not report.reported_by or report.student.user.id != report.reported_by.id:
+                    student_title = f"Report Update: {report.title}"
+                    student_message = f"A report concerning you has been {report.status}."
+                    
+                    if report.status == 'resolved':
+                        student_message += "\n\nThis matter has been resolved. If you have questions, please visit the guidance office."
+                    elif report.status == 'reviewed':
+                        student_message += "\n\nYour case has been reviewed by the guidance counselor."
+                    elif report.status == 'under_review':
+                        student_message += "\n\nThe guidance counselor is currently reviewing your case."
+                    
+                    if counselor_notes:
+                        student_message += f"\n\nCounselor notes: {counselor_notes}"
+                    
+                    create_notification(
+                        user=report.student.user,
+                        title=student_title,
+                        message=student_message,
+                        notification_type='report_reviewed',
+                        related_report=report
+                    )
+                    logger.info(f"✅ Notification sent to student: {report.student.user.username}")
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Report status updated and notifications sent',
+                'report_id': report_id,
+                'new_status': report.status,
+                'notifications_sent': True
+            })
+            
+        except Report.DoesNotExist:
+            logger.error(f"❌ Report {report_id} not found")
+            return JsonResponse({
+                'success': False,
+                'message': f'Report with ID {report_id} not found'
+            }, status=404)
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid JSON data'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"❌ Error updating report {report_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'message': f'Error updating report: {str(e)}'
+        }, status=500)
+
+
+# Add new endpoints for sending notifications
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_counseling_notification(request):
+    """Send counseling notification to a student"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send counseling notifications'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        student_id = request.data.get('student_id')
+        message = request.data.get('message')
+        scheduled_date = request.data.get('scheduled_date')
+        
+        if not student_id or not message:
+            return Response({
+                'success': False,
+                'error': 'student_id and message are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get student
+        try:
+            student = Student.objects.select_related('user').get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        if not student.user:
+            return Response({
+                'success': False,
+                'error': 'Student has no associated user account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create notification
+        title = "Counseling Session Scheduled"
+        full_message = message
+        
+        if scheduled_date:
+            try:
+                date_obj = parse_datetime(scheduled_date)
+                if date_obj:
+                    formatted_date = date_obj.strftime('%B %d, %Y at %I:%M %p')
+                    full_message += f"\n\nScheduled for: {formatted_date}"
+            except:
+                full_message += f"\n\nScheduled for: {scheduled_date}"
+        
+        notification = create_notification(
+            user=student.user,
+            title=title,
+            message=full_message,
+            notification_type='session_scheduled'
+        )
+        
+        if notification:
+            logger.info(f"✅ Counseling notification sent to student {student.user.username}")
+            return Response({
+                'success': True,
+                'message': 'Counseling notification sent successfully',
+                'notification': {
+                    'id': notification.id,
+                    'title': notification.title,
+                    'message': notification.message,
+                    'created_at': notification.created_at.isoformat(),
+                }
+            })
+        else:
+            return Response({
+                'success': False,
+                'error': 'Failed to create notification'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending counseling notification: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_bulk_notifications(request):
+    """Send notifications to multiple users"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send bulk notifications'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user_ids = request.data.get('user_ids', [])
+        title = request.data.get('title')
+        message = request.data.get('message')
+        notification_type = request.data.get('type', 'general')
+        
+        if not user_ids or not title or not message:
+            return Response({
+                'success': False,
+                'error': 'user_ids, title, and message are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        notifications_created = 0
+        users = User.objects.filter(id__in=user_ids)
+        
+        for user in users:
+            notification = create_notification(
+                user=user,
+                title=title,
+                message=message,
+                notification_type=notification_type
+            )
+            if notification:
+                notifications_created += 1
+        
+        logger.info(f"✅ Sent {notifications_created} bulk notifications")
+        
+        return Response({
+            'success': True,
+            'message': f'{notifications_created} notification(s) sent successfully',
+            'count': notifications_created
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending bulk notifications: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def notifications_list(request):
+    """Get all notifications for the authenticated user"""
+    try:
+        notifications = Notification.objects.filter(
+            user=request.user
+        ).order_by('-created_at')
+        
+        notifications_data = []
+        for notification in notifications:
+            notifications_data.append({
+                'id': notification.id,
+                'title': notification.title,
+                'message': notification.message,
+                'type': notification.type if hasattr(notification, 'type') else 'general',
+                'is_read': notification.is_read,
+                'created_at': notification.created_at.isoformat(),
+                'related_report_id': notification.related_report.id if hasattr(notification, 'related_report') and notification.related_report else None,
+            })
+        
+        return Response({
+            'success': True,
+            'notifications': notifications_data,
+            'unread_count': notifications.filter(is_read=False).count(),
+            'total_count': len(notifications_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching notifications: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'notifications': [],
+            'unread_count': 0,
+            'total_count': 0
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def notification_mark_read(request, notification_id):
+    """Mark a single notification as read"""
+    try:
+        notification = Notification.objects.get(
+            id=notification_id,
+            user=request.user
+        )
+        
+        notification.is_read = True
+        notification.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Notification marked as read'
+        })
+        
+    except Notification.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Notification not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"❌ Error marking notification as read: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def notifications_mark_all_read(request):
+    """Mark all notifications as read for the authenticated user"""
+    try:
+        updated_count = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).update(is_read=True)
+        
+        return Response({
+            'success': True,
+            'message': f'{updated_count} notification(s) marked as read',
+            'updated_count': updated_count
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error marking all notifications as read: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def notification_delete(request, notification_id):
+    """Delete a notification"""
+    try:
+        notification = Notification.objects.get(
+            id=notification_id,
+            user=request.user
+        )
+        
+        notification.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Notification deleted'
+        }, status=status.HTTP_204_NO_CONTENT)
+        
+    except Notification.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Notification not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"❌ Error deleting notification: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def notifications_unread_count(request):
+    """Get unread notification count"""
+    try:
+        unread_count = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).count()
+        
+        return Response({
+            'success': True,
+            'unread_count': unread_count
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching unread count: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e),
+            'unread_count': 0
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_counseling_notification(request):
+    """Send counseling notification to a student"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send counseling notifications'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        student_id = request.data.get('student_id')
+        message = request.data.get('message')
+        scheduled_date = request.data.get('scheduled_date')
+        
+        if not student_id or not message:
+            return Response({
+                'success': False,
+                'error': 'student_id and message are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get student
+        try:
+            student = Student.objects.select_related('user').get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        if not student.user:
+            return Response({
+                'success': False,
+                'error': 'Student has no associated user account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create notification
+        title = "Counseling Session Scheduled"
+        full_message = message
+        
+        if scheduled_date:
+            full_message += f"\n\nScheduled for: {scheduled_date}"
+        
+        notification = create_notification(
+            user=student.user,
+            title=title,
+            message=full_message,
+            notification_type='session_scheduled'
+        )
+        
+        if notification:
+            logger.info(f"✅ Counseling notification sent to student {student.user.username}")
+            return Response({
+                'success': True,
+                'message': 'Counseling notification sent successfully',
+                'notification': {
+                    'id': notification.id,
+                    'title': notification.title,
+                    'message': notification.message,
+                    'created_at': notification.created_at.isoformat(),
+                }
+            })
+        else:
+            return Response({
+                'success': False,
+                'error': 'Failed to create notification'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending counseling notification: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_bulk_notifications(request):
+    """Send notifications to multiple users"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send bulk notifications'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user_ids = request.data.get('user_ids', [])
+        title = request.data.get('title')
+        message = request.data.get('message')
+        notification_type = request.data.get('type', 'general')
+        
+        if not user_ids or not title or not message:
+            return Response({
+                'success': False,
+                'error': 'user_ids, title, and message are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        notifications_created = 0
+        users = User.objects.filter(id__in=user_ids)
+        
+        for user in users:
+            notification = create_notification(
+                user=user,
+                title=title,
+                message=message,
+                notification_type=notification_type
+            )
+            if notification:
+                notifications_created += 1
+        
+        logger.info(f"✅ Sent {notifications_created} bulk notifications")
+        
+        return Response({
+            'success': True,
+            'message': f'{notifications_created} notification(s) sent successfully',
+            'count': notifications_created
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending bulk notifications: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_counseling_summons(request, report_id):
+    """Send notification to student to come to guidance office for counseling"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send counseling summons'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get the report
+        try:
+            report = Report.objects.select_related(
+                'student',
+                'student__user',
+                'reported_by',
+                'violation_type'
+            ).get(id=report_id)
+        except Report.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if student has user account
+        if not report.student or not report.student.user:
+            return Response({
+                'success': False,
+                'error': 'Student has no associated user account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get optional scheduled date/time
+        scheduled_date = request.data.get('scheduled_date')
+        additional_message = request.data.get('message', '')
+        
+        # Create notification for student
+        student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+        violation_name = report.violation_type.name if report.violation_type else 'a reported incident'
+        
+        notification_title = "🏫 Summons to Guidance Office"
+        notification_message = (
+            f"Dear {student_name},\n\n"
+            f"You are required to report to the Guidance Office regarding {violation_name}.\n\n"
+            f"Report Details:\n"
+            f"• Title: {report.title}\n"
+            f"• Reported on: {report.created_at.strftime('%B %d, %Y')}\n"
+        )
+        
+        if scheduled_date:
+            try:
+                date_obj = parse_datetime(scheduled_date)
+                if date_obj:
+                    formatted_date = date_obj.strftime('%B %d, %Y at %I:%M %p')
+                    notification_message += f"• Scheduled: {formatted_date}\n"
+            except:
+                notification_message += f"• Scheduled: {scheduled_date}\n"
+        
+        if additional_message:
+            notification_message += f"\n{additional_message}\n"
+        
+        notification_message += (
+            "\n⚠️ IMPORTANT:\n"
+            "Please come prepared to discuss the incident. Failure to appear may result in "
+            "automatic tallying of the violation.\n\n"
+            "If you cannot attend at the scheduled time, please inform the guidance office immediately."
+        )
+        
+        # Create notification
+        notification = create_notification(
+            user=report.student.user,
+            title=notification_title,
+            message=notification_message,
+            notification_type='counseling_summons',
+            related_report=report
+        )
+        
+        # Update report status to "summoned" (we'll add this status)
+        report.status = 'summoned'
+        report.counselor_notes = (report.counselor_notes or '') + f"\n[{timezone.now().strftime('%Y-%m-%d %H:%M')}] Student summoned to guidance office."
+        report.save()
+        
+        logger.info(f"✅ Counseling summons sent to student {report.student.user.username} for report {report_id}")
+        
+        return Response({
+            'success': True,
+            'message': 'Counseling summons sent successfully',
+            'notification': {
+                'id': notification.id,
+                'title': notification.title,
+                'sent_to': student_name,
+            },
+            'report': {
+                'id': report.id,
+                'status': report.status,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending counseling summons: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_report_invalid(request, report_id):
+    """Mark a report as invalid after counseling session"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can mark reports as invalid'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get the report
+        try:
+            report = Report.objects.select_related(
+                'student',
+                'student__user',
+                'reported_by'
+            ).get(id=report_id)
+        except Report.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        reason = request.data.get('reason', 'No violation found after investigation')
+        
+        # Update report status
+        old_status = report.status
+        report.status = 'invalid'
+        report.is_reviewed = True
+        report.reviewed_at = timezone.now()
+        
+        # Add counselor notes
+        timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+        invalid_note = f"\n\n[{timestamp}] Report marked as INVALID\nReason: {reason}"
+        report.disciplinary_action = (report.disciplinary_action or '') + invalid_note
+        report.counselor_notes = (report.counselor_notes or '') + invalid_note
+        report.save()
+        
+        # 🔔 Notify the reporter
+        if report.reported_by:
+            reporter_notification = (
+                f"Your report '{report.title}' has been marked as INVALID after investigation.\n\n"
+                f"Reason: {reason}\n\n"
+                f"The reported incident was investigated and found to be unsubstantiated. "
+                f"No violation will be tallied."
+            )
+            
+            create_notification(
+                user=report.reported_by,
+                title=f"Report Invalid: {report.title}",
+                message=reporter_notification,
+                notification_type='report_invalid',
+                related_report=report
+            )
+        
+        # 🔔 Notify the student
+        if report.student and report.student.user:
+            student_notification = (
+                f"Good news! After investigation, the report concerning you has been marked as INVALID.\n\n"
+                f"Report: {report.title}\n"
+                f"Reason: {reason}\n\n"
+                f"No violation has been recorded in your file."
+            )
+            
+            create_notification(
+                user=report.student.user,
+                title="Report Cleared - No Violation",
+                message=student_notification,
+                notification_type='report_cleared',
+                related_report=report
+            )
+        
+        logger.info(f"✅ Report {report_id} marked as invalid. Notifications sent.")
+        
+        return Response({
+            'success': True,
+            'message': 'Report marked as invalid and notifications sent',
+            'report': {
+                'id': report.id,
+                'status': report.status,
+                'old_status': old_status,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error marking report as invalid: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_counseling_summons(request, report_id):
+    """Send notification to student to come to guidance office for counseling"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send counseling summons'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get the report
+        try:
+            report = Report.objects.select_related(
+                'student',
+                'student__user',
+                'reported_by',
+                'violation_type'
+            ).get(id=report_id)
+        except Report.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if student has user account
+        if not report.student or not report.student.user:
+            return Response({
+                'success': False,
+                'error': 'Student has no associated user account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get optional scheduled date/time
+        scheduled_date = request.data.get('scheduled_date')
+        additional_message = request.data.get('message', '')
+        
+        # Create notification for student
+        student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+        violation_name = report.violation_type.name if report.violation_type else 'a reported incident'
+        
+        notification_title = "🏫 Summons to Guidance Office"
+        notification_message = (
+            f"Dear {student_name},\n\n"
+            f"You are required to report to the Guidance Office regarding {violation_name}.\n\n"
+            f"Report Details:\n"
+            f"• Title: {report.title}\n"
+            f"• Reported on: {report.created_at.strftime('%B %d, %Y')}\n"
+        )
+        
+        if scheduled_date:
+            try:
+                from django.utils.dateparse import parse_datetime
+                date_obj = parse_datetime(scheduled_date)
+                if date_obj:
+                    formatted_date = date_obj.strftime('%B %d, %Y at %I:%M %p')
+                    notification_message += f"• Scheduled: {formatted_date}\n"
+            except:
+                notification_message += f"• Scheduled: {scheduled_date}\n"
+        
+        if additional_message:
+            notification_message += f"\n{additional_message}\n"
+        
+        notification_message += (
+            "\n⚠️ IMPORTANT:\n"
+            "Please come prepared to discuss the incident. Failure to appear may result in "
+            "automatic tallying of the violation.\n\n"
+            "If you cannot attend at the scheduled time, please inform the guidance office immediately."
+        )
+        
+        # Create notification
+        notification = create_notification(
+            user=report.student.user,
+            title=notification_title,
+            message=notification_message,
+            notification_type='counseling_summons',
+            related_report=report
+        )
+        
+        # Update report status to "summoned"
+        report.status = 'summoned'
+        report.counselor_notes = (report.counselor_notes or '') + f"\n[{timezone.now().strftime('%Y-%m-%d %H:%M')}] Student summoned to guidance office."
+        report.save()
+        
+        logger.info(f"✅ Counseling summons sent to student {report.student.user.username} for report {report_id}")
+        
+        return Response({
+            'success': True,
+            'message': 'Counseling summons sent successfully',
+            'notification': {
+                'id': notification.id,
+                'title': notification.title,
+                'sent_to': student_name,
+            },
+            'report': {
+                'id': report.id,
+                'status': report.status,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending counseling summons: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_report_invalid(request, report_id):
+    """Mark a report as invalid after counseling session"""
+    try:
+        # Verify counselor
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can mark reports as invalid'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get the report
+        try:
+            report = Report.objects.select_related(
+                'student',
+                'student__user',
+                'reported_by'
+            ).get(id=report_id)
+        except Report.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        reason = request.data.get('reason', 'No violation found after investigation')
+        
+        # Update report status
+        old_status = report.status
+        report.status = 'invalid'
+        report.is_reviewed = True
+        report.reviewed_at = timezone.now()
+        
+        # Add counselor notes
+        timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+        invalid_note = f"\n\n[{timestamp}] Report marked as INVALID\nReason: {reason}"
+        report.disciplinary_action = (report.disciplinary_action or '') + invalid_note
+        report.counselor_notes = (report.counselor_notes or '') + invalid_note
+        report.save()
+        
+        # 🔔 Notify the reporter
+        if report.reported_by:
+            reporter_notification = (
+                f"Your report '{report.title}' has been marked as INVALID after investigation.\n\n"
+                f"Reason: {reason}\n\n"
+                f"The reported incident was investigated and found to be unsubstantiated. "
+                f"No violation will be tallied."
+            )
+            
+            create_notification(
+                user=report.reported_by,
+                title=f"Report Invalid: {report.title}",
+                message=reporter_notification,
+                notification_type='report_invalid',
+                related_report=report
+            )
+        
+        # 🔔 Notify the student
+        if report.student and report.student.user:
+            student_notification = (
+                f"Good news! After investigation, the report concerning you has been marked as INVALID.\n\n"
+                f"Report: {report.title}\n"
+                f"Reason: {reason}\n\n"
+                f"No violation has been recorded in your file."
+            )
+            
+            create_notification(
+                user=report.student.user,
+                title="Report Cleared - No Violation",
+                message=student_notification,
+                notification_type='report_cleared',
+                related_report=report
+            )
+        
+        logger.info(f"✅ Report {report_id} marked as invalid. Notifications sent.")
+        
+        return Response({
+            'success': True,
+            'message': 'Report marked as invalid and notifications sent',
+            'report': {
+                'id': report.id,
+                'status': report.status,
+                'old_status': old_status,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error marking report as invalid: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

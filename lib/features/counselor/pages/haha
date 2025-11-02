@@ -1,0 +1,132 @@
+try {
+    final studentData = {
+        'first_name': _firstNameController.text.trim(),
+        'last_name': _lastNameController.text.trim(),
+    }
+} finally {
+    if (mounted) setState(() => _isLoading = false);
+}
+}
+
+@override
+void dispose (){
+    _desriptionController.dispose();
+    super.dispose();
+}
+}
+
+//Violation History Dialog
+class _ViolationHistoryDialog extends StatelessWidget {
+    finakl Map<String, dynamic> student;
+    final List<Map<String, dynamic>> violations;
+
+    const _ViolationHistoryDialog({
+        required this.student,
+        required this.violations,
+    });
+
+    @override
+    Widget build(BuildContext context) {
+        final sortedViolations = List<Map<String, dynamic>>.from(violations);
+        sortedViolations.sort((a, b) {
+            try{
+                final dateA = DataTime.parse(a['incident_date']);
+                final DateB = Datetime.parse(b['incident_date']);
+                return dateB.comapreTo(dateA);
+            } catch (e) {
+                return 0;
+            }
+            });
+ 
+            return AlertDialog(
+                title: Text('Violation History - ${student['name']}'),
+                content: SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.9,
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    child: violations.isEmpty
+                        ? const Center(child: Text('No violations recorded'))
+                        : ListView.builder(
+                            itemCount: sortedViolations.length,
+                            itemBuilder: (context, index) {
+                                final violation = sortedViolations[index];
+                                return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    child: ListTile(
+                                        leading: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: BoxDecoration(
+                                                color: _getStatusColor(violation['status']).withOpacity(0.1), 
+                                                borderRadius: BorderRadius.circular(4),
+                                            ), // BoxDecoration
+                                            child: Icon(
+                                                _getStatusIcon(violation ['status']), 
+                                                color: _getStatusColor(violation ['status']), 
+                                                size: 20,
+                                            ), // Icon
+                                        ), // Container
+                                        title: Text (violation['violation_type']['name']),
+                                        subtitle: Column (
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                                Text (violation['description'] ?? 'No description').
+                                                Text(
+                                                    _formatDate(violation['incident_date']),
+                                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                                ). // Text
+                                            ], 
+                                        ), // Column
+                                        trailing: Container(
+                                            padding: const EdgeInsets.symmetric (horizontal: 6, vertical: 2), 
+                                            decoration: BoxDecoration(
+                                                color: getStatusColor(violation['status']).withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(4),
+                                            ), // BoxDecoration
+                                            child: Text
+                                                violation[ 'status'] .toString().toUpperCase().
+                                                style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: getStatusColor(violation["status"]), 
+                                                    fontweight: Fontweight bold, 
+                                                ), // TextStyle
+                                            ), // Text
+                                        ), // Container
+                                    ), // ListTile
+                                ); //Card
+                            },      
+                        ),  //ListView.builder
+        ),  //Sizedbox
+        actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close');
+            ), //TextButton
+        ],
+    ); //AlertDialog
+}
+
+    Color _getStatusColor(String status) {
+        switch (status.toLowerCase()) {
+            case 'active':
+                return Colors.orange;
+            case 'resolved':
+                return Colors.green;
+            case 'dismissed':
+                return Colors.grey;
+            default:
+                return Colors.orange;
+        }
+    }
+    
+    IconData _getStatusIcon(String status) {
+        switch (status.toLowerCase()) {
+            case 'active':
+                return Icons.warning;
+            case 'resolved':
+                return Icons.check_circle;
+            case 'dismissed':
+                return Icons.cancel;
+            default:
+                return Icons.waarning;
+        }
+    }
+}
