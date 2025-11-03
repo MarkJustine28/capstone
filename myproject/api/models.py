@@ -210,13 +210,15 @@ class ViolationType(models.Model):
         ordering = ['category', 'name']
 
 class Report(models.Model):
-    """Enhanced Report model with violation tracking"""
+    """Enhanced Report model with verification and counseling tracking"""
     REPORT_STATUS_CHOICES = [
-        ('pending', 'Pending'),
+        ('pending', 'Pending Review'),
         ('under_review', 'Under Review'),
-        ('investigating', 'Investigating'),
+        ('under_investigation', 'Under Investigation'),
+        ('summons_sent', 'Summons Sent - Awaiting Counseling'),
+        ('verified', 'Verified - Case Confirmed'),
+        ('dismissed', 'Dismissed - Case Not Verified'),
         ('resolved', 'Resolved'),
-        ('dismissed', 'Dismissed'),
         ('escalated', 'Escalated'),
     ]
 
@@ -227,30 +229,73 @@ class Report(models.Model):
         ('counselor_note', 'Counselor Note'),
         ('peer_report', 'Peer Report'),
     ]
+    
+    VERIFICATION_CHOICES = [
+        ('pending', 'Pending Verification'),
+        ('verified', 'Verified'),
+        ('dismissed', 'Not Verified/Dismissed'),
+    ]
 
     # Basic Information
     title = models.CharField(max_length=200)
     content = models.TextField()
-    description = models.TextField(blank=True, null=True)  # ✅ ADD THIS
-    status = models.CharField(max_length=20, choices=REPORT_STATUS_CHOICES, default='pending')
+    description = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
     report_type = models.CharField(max_length=20, choices=REPORT_TYPE_CHOICES, default='incident')
-    reporter_type = models.CharField(max_length=50, blank=True, null=True)  # ✅ ADD THIS
+    reporter_type = models.CharField(max_length=50, blank=True, null=True)
+    
+    # ✅ NEW: Verification status
+    verification_status = models.CharField(
+        max_length=20, 
+        choices=VERIFICATION_CHOICES, 
+        default='pending',
+        help_text="Status of case verification through counseling"
+    )
     
     # Related Users
-    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reports', null=True, blank=True)  # ✅ MAKE NULLABLE
-    student_name = models.CharField(max_length=255, blank=True, null=True)  # ✅ ADD THIS
-    reported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reports', null=True, blank=True)
+    student_name = models.CharField(max_length=255, blank=True, null=True)
+    reported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='submitted_reports')
     assigned_counselor = models.ForeignKey(Counselor, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Violation Details
     violation_type = models.ForeignKey(ViolationType, on_delete=models.SET_NULL, null=True, blank=True)
     custom_violation = models.CharField(max_length=200, blank=True, null=True)
-    severity_assessment = models.CharField(max_length=20, choices=[
-        ('Low', 'Low'),
-        ('Medium', 'Medium'),
-        ('High', 'High'),
-        ('Critical', 'Critical'),
-    ], blank=True, null=True)
+    severity = models.CharField(max_length=20, choices=[
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ], default='medium')
+    
+    # ✅ NEW: Counseling session fields
+    requires_counseling = models.BooleanField(
+        default=True,
+        help_text="Can be toggled by counselor for minor cases"
+    )
+    counseling_date = models.DateTimeField(null=True, blank=True)
+    counseling_notes = models.TextField(blank=True)
+    counseling_completed = models.BooleanField(default=False)
+    
+    # ✅ NEW: Summons tracking
+    summons_sent_at = models.DateTimeField(null=True, blank=True)
+    summons_sent_to_reporter = models.BooleanField(default=False)
+    summons_sent_to_student = models.BooleanField(default=False)
+    
+    # ✅ NEW: Verification details
+    verified_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='verified_reports',
+        help_text="Counselor who verified the case"
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_notes = models.TextField(
+        blank=True,
+        help_text="Counselor's notes after verification session"
+    )
     
     # Timestamps
     incident_date = models.DateTimeField(null=True, blank=True)
@@ -266,14 +311,32 @@ class Report(models.Model):
     disciplinary_action = models.TextField(blank=True, null=True)
     
     # Review tracking
-    is_reviewed = models.BooleanField(default=False)  # ✅ ADD THIS if not exists
-    reviewed_at = models.DateTimeField(null=True, blank=True)  # ✅ ADD THIS if not exists
+    is_reviewed = models.BooleanField(default=False)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     
-    # NEW: Academic context for SHS students
+    # Academic context for SHS students
     subject_involved = models.CharField(max_length=100, blank=True, null=True,
                                        help_text="Subject/course related to the incident")
     academic_impact = models.TextField(blank=True, null=True,
                                       help_text="Impact on academic performance")
+
+    def is_critical_case(self):
+        """Check if this is a critical severity case"""
+        return self.severity == 'critical'
+    
+    def should_require_counseling(self):
+        """Determine if counseling is required based on severity"""
+        # Critical cases always require counseling unless counselor explicitly skips
+        if self.severity == 'critical':
+            return True
+        # High severity cases require counseling
+        if self.severity == 'high':
+            return True
+        # Medium cases - counselor can decide
+        if self.severity == 'medium':
+            return self.requires_counseling
+        # Low cases - optional
+        return False
 
     def get_violation_name(self):
         """Get the violation name (either from type or custom)"""
@@ -300,6 +363,66 @@ class Report(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+# ✅ NEW MODEL: Track counseling sessions for report verification
+class CounselingSession(models.Model):
+    """Track counseling sessions for report verification"""
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+        ('no_show', 'Student No Show'),
+        ('rescheduled', 'Rescheduled'),
+    ]
+    
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='counseling_sessions')
+    counselor = models.ForeignKey(Counselor, on_delete=models.CASCADE)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='counseling_as_reporter')
+    
+    scheduled_date = models.DateTimeField()
+    actual_date = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    
+    # Attendance tracking
+    student_attended = models.BooleanField(default=False)
+    reporter_attended = models.BooleanField(default=False)
+    
+    # Session notes and outcome
+    session_notes = models.TextField(blank=True, help_text="Detailed notes from the counseling session")
+    case_verified = models.BooleanField(
+        default=False,
+        help_text="True if case is confirmed, False if dismissed"
+    )
+    
+    # Notifications sent
+    summons_sent = models.BooleanField(default=False)
+    reminder_sent = models.BooleanField(default=False)
+    
+    # Additional context
+    session_duration_minutes = models.IntegerField(null=True, blank=True)
+    follow_up_required = models.BooleanField(default=False)
+    next_session_date = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-scheduled_date']
+        verbose_name = 'Counseling Session'
+        verbose_name_plural = 'Counseling Sessions'
+    
+    def __str__(self):
+        status_icon = {
+            'scheduled': '📅',
+            'completed': '✅',
+            'cancelled': '❌',
+            'no_show': '⚠️',
+            'rescheduled': '🔄'
+        }.get(self.status, '📋')
+        
+        return f"{status_icon} {self.report.title} - {self.scheduled_date.strftime('%Y-%m-%d %H:%M')}"
 
 class ViolationHistory(models.Model):
     """Track violation patterns for individual students"""
