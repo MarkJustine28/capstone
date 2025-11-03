@@ -1,10 +1,17 @@
 // services/api_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiService {
-  static final String baseUrl = "http://${dotenv.env['SERVER_IP']}:8000/api";
+  // 🌍 Determine environment (auto-detect via .env or build mode)
+  static final String environment = dotenv.env['ENV'] ?? (kReleaseMode ? 'production' : 'local');
+
+  // 🌐 Dynamic base URL
+  static final String baseUrl = environment == 'production'
+      ? "${dotenv.env['PROD_SERVER_URL']}/api"
+      : "http://${dotenv.env['LOCAL_SERVER_IP']}/api";
 
   // 🔹 Helper: Build headers
   static Map<String, String> _headers(String token, {bool withJson = true}) {
@@ -63,7 +70,6 @@ class ApiService {
 
   // ================== STUDENT ENDPOINTS ==================
 
-  // 1️⃣ Submit Student Report
   static Future<Map<String, dynamic>> submitStudentReport({
     required String token,
     required String title,
@@ -76,22 +82,18 @@ class ApiService {
     );
   }
 
-  // 2️⃣ Fetch Student Reports
   static Future<Map<String, dynamic>> getStudentReports({required String token}) async {
     return get(endpoint: "/student/reports/", token: token);
   }
 
-  // 3️⃣ Fetch Student Notifications
   static Future<Map<String, dynamic>> getStudentNotifications({required String token}) async {
     return get(endpoint: "/student/notifications/", token: token);
   }
 
-  // 4️⃣ Fetch Student Profile
   static Future<Map<String, dynamic>> getStudentProfile({required String token}) async {
     return get(endpoint: "/student/profile/", token: token);
   }
 
-  // 5️⃣ Update Student Profile
   static Future<Map<String, dynamic>> updateStudentProfile({
     required String token,
     required Map<String, dynamic> data,
@@ -111,7 +113,6 @@ class ApiService {
 
   // ================== TEACHER ENDPOINTS ==================
 
-  // 6️⃣ Submit Teacher Report
   static Future<Map<String, dynamic>> submitTeacherReport({
     required String token,
     required String title,
@@ -124,34 +125,28 @@ class ApiService {
     );
   }
 
-  // 7️⃣ Fetch Teacher Reports
   static Future<Map<String, dynamic>> getTeacherReports({required String token}) async {
     return get(endpoint: "/teacher/reports/", token: token);
   }
 
-  // 8️⃣ Fetch Teacher Notifications
   static Future<Map<String, dynamic>> getTeacherNotifications({required String token}) async {
     return get(endpoint: "/teacher/notifications/", token: token);
   }
 
   // ================== COUNSELOR ENDPOINTS ==================
 
-  // 9️⃣ Fetch Counselor Student Reports (correct endpoint)
   static Future<Map<String, dynamic>> getCounselorStudentReports({required String token}) async {
     return get(endpoint: "/counselor/student-reports/", token: token);
   }
 
-  // 🔟 Fetch Counselor Teacher Reports (correct endpoint)
   static Future<Map<String, dynamic>> getCounselorTeacherReports({required String token}) async {
     return get(endpoint: "/counselor/teacher-reports/", token: token);
   }
 
-  // 1️⃣1️⃣ Fetch Counselor Notifications
   static Future<Map<String, dynamic>> getCounselorNotifications({required String token}) async {
     return get(endpoint: "/counselor/notifications/", token: token);
   }
 
-  // Add this method to the COUNSELOR ENDPOINTS section
   static Future<Map<String, dynamic>> updateReportStatus({
     required String token,
     required int reportId,
@@ -161,26 +156,22 @@ class ApiService {
       endpoint: "/counselor/update-report-status/",
       token: token,
       data: {"report_id": reportId, "status": status},
-      successCode: 200, // Status updates typically return 200, not 201
+      successCode: 200,
     );
   }
 
   // ================== GENERIC METHODS ==================
 
-  // 1️⃣2️⃣ Generic Notifications (auto-detect role)
   static Future<Map<String, dynamic>> getNotifications({required String token}) async {
-    // This will try student notifications first, can be enhanced to detect role
     return get(endpoint: "/student/notifications/", token: token);
   }
 
-  // 1️⃣3️⃣ Submit Incident Report (legacy support)
   static Future<Map<String, dynamic>> submitIncident({
     required String token,
     required String title,
     required String description,
     required String reportedBy,
   }) async {
-    // Map to student report for now
     return submitStudentReport(
       token: token,
       title: title,
@@ -188,7 +179,6 @@ class ApiService {
     );
   }
 
-  // 1️⃣4️⃣ Update Profile (generic)
   static Future<Map<String, dynamic>> updateProfile({
     required String token,
     required Map<String, dynamic> data,
