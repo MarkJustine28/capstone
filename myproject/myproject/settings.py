@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'api',
+    'guidance_tracker',
 ]
 
 # Admin site customization
@@ -103,16 +104,12 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 # Default: Local PostgreSQL for development
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'gtracker'),
-        'USER': os.getenv('DB_USER', 'myuser'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'cosmos'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
-# Override with DATABASE_URL when provided (Render deployment)
+# If DATABASE_URL is provided (e.g., on Render), use PostgreSQL instead
 if os.getenv("DATABASE_URL"):
     DATABASES["default"] = dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
