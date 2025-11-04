@@ -9,11 +9,9 @@ def create_violation_types(sender, **kwargs):
     Automatically seed default violation types after migrations.
     Safe to run multiple times.
     """
-    # Only run for the 'reports' app
-    if sender.name != 'reports':
+    if sender.label != 'reports':  # safer than sender.name
         return
 
-    # Get model dynamically
     ViolationType = apps.get_model('reports', 'ViolationType')
 
     violation_names = [
