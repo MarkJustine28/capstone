@@ -1,18 +1,21 @@
 # reports/signals.py
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
-from django.apps import apps
+from django.db import connection
+from reports.models import ViolationType
+
+def table_exists(table_name):
+    """Check if a table exists in the database."""
+    return table_name in connection.introspection.table_names()
 
 @receiver(post_migrate)
 def create_violation_types(sender, **kwargs):
-    """
-    Automatically seed default violation types after migrations.
-    Safe to run multiple times.
-    """
-    if sender.label != 'reports':  # safer than sender.name
+    if sender.name != 'reports':
         return
 
-    ViolationType = apps.get_model('reports', 'ViolationType')
+    # Only proceed if the table exists
+    if not table_exists('reports_violationtype'):
+        return
 
     violation_names = [
         "Absenteeism",
