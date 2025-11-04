@@ -15,16 +15,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Environment Configuration
 # =============================================================================
 
-# SECRET KEY
 SECRET_KEY = os.getenv(
     "SECRET_KEY",
     "django-insecure-*phz0rid)(r32^w--9c7(b=p&l*a@4oi)y5u(t27byeymw!_ny"
 )
 
-# DEBUG MODE (True for local, False for production)
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 
-# ALLOWED HOSTS (comma-separated string)
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 # =============================================================================
@@ -50,7 +47,10 @@ ADMIN_SITE_HEADER = "Guidance Tracker Administration"
 ADMIN_SITE_TITLE = "Guidance Tracker Admin"
 ADMIN_INDEX_TITLE = "Welcome to Guidance Tracker Administration"
 
-# REST Framework settings
+# =============================================================================
+# REST Framework Settings
+# =============================================================================
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -66,10 +66,14 @@ REST_FRAMEWORK = {
     ],
 }
 
+# =============================================================================
 # Middleware
+# =============================================================================
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # ✅ Added for static files in production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     # 'django.middleware.csrf.CsrfViewMiddleware',  # Uncomment in production if needed
@@ -101,7 +105,6 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 # Database Configuration
 # =============================================================================
 
-# Default: Local PostgreSQL for development
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -109,7 +112,6 @@ DATABASES = {
     }
 }
 
-# If DATABASE_URL is provided (e.g., on Render), use PostgreSQL instead
 if os.getenv("DATABASE_URL"):
     DATABASES["default"] = dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
@@ -143,12 +145,13 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # =============================================================================
 # CORS Configuration
 # =============================================================================
 
-CORS_ALLOW_ALL_ORIGINS = True  # For development only
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_HEADERS = [
     'authorization',
@@ -165,16 +168,10 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
-        },
+        'verbose': {'format': '{levelname} {asctime} {module} {message}', 'style': '{'},
     },
     'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'verbose'},
     },
     'loggers': {
         'django': {'handlers': ['console'], 'level': 'INFO'},
