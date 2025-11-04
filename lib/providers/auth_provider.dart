@@ -5,12 +5,16 @@ class AuthProvider with ChangeNotifier {
   String? _token;
   String? _username;
   String? _userRole;
+  String? _firstName;
+  String? _lastName;
   bool _isAuthenticated = false;
 
   // Getters
   String? get token => _token;
   String? get username => _username;
   String? get userRole => _userRole;
+  String? get firstName => _firstName;
+  String? get lastName => _lastName;
   bool get isAuthenticated => _isAuthenticated;
 
   AuthProvider() {
@@ -24,14 +28,17 @@ class AuthProvider with ChangeNotifier {
       _token = prefs.getString('auth_token');
       _username = prefs.getString('username');
       _userRole = prefs.getString('user_role');
+      _firstName = prefs.getString('first_name');
+      _lastName = prefs.getString('last_name');
       _isAuthenticated = _token != null && _username != null && _userRole != null;
-      
+
       debugPrint('📱 Loaded from preferences:');
       debugPrint('   Token: ${_token != null ? "✅" : "❌"}');
       debugPrint('   Username: $_username');
+      debugPrint('   Name: $_firstName $_lastName');
       debugPrint('   Role: $_userRole');
       debugPrint('   Authenticated: $_isAuthenticated');
-      
+
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Error loading preferences: $e');
@@ -42,12 +49,17 @@ class AuthProvider with ChangeNotifier {
   Future<void> _saveToPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       if (_token != null && _username != null && _userRole != null) {
         await prefs.setString('auth_token', _token!);
         await prefs.setString('username', _username!);
         await prefs.setString('user_role', _userRole!);
-        debugPrint('💾 Saved to preferences - Username: $_username, Role: $_userRole');
+        if (_firstName != null) await prefs.setString('first_name', _firstName!);
+        if (_lastName != null) await prefs.setString('last_name', _lastName!);
+
+        debugPrint(
+          '💾 Saved to preferences - Username: $_username ($_firstName $_lastName), Role: $_userRole',
+        );
       }
     } catch (e) {
       debugPrint('❌ Error saving preferences: $e');
@@ -55,23 +67,33 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Login method - sets authentication data
-  Future<void> login(String token, String username, String role, BuildContext context) async {
+  Future<void> login(
+    String token,
+    String username,
+    String role,
+    BuildContext context, {
+    String? firstName,
+    String? lastName,
+  }) async {
     try {
       debugPrint('🔐 AuthProvider.login called');
       debugPrint('   Token: ${token.isNotEmpty ? "✅" : "❌"}');
       debugPrint('   Username: $username');
       debugPrint('   Role: $role');
+      debugPrint('   Name: $firstName $lastName');
 
       _token = token;
       _username = username;
       _userRole = role;
+      _firstName = firstName;
+      _lastName = lastName;
       _isAuthenticated = true;
 
       await _saveToPreferences();
-      
+
       debugPrint('✅ AuthProvider login completed successfully');
       debugPrint('   _isAuthenticated: $_isAuthenticated');
-      
+
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Error in AuthProvider.login: $e');
@@ -83,15 +105,19 @@ class AuthProvider with ChangeNotifier {
   Future<void> logout() async {
     try {
       debugPrint('🚪 Logging out...');
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
       await prefs.remove('username');
       await prefs.remove('user_role');
+      await prefs.remove('first_name');
+      await prefs.remove('last_name');
 
       _token = null;
       _username = null;
       _userRole = null;
+      _firstName = null;
+      _lastName = null;
       _isAuthenticated = false;
 
       debugPrint('✅ Logout completed');
@@ -121,6 +147,8 @@ class AuthProvider with ChangeNotifier {
     _token = null;
     _username = null;
     _userRole = null;
+    _firstName = null;
+    _lastName = null;
     _isAuthenticated = false;
     notifyListeners();
     debugPrint('🗑️ Auth cleared from memory');
@@ -145,7 +173,9 @@ class AuthProvider with ChangeNotifier {
     return {
       'username': _username,
       'role': _userRole,
-      'token': _token != null ? '***' : null, // Don't expose full token
+      'first_name': _firstName,
+      'last_name': _lastName,
+      'token': _token != null ? '***' : null, // Hide token for safety
     };
   }
 
@@ -154,6 +184,7 @@ class AuthProvider with ChangeNotifier {
     debugPrint('📊 AuthProvider State:');
     debugPrint('   Token: ${_token != null ? "Present (${_token!.length} chars)" : "null"}');
     debugPrint('   Username: $_username');
+    debugPrint('   Name: $_firstName $_lastName');
     debugPrint('   Role: $_userRole');
     debugPrint('   Authenticated: $_isAuthenticated');
   }

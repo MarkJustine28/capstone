@@ -263,14 +263,28 @@ Widget build(BuildContext context) {
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          authProvider.username ?? 'Student',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.bold,
+                                          Text(
+                                            (() {
+                                              // Combine first and last name
+                                              final fullName = [
+                                                authProvider.firstName,
+                                                authProvider.lastName,
+                                              ]
+                                                  .where((name) => name != null && name.isNotEmpty)
+                                                  .join(' ')
+                                                  .trim();
+
+                                              // If full name is empty, fallback to username or 'Student'
+                                              return fullName.isNotEmpty
+                                                  ? fullName
+                                                  : (authProvider.username ?? 'Student');
+                                            })(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
-                                        ),
                                         const SizedBox(height: 4),
                                         Text(
                                           DateFormat('EEEE, MMMM d, yyyy').format(DateTime.now()),
