@@ -1,188 +1,468 @@
-// services/api_service.dart
 import 'dart:convert';
+import 'dart:io';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // 🌍 Determine environment (auto-detect via .env or build mode)
-  static final String environment = dotenv.env['ENV'] ?? (kReleaseMode ? 'production' : 'local');
+  // Private constructor for singleton pattern
+  ApiService._privateConstructor();
+  static final ApiService instance = ApiService._privateConstructor();
 
-  // 🌐 Dynamic base URL
-  static final String baseUrl = environment == 'production'
-      ? "${dotenv.env['PROD_SERVER_URL']}/api"
-      : "http://${dotenv.env['LOCAL_SERVER_IP']}/api";
+  // 🌍 Determine environment from .env
+  static String get environment => dotenv.env['ENV'] ?? 'local';
 
-  // 🔹 Helper: Build headers
-  static Map<String, String> _headers(String token, {bool withJson = true}) {
-    final headers = {"Authorization": "Token $token"};
-    if (withJson) headers["Content-Type"] = "application/json";
+  // 🌐 Dynamic base URL based on environment
+  static String get baseUrl {
+    if (environment == 'production') {
+      final serverIp = dotenv.env['SERVER_IP'] ?? 'https://guidance-tracker-backend.onrender.com';
+      // Remove trailing slash if present
+      final cleanUrl = serverIp.endsWith('/') ? serverIp.substring(0, serverIp.length - 1) : serverIp;
+      return '$cleanUrl/api';
+    } else {
+      final localIp = dotenv.env['LOCAL_SERVER_IP'] ?? '192.168.11.152:8000';
+      // Add http:// if not present
+      final cleanIp = localIp.startsWith('http') ? localIp : 'http://$localIp';
+      return '$cleanIp/api';
+    }
+  }
+
+  // 🔐 Get stored token from SharedPreferences
+  Future<String?> _getToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('token');
+    } catch (e) {
+      debugPrint('❌ Failed to read token: $e');
+      return null;
+    }
+  }
+
+  // 🔹 Build headers with token
+  Map<String, String> _headers(String? token, {bool withJson = true}) {
+    final headers = <String, String>{};
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Token $token';
+    }
+    if (withJson) {
+      headers['Content-Type'] = 'application/json';
+    }
     return headers;
   }
 
-  // 🔹 Helper: Handle response
-  static Map<String, dynamic> _handleResponse(http.Response response, {int successCode = 200}) {
+  // 🔹 Build full URL
+  Uri _buildUri(String endpoint) {
+    // Ensure endpoint starts with /
+    final cleanEndpoint = endpoint.startsWith('/') ? endpoint : '/$endpoint';
+    final fullUrl = '$baseUrl$cleanEndpoint';
+    debugPrint('🌐 Building URL: $fullUrl');
+    return Uri.parse(fullUrl);
+  }
+
+  // 🔹 Handle HTTP response
+  Map<String, dynamic> _handleResponse(http.Response response, {int successCode = 200}) {
+    debugPrint('📩 Status Code: ${response.statusCode}');
+    debugPrint('📩 Raw Response: ${response.body}');
+
     try {
-      final body = jsonDecode(response.body);
-      if (response.statusCode == successCode) {
-        return {"success": true, "data": body};
+      final body = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      
+      if (response.statusCode == successCode || response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': body,
+          'status_code': response.statusCode,
+        };
       } else {
-        return {"success": false, "error": body};
+        return {
+          'success': false,
+          'error': body['error'] ?? body['message'] ?? 'Request failed',
+          'data': body,
+          'status_code': response.statusCode,
+        };
       }
     } catch (e) {
-      return {"success": false, "error": "Invalid JSON: ${response.body}"};
+      debugPrint('❌ JSON decode error: $e');
+      return {
+        'success': false,
+        'error': 'Invalid response: ${response.body}',
+        'status_code': response.statusCode,
+      };
     }
   }
 
   // 🔹 Generic GET method
-  static Future<Map<String, dynamic>> get({
+  Future<Map<String, dynamic>> get({
     required String endpoint,
-    required String token,
+    String? token,
+    Duration timeout = const Duration(seconds: 15),
   }) async {
-    final url = Uri.parse("$baseUrl$endpoint");
+    final authToken = token ?? await _getToken();
+    final uri = _buildUri(endpoint);
+    
+    debugPrint('🌐 GET Request: $uri');
+    debugPrint('🔐 Token: ${authToken != null ? "✅ Present" : "❌ Missing"}');
+
     try {
-      final response = await http.get(url, headers: _headers(token, withJson: false));
+      final response = await http
+          .get(uri, headers: _headers(authToken, withJson: false))
+          .timeout(timeout);
+      
       return _handleResponse(response);
+    } on SocketException catch (e) {
+      debugPrint('❌ Network error: $e');
+      return {
+        'success': false,
+        'error': 'Network error: ${e.message}. Please check your connection.',
+      };
+    } on TimeoutException catch (e) {
+      debugPrint('❌ Timeout error: $e');
+      return {
+        'success': false,
+        'error': 'Request timeout. Server might be slow or unreachable.',
+      };
+    } on http.ClientException catch (e) {
+      debugPrint('❌ HTTP client error: $e');
+      return {
+        'success': false,
+        'error': 'Connection error: $e',
+      };
     } catch (e) {
-      return {"success": false, "error": e.toString()};
+      debugPrint('❌ Unexpected error: $e');
+      return {
+        'success': false,
+        'error': 'Unexpected error: $e',
+      };
     }
   }
 
   // 🔹 Generic POST method
-  static Future<Map<String, dynamic>> post({
+  Future<Map<String, dynamic>> post({
     required String endpoint,
-    required String token,
+    String? token,
     required Map<String, dynamic> data,
     int successCode = 201,
+    Duration timeout = const Duration(seconds: 15),
   }) async {
-    final url = Uri.parse("$baseUrl$endpoint");
+    final authToken = token ?? await _getToken();
+    final uri = _buildUri(endpoint);
+    
+    debugPrint('🌐 POST Request: $uri');
+    debugPrint('🔐 Token: ${authToken != null ? "✅ Present" : "❌ Missing"}');
+    debugPrint('🧾 Request Body: ${jsonEncode(data)}');
+
     try {
-      final response = await http.post(
-        url,
-        headers: _headers(token),
-        body: jsonEncode(data),
-      );
+      final response = await http
+          .post(
+            uri,
+            headers: _headers(authToken),
+            body: jsonEncode(data),
+          )
+          .timeout(timeout);
+      
       return _handleResponse(response, successCode: successCode);
+    } on SocketException catch (e) {
+      debugPrint('❌ Network error: $e');
+      return {
+        'success': false,
+        'error': 'Network error: ${e.message}. Please check your connection.',
+      };
+    } on TimeoutException catch (e) {
+      debugPrint('❌ Timeout error: $e');
+      return {
+        'success': false,
+        'error': 'Request timeout. Server might be slow or unreachable.',
+      };
+    } on http.ClientException catch (e) {
+      debugPrint('❌ HTTP client error: $e');
+      return {
+        'success': false,
+        'error': 'Connection error: $e',
+      };
     } catch (e) {
-      return {"success": false, "error": e.toString()};
+      debugPrint('❌ Unexpected error: $e');
+      return {
+        'success': false,
+        'error': 'Unexpected error: $e',
+      };
     }
+  }
+
+  // 🔹 Generic PUT method
+  Future<Map<String, dynamic>> put({
+    required String endpoint,
+    String? token,
+    required Map<String, dynamic> data,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final authToken = token ?? await _getToken();
+    final uri = _buildUri(endpoint);
+    
+    debugPrint('🌐 PUT Request: $uri');
+    debugPrint('🔐 Token: ${authToken != null ? "✅ Present" : "❌ Missing"}');
+    debugPrint('🧾 Request Body: ${jsonEncode(data)}');
+
+    try {
+      final response = await http
+          .put(
+            uri,
+            headers: _headers(authToken),
+            body: jsonEncode(data),
+          )
+          .timeout(timeout);
+      
+      return _handleResponse(response);
+    } on SocketException catch (e) {
+      debugPrint('❌ Network error: $e');
+      return {
+        'success': false,
+        'error': 'Network error: ${e.message}',
+      };
+    } on TimeoutException catch (e) {
+      debugPrint('❌ Timeout error: $e');
+      return {
+        'success': false,
+        'error': 'Request timeout',
+      };
+    } catch (e) {
+      debugPrint('❌ Unexpected error: $e');
+      return {
+        'success': false,
+        'error': 'Unexpected error: $e',
+      };
+    }
+  }
+
+  // 🔹 Generic PATCH method
+  Future<Map<String, dynamic>> patch({
+    required String endpoint,
+    String? token,
+    required Map<String, dynamic> data,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final authToken = token ?? await _getToken();
+    final uri = _buildUri(endpoint);
+    
+    debugPrint('🌐 PATCH Request: $uri');
+
+    try {
+      final response = await http
+          .patch(
+            uri,
+            headers: _headers(authToken),
+            body: jsonEncode(data),
+          )
+          .timeout(timeout);
+      
+      return _handleResponse(response);
+    } catch (e) {
+      debugPrint('❌ Error: $e');
+      return {
+        'success': false,
+        'error': 'Request failed: $e',
+      };
+    }
+  }
+
+  // 🔹 Generic DELETE method
+  Future<Map<String, dynamic>> delete({
+    required String endpoint,
+    String? token,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final authToken = token ?? await _getToken();
+    final uri = _buildUri(endpoint);
+    
+    debugPrint('🌐 DELETE Request: $uri');
+
+    try {
+      final response = await http
+          .delete(
+            uri,
+            headers: _headers(authToken, withJson: false),
+          )
+          .timeout(timeout);
+      
+      return _handleResponse(response);
+    } catch (e) {
+      debugPrint('❌ Error: $e');
+      return {
+        'success': false,
+        'error': 'Request failed: $e',
+      };
+    }
+  }
+
+  // 🔹 Debug: Print current configuration
+  static void printConfig() {
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    debugPrint('🌍 API Configuration');
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    debugPrint('📍 Environment: $environment');
+    debugPrint('🔗 Base URL: $baseUrl');
+    debugPrint('🌐 Mode: ${environment == "production" ? "☁️ Production (Render)" : "💻 Local Development"}');
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   // ================== STUDENT ENDPOINTS ==================
 
-  static Future<Map<String, dynamic>> submitStudentReport({
+  Future<Map<String, dynamic>> submitStudentReport({
     required String token,
     required String title,
     required String content,
   }) async {
     return post(
-      endpoint: "/student/reports/",
+      endpoint: '/student/reports/',
       token: token,
-      data: {"title": title, "content": content},
+      data: {'title': title, 'content': content},
     );
   }
 
-  static Future<Map<String, dynamic>> getStudentReports({required String token}) async {
-    return get(endpoint: "/student/reports/", token: token);
+  Future<Map<String, dynamic>> getStudentReports({required String token}) async {
+    return get(endpoint: '/student/reports/', token: token);
   }
 
-  static Future<Map<String, dynamic>> getStudentNotifications({required String token}) async {
-    return get(endpoint: "/student/notifications/", token: token);
+  Future<Map<String, dynamic>> getStudentNotifications({required String token}) async {
+    return get(endpoint: '/notifications/', token: token);
   }
 
-  static Future<Map<String, dynamic>> getStudentProfile({required String token}) async {
-    return get(endpoint: "/student/profile/", token: token);
+  Future<Map<String, dynamic>> getStudentProfile({required String token}) async {
+    return get(endpoint: '/students/me/', token: token);
   }
 
-  static Future<Map<String, dynamic>> updateStudentProfile({
+  Future<Map<String, dynamic>> updateStudentProfile({
     required String token,
     required Map<String, dynamic> data,
   }) async {
-    final url = Uri.parse("$baseUrl/student/profile/");
-    try {
-      final response = await http.put(
-        url,
-        headers: _headers(token),
-        body: jsonEncode(data),
-      );
-      return _handleResponse(response);
-    } catch (e) {
-      return {"success": false, "error": e.toString()};
-    }
+    return put(
+      endpoint: '/students/me/',
+      token: token,
+      data: data,
+    );
   }
 
   // ================== TEACHER ENDPOINTS ==================
 
-  static Future<Map<String, dynamic>> submitTeacherReport({
+  Future<Map<String, dynamic>> submitTeacherReport({
     required String token,
     required String title,
     required String content,
   }) async {
     return post(
-      endpoint: "/teacher/reports/",
+      endpoint: '/reports/',
       token: token,
-      data: {"title": title, "content": content},
+      data: {'title': title, 'content': content},
     );
   }
 
-  static Future<Map<String, dynamic>> getTeacherReports({required String token}) async {
-    return get(endpoint: "/teacher/reports/", token: token);
+  Future<Map<String, dynamic>> getTeacherReports({required String token}) async {
+    return get(endpoint: '/reports/', token: token);
   }
 
-  static Future<Map<String, dynamic>> getTeacherNotifications({required String token}) async {
-    return get(endpoint: "/teacher/notifications/", token: token);
+  Future<Map<String, dynamic>> getTeacherNotifications({required String token}) async {
+    return get(endpoint: '/notifications/', token: token);
   }
 
   // ================== COUNSELOR ENDPOINTS ==================
 
-  static Future<Map<String, dynamic>> getCounselorStudentReports({required String token}) async {
-    return get(endpoint: "/counselor/student-reports/", token: token);
+  Future<Map<String, dynamic>> getCounselorReports({required String token}) async {
+    return get(endpoint: '/reports/', token: token);
   }
 
-  static Future<Map<String, dynamic>> getCounselorTeacherReports({required String token}) async {
-    return get(endpoint: "/counselor/teacher-reports/", token: token);
+  Future<Map<String, dynamic>> getCounselorNotifications({required String token}) async {
+    return get(endpoint: '/notifications/', token: token);
   }
 
-  static Future<Map<String, dynamic>> getCounselorNotifications({required String token}) async {
-    return get(endpoint: "/counselor/notifications/", token: token);
-  }
-
-  static Future<Map<String, dynamic>> updateReportStatus({
+  Future<Map<String, dynamic>> scheduleCounseling({
     required String token,
     required int reportId,
-    required String status,
+    required String scheduledDate,
+    String? notes,
   }) async {
     return post(
-      endpoint: "/counselor/update-report-status/",
+      endpoint: '/counseling/schedule/$reportId/',
       token: token,
-      data: {"report_id": reportId, "status": status},
-      successCode: 200,
+      data: {
+        'scheduled_date': scheduledDate,
+        if (notes != null) 'notes': notes,
+      },
     );
   }
 
-  // ================== GENERIC METHODS ==================
-
-  static Future<Map<String, dynamic>> getNotifications({required String token}) async {
-    return get(endpoint: "/student/notifications/", token: token);
-  }
-
-  static Future<Map<String, dynamic>> submitIncident({
+  Future<Map<String, dynamic>> skipCounseling({
     required String token,
-    required String title,
-    required String description,
-    required String reportedBy,
+    required int reportId,
+    String? notes,
   }) async {
-    return submitStudentReport(
+    return post(
+      endpoint: '/counseling/skip/$reportId/',
       token: token,
-      title: title,
-      content: description,
+      data: {
+        if (notes != null) 'notes': notes,
+      },
     );
   }
 
-  static Future<Map<String, dynamic>> updateProfile({
+  Future<Map<String, dynamic>> completeCounseling({
+    required String token,
+    required int sessionId,
+    required bool studentAttended,
+    required bool reporterAttended,
+    required bool caseVerified,
+    required String sessionNotes,
+  }) async {
+    return post(
+      endpoint: '/counseling/complete/$sessionId/',
+      token: token,
+      data: {
+        'student_attended': studentAttended,
+        'reporter_attended': reporterAttended,
+        'case_verified': caseVerified,
+        'session_notes': sessionNotes,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> getCounselingSessions({required String token}) async {
+    return get(endpoint: '/counseling/sessions/', token: token);
+  }
+
+  // ================== NOTIFICATION ENDPOINTS ==================
+
+  Future<Map<String, dynamic>> markNotificationAsRead({
+    required String token,
+    required int notificationId,
+  }) async {
+    return patch(
+      endpoint: '/notifications/$notificationId/read/',
+      token: token,
+      data: {},
+    );
+  }
+
+  // ================== VIOLATION ENDPOINTS ==================
+
+  Future<Map<String, dynamic>> getViolationTypes({required String token}) async {
+    return get(endpoint: '/violation-types/', token: token);
+  }
+
+  Future<Map<String, dynamic>> recordViolation({
     required String token,
     required Map<String, dynamic> data,
   }) async {
-    return updateStudentProfile(token: token, data: data);
+    return post(
+      endpoint: '/violations/',
+      token: token,
+      data: data,
+    );
+  }
+
+  Future<Map<String, dynamic>> getStudentViolations({
+    required String token,
+    required int studentId,
+  }) async {
+    return get(endpoint: '/students/$studentId/violations/', token: token);
   }
 }
