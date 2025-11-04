@@ -38,7 +38,7 @@ class StudentProvider extends ChangeNotifier {
 
   try {
     // Remove the duplicate :8000 port - serverIp already includes it
-    final url = Uri.parse("http://$serverIp/api/student/reports/");
+    final url = Uri.parse("$serverIp/api/student/reports/");
     debugPrint("🌐 Fetching reports from: $url");
     
     final response = await http.get(
@@ -99,7 +99,7 @@ Future<void> fetchNotifications(String token) async {
 
   try {
     // Fixed URL - remove duplicate port
-    final url = Uri.parse("http://$serverIp/api/student/notifications/");
+    final url = Uri.parse("$serverIp/api/student/notifications/");
     debugPrint("🌐 Fetching notifications from: $url");
     
     final response = await http.get(
@@ -161,7 +161,7 @@ Future<void> submitReport(Map<String, dynamic> reportData) async {
 
   try {
     // Remove the duplicate :8000 port - serverIp already includes it
-    final url = Uri.parse("http://$serverIp/api/student/reports/");
+    final url = Uri.parse("$serverIp/api/student/reports/");
     debugPrint("🌐 Submitting report to: $url");
     debugPrint("📋 Report data: $reportData");
     
@@ -225,7 +225,7 @@ Future<void> submitReport(Map<String, dynamic> reportData) async {
 
   try {
     // Fixed URL - remove duplicate port
-    final url = Uri.parse("http://$serverIp/api/notifications/$notificationId/read/");
+    final url = Uri.parse("$serverIp/api/notifications/$notificationId/read/");
     
     final response = await http.post(
       url,
