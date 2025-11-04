@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/student_provider.dart';
-import '../../../services/api_services.dart'; // ✅ Import ApiService
+import '../../../services/api_services.dart';
 
 class SubmitIncidentPage extends StatefulWidget {
   const SubmitIncidentPage({super.key});
@@ -35,7 +35,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     _fetchStudentInfo();
   }
 
-  // ✅ FIXED: Fetch student info using ApiService
+  // ✅ Fetch student info using ApiService
   Future<void> _fetchStudentInfo() async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -48,7 +48,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
       
       debugPrint("🌐 Fetching student info from: ${ApiService.baseUrl}/profile/");
       
-      // ✅ Use ApiService instead of manual HTTP
       final result = await ApiService.instance.get(
         endpoint: '/profile/',
         token: authProvider.token,
@@ -72,7 +71,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     }
   }
 
-  // ✅ FIXED: Fetch violation types using ApiService
+  // ✅ Fetch violation types using ApiService
   Future<void> _fetchViolationTypes() async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -85,19 +84,32 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
       
       debugPrint("🌐 Fetching violation types from: ${ApiService.baseUrl}/violation-types/");
       
-      // ✅ Use ApiService instead of manual HTTP
       final result = await ApiService.instance.getViolationTypes(
         token: authProvider.token!,
       );
 
       debugPrint("📡 Response status: ${result['success']}");
-      
+      debugPrint("📡 Response data: ${result['data']}");
+    
       if (result['success'] == true) {
-        final violationTypesData = result['data']['violation_types'] ?? result['data'];
+        List<Map<String, dynamic>> violationTypesData = [];
+        
+        final data = result['data'];
+        if (data is List) {
+          violationTypesData = List<Map<String, dynamic>>.from(data);
+        } else if (data is Map) {
+          if (data.containsKey('violation_types')) {
+            violationTypesData = List<Map<String, dynamic>>.from(data['violation_types']);
+          } else if (data.containsKey('data')) {
+            violationTypesData = List<Map<String, dynamic>>.from(data['data']);
+          } else {
+            violationTypesData = [Map<String, dynamic>.from(data)];
+          }
+        }
         
         setState(() {
-          _violationTypes = List<Map<String, dynamic>>.from(violationTypesData);
-          // Add "Others" option
+          _violationTypes = violationTypesData;
+          // Add "Others" option at the end
           _violationTypes.add({
             'id': null,
             'name': 'Others',
@@ -108,6 +120,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
           _loadingViolationTypes = false;
         });
         debugPrint("✅ Successfully loaded ${_violationTypes.length} violation types");
+        debugPrint("📋 Violation types: ${_violationTypes.map((v) => v['name']).toList()}");
       } else {
         debugPrint("❌ API returned success: false - ${result['error']}");
         _setupFallbackViolationTypes();
@@ -128,9 +141,9 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
         {'id': 5, 'name': 'Gambling', 'category': 'Gambling', 'severity_level': 'Medium'},
         {'id': 6, 'name': 'Haircut', 'category': 'Haircut', 'severity_level': 'Low'},
         {'id': 7, 'name': 'Not Wearing Proper Uniform/ID', 'category': 'Not Wearing Proper Uniform/ID', 'severity_level': 'Low'},
-        {'id': 8, 'name': 'Cheating', 'category': 'Cheating', 'severity_level': 'High'},
-        {'id': 9, 'name': 'Cutting Classes', 'category': 'Cutting Classes', 'severity_level': 'Medium'},
-        {'id': 10, 'name': 'Absenteeism', 'category': 'Absenteeism', 'severity_level': 'Medium'},
+        {'id': 8, 'name': 'Cheating', 'category': 'Cheating', 'severity_level': 'Medium'},
+        {'id': 9, 'name': 'Cutting Classes', 'category': 'Cutting Classes', 'severity_level': 'High'},
+        {'id': 10, 'name': 'Absenteeism', 'category': 'Absenteeism', 'severity_level': 'High'},
         {'id': null, 'name': 'Others', 'category': 'Others', 'severity_level': 'Medium'},
       ];
       _loadingViolationTypes = false;
@@ -184,7 +197,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
   String _getStudentName() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     
-    // Try to get from API data first
     if (_studentInfo != null) {
       final firstName = _studentInfo!['first_name']?.toString() ?? '';
       final lastName = _studentInfo!['last_name']?.toString() ?? '';
@@ -198,7 +210,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
       }
     }
     
-    // Fallback to username from AuthProvider
     return authProvider.username ?? 'Unknown Student';
   }
 
@@ -221,7 +232,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     return 'Grade/Section not specified';
   }
 
-  // ✅ FIXED: Submit report using ApiService
+  // ✅ Submit report using ApiService
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -274,7 +285,6 @@ ${_descriptionController.text.trim()}''';
         debugPrint("📝 Report submitted by: $reporterName");
         debugPrint("📝 Student being reported: $reportedStudentName");
 
-        // ✅ Use ApiService
         final result = await ApiService.instance.post(
           endpoint: '/student/reports/',
           token: authProvider.token,
@@ -298,11 +308,9 @@ ${_descriptionController.text.trim()}''';
             _otherTitleController.clear();
             _reportedStudentController.clear();
 
-            // Refresh reports list
             final studentProvider = Provider.of<StudentProvider>(context, listen: false);
             await studentProvider.fetchReports(authProvider.token!);
             
-            // Navigate back
             Navigator.pop(context);
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -574,8 +582,9 @@ ${_descriptionController.text.trim()}''';
                   isExpanded: true,
                   menuMaxHeight: 400,
                   items: _violationTypes.map((Map<String, dynamic> violation) {
-                    final category = violation['category'] ?? 'Other';
-                    final severity = violation['severity_level'] ?? 'Medium';
+                    final name = violation['name']?.toString() ?? 'Unknown';
+                    final category = violation['category']?.toString() ?? 'Other';
+                    final severity = violation['severity_level']?.toString() ?? 'Medium';
                     final color = _getCategoryColor(category);
                     
                     return DropdownMenuItem<Map<String, dynamic>>(
@@ -583,7 +592,6 @@ ${_descriptionController.text.trim()}''';
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
                               width: 6,
@@ -595,34 +603,36 @@ ${_descriptionController.text.trim()}''';
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: RichText(
-                                text: TextSpan(
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.black87,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    name,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: name.startsWith('Bullying')
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: name.startsWith('Bullying')
+                                          ? Colors.red.shade700
+                                          : Colors.black87,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  children: [
-                                    TextSpan(
-                                      text: violation['name'],
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w500,
-                                        color: violation['name'].toString().startsWith('Bullying') 
-                                            ? Colors.red.shade700 
-                                            : Colors.black87,
-                                      ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$category • $severity',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.normal,
                                     ),
-                                    TextSpan(
-                                      text: ' ($category • $severity)',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[600],
-                                        fontWeight: FontWeight.normal,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
                             ),
                           ],
