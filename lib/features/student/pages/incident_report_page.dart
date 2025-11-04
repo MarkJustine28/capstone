@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:async';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/student_provider.dart';
+import '../../../services/api_services.dart'; // ✅ Import ApiService
 
 class SubmitIncidentPage extends StatefulWidget {
   const SubmitIncidentPage({super.key});
@@ -38,53 +35,35 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     _fetchStudentInfo();
   }
 
+  // ✅ FIXED: Fetch student info using ApiService
   Future<void> _fetchStudentInfo() async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final serverIp = dotenv.env['SERVER_IP'];
       
-      if (serverIp == null || serverIp.isEmpty || authProvider.token == null) {
-        debugPrint("❌ Missing SERVER_IP or token");
+      if (authProvider.token == null) {
+        debugPrint("❌ Missing token");
         setState(() => _loadingStudentInfo = false);
         return;
       }
       
-      String baseUrl = serverIp;
-      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-        baseUrl = 'http://$baseUrl';
-      }
+      debugPrint("🌐 Fetching student info from: ${ApiService.baseUrl}/profile/");
       
-      final url = Uri.parse("$baseUrl/api/profile/");
-      
-      debugPrint("🌐 Fetching student info from: $url");
-      
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Token ${authProvider.token}',
-          'Content-Type': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 10));
+      // ✅ Use ApiService instead of manual HTTP
+      final result = await ApiService.instance.get(
+        endpoint: '/profile/',
+        token: authProvider.token,
+      );
 
-      debugPrint("📡 Student info response status: ${response.statusCode}");
+      debugPrint("📡 Student info response: ${result['success']}");
       
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint("📊 Student info data: $data");
-        
-        if (data['success'] == true) {
-          setState(() {
-            _studentInfo = data['user'] ?? {};
-            _loadingStudentInfo = false;
-          });
-          debugPrint("✅ Successfully loaded student info: $_studentInfo");
-        } else {
-          debugPrint("❌ API returned success: false");
-          setState(() => _loadingStudentInfo = false);
-        }
+      if (result['success'] == true) {
+        setState(() {
+          _studentInfo = result['data']['user'] ?? {};
+          _loadingStudentInfo = false;
+        });
+        debugPrint("✅ Successfully loaded student info: $_studentInfo");
       } else {
-        debugPrint("❌ HTTP Error: ${response.statusCode}");
-        debugPrint("❌ Response body: ${response.body}");
+        debugPrint("❌ API returned success: false");
         setState(() => _loadingStudentInfo = false);
       }
     } catch (e) {
@@ -93,68 +72,44 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     }
   }
 
+  // ✅ FIXED: Fetch violation types using ApiService
   Future<void> _fetchViolationTypes() async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final serverIp = dotenv.env['SERVER_IP'];
       
-      debugPrint("🔧 SERVER_IP from .env: $serverIp");
-      
-      if (serverIp == null || serverIp.isEmpty) {
-        debugPrint("❌ SERVER_IP not found in .env file");
+      if (authProvider.token == null) {
+        debugPrint("❌ Missing token");
         _setupFallbackViolationTypes();
         return;
       }
       
-      String baseUrl = serverIp;
-      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-        baseUrl = 'http://$baseUrl';
-      }
+      debugPrint("🌐 Fetching violation types from: ${ApiService.baseUrl}/violation-types/");
       
-      final url = Uri.parse("$baseUrl/api/violation-types/");
-      
-      debugPrint("🌐 Fetching violation types from: $url");
-      
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Token ${authProvider.token}',
-          'Content-Type': 'application/json',
-        },
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          debugPrint("⏰ Request timeout");
-          throw TimeoutException('Request timeout', const Duration(seconds: 10));
-        },
+      // ✅ Use ApiService instead of manual HTTP
+      final result = await ApiService.instance.getViolationTypes(
+        token: authProvider.token!,
       );
 
-      debugPrint("📡 Response status: ${response.statusCode}");
+      debugPrint("📡 Response status: ${result['success']}");
       
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugPrint("📊 Response data: $data");
+      if (result['success'] == true) {
+        final violationTypesData = result['data']['violation_types'] ?? result['data'];
         
-        if (data['success'] == true) {
-          setState(() {
-            _violationTypes = List<Map<String, dynamic>>.from(data['violation_types']);
-            _violationTypes.add({
-              'id': null,
-              'name': 'Others',
-              'category': 'Others',
-              'severity_level': 'Medium',
-              'description': 'Other incidents not listed'
-            });
-            _loadingViolationTypes = false;
+        setState(() {
+          _violationTypes = List<Map<String, dynamic>>.from(violationTypesData);
+          // Add "Others" option
+          _violationTypes.add({
+            'id': null,
+            'name': 'Others',
+            'category': 'Others',
+            'severity_level': 'Medium',
+            'description': 'Other incidents not listed'
           });
-          debugPrint("✅ Successfully loaded ${_violationTypes.length} violation types");
-        } else {
-          debugPrint("❌ API returned success: false");
-          _setupFallbackViolationTypes();
-        }
+          _loadingViolationTypes = false;
+        });
+        debugPrint("✅ Successfully loaded ${_violationTypes.length} violation types");
       } else {
-        debugPrint("❌ HTTP Error: ${response.statusCode}");
-        debugPrint("❌ Response body: ${response.body}");
+        debugPrint("❌ API returned success: false - ${result['error']}");
         _setupFallbackViolationTypes();
       }
     } catch (e) {
@@ -180,6 +135,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
       ];
       _loadingViolationTypes = false;
     });
+    debugPrint("⚠️ Using fallback violation types");
   }
 
   String _getSubmissionTitle() {
@@ -191,14 +147,17 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
 
   Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
+      case 'tardiness': return Colors.orange;
+      case 'using vape/cigarette': return Colors.brown;
       case 'bullying': return Colors.red;
-      case 'substance': return Colors.brown;
-      case 'violence': return Colors.deepOrange;
-      case 'academic': return Colors.blue;
-      case 'attendance': return Colors.orange;
-      case 'behavioral': return Colors.purple;
-      case 'dress code': return Colors.teal;
-      case 'mental health': return Colors.green;
+      case 'gambling': return Colors.deepOrange;
+      case 'haircut': return Colors.teal;
+      case 'not wearing proper uniform/id': return Colors.blue;
+      case 'cheating': return Colors.purple;
+      case 'cutting classes': return Colors.pink;
+      case 'absenteeism': return Colors.indigo;
+      case 'misbehavior': return Colors.deepPurple;
+      case 'others': return Colors.grey;
       default: return Colors.grey;
     }
   }
@@ -222,7 +181,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     return formattedTime;
   }
 
-  // UPDATED: Get student's full name using AuthProvider and API data
   String _getStudentName() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     
@@ -244,7 +202,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     return authProvider.username ?? 'Unknown Student';
   }
 
-  // UPDATED: Get student's grade and section info using API data
   String _getStudentGradeInfo() {
     if (_studentInfo != null) {
       final gradeLevel = _studentInfo!['grade_level']?.toString() ?? '';
@@ -264,6 +221,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     return 'Grade/Section not specified';
   }
 
+  // ✅ FIXED: Submit report using ApiService
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -278,7 +236,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     setState(() => _isSubmitting = true);
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
 
     try {
       if (authProvider.token != null) {
@@ -313,29 +270,48 @@ ${_descriptionController.text.trim()}''';
           'is_self_report': false,
         };
 
+        debugPrint("📝 Submitting report via ApiService");
         debugPrint("📝 Report submitted by: $reporterName");
         debugPrint("📝 Student being reported: $reportedStudentName");
-        debugPrint("📝 Report type: peer_report");
 
-        await studentProvider.submitReport(reportData);
+        // ✅ Use ApiService
+        final result = await ApiService.instance.post(
+          endpoint: '/student/reports/',
+          token: authProvider.token,
+          data: reportData,
+        );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Report about $reportedStudentName submitted successfully by $reporterName!"),
-              backgroundColor: Colors.green,
-            ),
-          );
+          if (result['success']) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Report about $reportedStudentName submitted successfully by $reporterName!"),
+                backgroundColor: Colors.green,
+              ),
+            );
 
-          setState(() {
-            _selectedViolationType = null;
-            _showOtherField = false;
-          });
-          _descriptionController.clear();
-          _otherTitleController.clear();
-          _reportedStudentController.clear();
+            setState(() {
+              _selectedViolationType = null;
+              _showOtherField = false;
+            });
+            _descriptionController.clear();
+            _otherTitleController.clear();
+            _reportedStudentController.clear();
 
-          await studentProvider.fetchReports(authProvider.token!);
+            // Refresh reports list
+            final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+            await studentProvider.fetchReports(authProvider.token!);
+            
+            // Navigate back
+            Navigator.pop(context);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Failed to submit report: ${result['error']}"),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       } else {
         if (mounted) {
@@ -556,7 +532,7 @@ ${_descriptionController.text.trim()}''';
 
               const SizedBox(height: 24),
 
-              // Incident Type Dropdown (keep existing code unchanged)
+              // Incident Type Dropdown
               const Text(
                 "Violation Type *",
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -609,7 +585,6 @@ ${_descriptionController.text.trim()}''';
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Color indicator
                             Container(
                               width: 6,
                               height: 6,
@@ -619,7 +594,6 @@ ${_descriptionController.text.trim()}''';
                               ),
                             ),
                             const SizedBox(width: 8),
-                            // Main content in a single line
                             Expanded(
                               child: RichText(
                                 text: TextSpan(
