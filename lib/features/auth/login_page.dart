@@ -131,110 +131,133 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       }
       
       if (response.statusCode == 200) {
-        try {
-          final decoded = jsonDecode(response.body);
-          debugPrint("🔍 Decoded type: ${decoded.runtimeType}");
-          debugPrint("🔍 Decoded data: $decoded");
+  try {
+    final decoded = jsonDecode(response.body);
+    debugPrint("🔍 Decoded type: ${decoded.runtimeType}");
+    debugPrint("🔍 Decoded data: $decoded");
 
-          final Map<String, dynamic> data = _safeCastToStringMap(decoded);
+    final Map<String, dynamic> data = _safeCastToStringMap(decoded);
 
-          if (data["success"] == true) {
-            final token = data["token"]?.toString();
-            final userMap = data["user"];
-            final username = usernameController.text.trim();
+    if (data["success"] == true) {
+      final token = data["token"]?.toString();
+      final userMap = data["user"];
+      final username = usernameController.text.trim();
 
-            String? role;
-            if (userMap != null && userMap is Map) {
-              role = userMap["role"]?.toString();
-            }
+      String? role;
+      int? userId;
+      String? firstName;
+      String? lastName;
+      
+      if (userMap != null && userMap is Map) {
+        role = userMap["role"]?.toString();
+        userId = userMap["id"] as int?;
+        // ✅ FIXED: Extract first_name and last_name properly
+        firstName = userMap["first_name"]?.toString().trim();
+        lastName = userMap["last_name"]?.toString().trim();
+      }
 
-            if (token == null || role == null) {
-              setState(() => isLoading = false);
-              debugPrint("❌ Missing data - Token: $token, Role: $role");
-              _showErrorSnackBar("Invalid response: missing token or role");
-              return;
-            }
+      if (token == null || role == null || userId == null) {
+        setState(() => isLoading = false);
+        debugPrint("❌ Missing data - Token: $token, Role: $role, UserId: $userId");
+        _showErrorSnackBar("Invalid response: missing required data");
+        return;
+      }
 
-            debugPrint("✅ TOKEN: $token");
-            debugPrint("✅ ROLE: $role");
-            debugPrint("✅ USERNAME: $username");
+      debugPrint("✅ TOKEN: $token");
+      debugPrint("✅ ROLE: $role");
+      debugPrint("✅ USERNAME: $username");
+      debugPrint("✅ USER_ID: $userId");
+      debugPrint("✅ FIRST_NAME: ${firstName ?? '(none)'}");
+      debugPrint("✅ LAST_NAME: ${lastName ?? '(none)'}");
 
-            try {
-              final authProvider = Provider.of<AuthProvider>(context, listen: false);
-              debugPrint("🔧 Setting auth provider...");
-              await authProvider.login(token, username, role, context);
+      try {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        debugPrint("🔧 Setting auth provider...");
+        
+        // ✅ FIXED: Use new login method signature with all parameters
+        await authProvider.login(
+          token: token,
+          username: username,
+          role: role,
+          userId: userId,
+          firstName: firstName?.isNotEmpty == true ? firstName : null,
+          lastName: lastName?.isNotEmpty == true ? lastName : null,
+        );
 
-              if (role == "student") {
-                debugPrint("🔧 Setting student provider...");
-                final studentProvider = Provider.of<StudentProvider>(context, listen: false);
-                studentProvider.setToken(token);
-              } else if (role == "counselor") {
-                debugPrint("🔧 Setting counselor provider...");
-                final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-                counselorProvider.setToken(token);
-              } else if (role == "teacher") {
-                debugPrint("🔧 Setting teacher provider...");
-                final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
-                teacherProvider.setToken(token);
-              }
+        debugPrint("✅ AuthProvider login completed");
+        debugPrint("   Display Name: ${authProvider.displayName}");
 
-              debugPrint("✅ All providers set successfully");
-              
-              setState(() => isLoading = false);
-              _showSuccessSnackBar(data["message"]?.toString() ?? "Welcome back, $username!");
-
-              await Future.delayed(const Duration(milliseconds: 500));
-
-              try {
-                if (role == "student") {
-                  debugPrint("🚀 Navigating to student dashboard...");
-                  Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
-                } else if (role == "teacher") {
-                  debugPrint("🚀 Navigating to teacher dashboard...");
-                  Navigator.pushReplacementNamed(
-                    context, 
-                    AppRoutes.teacherDashboard,
-                    arguments: {
-                      'username': username,
-                      'role': role,
-                    },
-                  );
-                } else if (role == "counselor") {
-                  debugPrint("🚀 Navigating to counselor dashboard...");
-                  Navigator.pushReplacementNamed(
-                    context, 
-                    AppRoutes.counselorDashboard,
-                    arguments: {
-                      'username': username,
-                      'role': role,
-                    },
-                  );
-                } else {
-                  debugPrint("❌ Unknown role: $role");
-                  _showErrorSnackBar("Unknown user role: $role");
-                }
-                debugPrint("✅ Navigation completed");
-              } catch (navigationError) {
-                debugPrint("❌ Navigation error: $navigationError");
-                _showErrorSnackBar("Navigation error: $navigationError");
-              }
-
-            } catch (providerError) {
-              setState(() => isLoading = false);
-              debugPrint("❌ Provider error: $providerError");
-              _showErrorSnackBar("Provider setup error: $providerError");
-            }
-
-          } else {
-            setState(() => isLoading = false);
-            _showErrorSnackBar(data['error']?.toString() ?? 'Login failed');
-          }
-          
-        } catch (parseError) {
-          setState(() => isLoading = false);
-          debugPrint("❌ JSON parsing error: $parseError");
-          _showErrorSnackBar("Response parsing error. Please try again.");
+        if (role == "student") {
+          debugPrint("🔧 Setting student provider...");
+          final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+          studentProvider.setToken(token);
+        } else if (role == "counselor") {
+          debugPrint("🔧 Setting counselor provider...");
+          final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+          counselorProvider.setToken(token);
+        } else if (role == "teacher") {
+          debugPrint("🔧 Setting teacher provider...");
+          final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
+          teacherProvider.setToken(token);
         }
+
+        debugPrint("✅ All providers set successfully");
+        
+        setState(() => isLoading = false);
+        _showSuccessSnackBar(data["message"]?.toString() ?? "Welcome back, ${authProvider.displayName}!");
+
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        try {
+          if (role == "student") {
+            debugPrint("🚀 Navigating to student dashboard...");
+            Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+          } else if (role == "teacher") {
+            debugPrint("🚀 Navigating to teacher dashboard...");
+            Navigator.pushReplacementNamed(
+              context, 
+              AppRoutes.teacherDashboard,
+              arguments: {
+                'username': username,
+                'role': role,
+              },
+            );
+          } else if (role == "counselor") {
+            debugPrint("🚀 Navigating to counselor dashboard...");
+            Navigator.pushReplacementNamed(
+              context, 
+              AppRoutes.counselorDashboard,
+              arguments: {
+                'username': username,
+                'role': role,
+              },
+            );
+          } else {
+            debugPrint("❌ Unknown role: $role");
+            _showErrorSnackBar("Unknown user role: $role");
+          }
+          debugPrint("✅ Navigation completed");
+        } catch (navigationError) {
+          debugPrint("❌ Navigation error: $navigationError");
+          _showErrorSnackBar("Navigation error: $navigationError");
+        }
+
+      } catch (providerError) {
+        setState(() => isLoading = false);
+        debugPrint("❌ Provider error: $providerError");
+        _showErrorSnackBar("Provider setup error: $providerError");
+      }
+
+    } else {
+      setState(() => isLoading = false);
+      _showErrorSnackBar(data['error']?.toString() ?? 'Login failed');
+    }
+    
+  } catch (parseError) {
+    setState(() => isLoading = false);
+    debugPrint("❌ JSON parsing error: $parseError");
+    _showErrorSnackBar("Response parsing error. Please try again.");
+  }
         
       } else {
         setState(() => isLoading = false);

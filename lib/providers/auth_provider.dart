@@ -4,18 +4,60 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AuthProvider with ChangeNotifier {
   String? _token;
   String? _username;
-  String? _userRole;
+  String? _role;
   String? _firstName;
   String? _lastName;
+  int? _userId;
   bool _isAuthenticated = false;
 
   // Getters
   String? get token => _token;
   String? get username => _username;
-  String? get userRole => _userRole;
+  String? get role => _role;
+  String? get userRole => _role; // Alias for compatibility
   String? get firstName => _firstName;
   String? get lastName => _lastName;
+  int? get userId => _userId;
   bool get isAuthenticated => _isAuthenticated;
+
+  // ✅ Display name with fallback chain
+  String get displayName {
+    final firstName = _firstName ?? '';
+    final lastName = _lastName ?? '';
+    final fullName = [firstName, lastName]
+        .where((name) => name.isNotEmpty)
+        .join(' ')
+        .trim();
+    
+    if (fullName.isNotEmpty) {
+      return fullName;
+    } else if (_username != null && _username!.isNotEmpty) {
+      return _username!;
+    } else {
+      return 'User';
+    }
+  }
+
+  // ✅ First name or username fallback
+  String get firstNameOrUsername {
+    if (_firstName != null && _firstName!.isNotEmpty) {
+      return _firstName!;
+    } else if (_username != null && _username!.isNotEmpty) {
+      return _username!;
+    } else {
+      return 'User';
+    }
+  }
+
+  // ✅ Full name (empty string if no names)
+  String get fullName {
+    final firstName = _firstName ?? '';
+    final lastName = _lastName ?? '';
+    return [firstName, lastName]
+        .where((name) => name.isNotEmpty)
+        .join(' ')
+        .trim();
+  }
 
   AuthProvider() {
     _loadFromPreferences();
@@ -25,18 +67,21 @@ class AuthProvider with ChangeNotifier {
   Future<void> _loadFromPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString('auth_token');
+      _token = prefs.getString('token');
       _username = prefs.getString('username');
-      _userRole = prefs.getString('user_role');
+      _role = prefs.getString('role');
       _firstName = prefs.getString('first_name');
       _lastName = prefs.getString('last_name');
+      _userId = prefs.getInt('userId');
       _isAuthenticated = _token != null && _token!.isNotEmpty;
 
       debugPrint('📱 Loaded from preferences:');
       debugPrint('   Token: ${_token != null ? "✅" : "❌"}');
       debugPrint('   Username: $_username');
-      debugPrint('   Name: ${_firstName ?? "(none)"} ${_lastName ?? "(none)"}');
-      debugPrint('   Role: $_userRole');
+      debugPrint('   Name: $_firstName $_lastName');
+      debugPrint('   Display Name: $displayName');
+      debugPrint('   Role: $_role');
+      debugPrint('   UserId: $_userId');
       debugPrint('   Authenticated: $_isAuthenticated');
 
       notifyListeners();
@@ -45,60 +90,74 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Save authentication data safely to SharedPreferences
-  Future<void> _saveToPreferences() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      await prefs.setString('auth_token', _token ?? '');
-      await prefs.setString('username', _username ?? '');
-      await prefs.setString('user_role', _userRole ?? '');
-      await prefs.setString('first_name', _firstName ?? '');
-      await prefs.setString('last_name', _lastName ?? '');
-
-      debugPrint(
-        '💾 Saved to preferences:\n'
-        '   Username: $_username\n'
-        '   Name: ${_firstName ?? "(none)"} ${_lastName ?? "(none)"}\n'
-        '   Role: $_userRole',
-      );
-    } catch (e) {
-      debugPrint('❌ Error saving preferences: $e');
-    }
-  }
-
-  /// Login and store authentication data
-  Future<void> login(
-    String token,
-    String username,
-    String role,
-    BuildContext context, {
+  /// ✅ NEW: Login method with named parameters
+  Future<void> login({
+    required String token,
+    required String username,
+    required String role,
+    required int userId,
     String? firstName,
     String? lastName,
   }) async {
+    debugPrint('🔐 AuthProvider.login called');
+    debugPrint('   Token: ${token.isNotEmpty ? '✅' : '❌'}');
+    debugPrint('   Username: $username');
+    debugPrint('   Role: $role');
+    debugPrint('   UserId: $userId');
+    debugPrint('   First Name: ${firstName ?? '(none)'}');
+    debugPrint('   Last Name: ${lastName ?? '(none)'}');
+
+    // ✅ Set state FIRST before saving to preferences
+    _token = token;
+    _username = username;
+    _role = role;
+    _userId = userId;
+    _firstName = firstName;
+    _lastName = lastName;
+    _isAuthenticated = true;
+
+    debugPrint('📱 State updated in memory');
+    debugPrint('   Display Name: $displayName');
+    
     try {
-      debugPrint('🔐 AuthProvider.login called');
-      debugPrint('   Token: ${token.isNotEmpty ? "✅" : "❌"}');
+      final prefs = await SharedPreferences.getInstance();
+
+      // ✅ Save to SharedPreferences
+      await prefs.setString('token', token);
+      await prefs.setString('username', username);
+      await prefs.setString('role', role);
+      await prefs.setInt('userId', userId);
+      
+      // ✅ Save names only if they exist
+      if (firstName != null && firstName.isNotEmpty) {
+        await prefs.setString('first_name', firstName);
+        debugPrint('💾 Saved first_name: $firstName');
+      } else {
+        await prefs.remove('first_name');
+        debugPrint('🗑️ Removed first_name (was null/empty)');
+      }
+      
+      if (lastName != null && lastName.isNotEmpty) {
+        await prefs.setString('last_name', lastName);
+        debugPrint('💾 Saved last_name: $lastName');
+      } else {
+        await prefs.remove('last_name');
+        debugPrint('🗑️ Removed last_name (was null/empty)');
+      }
+
+      debugPrint('💾 Saved to preferences:');
       debugPrint('   Username: $username');
+      debugPrint('   Name: ${firstName ?? ''} ${lastName ?? ''}');
       debugPrint('   Role: $role');
-      debugPrint('   Name: ${firstName ?? "(none)"} ${lastName ?? "(none)"}');
-
-      _token = token;
-      _username = username;
-      _userRole = role;
-      _firstName = firstName;
-      _lastName = lastName;
-      _isAuthenticated = true;
-
-      await _saveToPreferences();
-
       debugPrint('✅ AuthProvider login completed successfully');
       debugPrint('   Authenticated: $_isAuthenticated');
+      debugPrint('   Display Name: $displayName');
 
       notifyListeners();
     } catch (e) {
-      debugPrint('❌ Error in AuthProvider.login: $e');
-      rethrow;
+      debugPrint('❌ Error saving preferences: $e');
+      // State is already set in memory, just notify listeners
+      notifyListeners();
     }
   }
 
@@ -107,15 +166,12 @@ class AuthProvider with ChangeNotifier {
     try {
       debugPrint('🚪 Logging out...');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('auth_token');
-      await prefs.remove('username');
-      await prefs.remove('user_role');
-      await prefs.remove('first_name');
-      await prefs.remove('last_name');
+      await prefs.clear(); // Clear all preferences
 
       _token = null;
       _username = null;
-      _userRole = null;
+      _role = null;
+      _userId = null;
       _firstName = null;
       _lastName = null;
       _isAuthenticated = false;
@@ -142,11 +198,34 @@ class AuthProvider with ChangeNotifier {
     debugPrint('🔄 Token updated');
   }
 
+  /// Save current state to preferences
+  Future<void> _saveToPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      if (_token != null) await prefs.setString('token', _token!);
+      if (_username != null) await prefs.setString('username', _username!);
+      if (_role != null) await prefs.setString('role', _role!);
+      if (_userId != null) await prefs.setInt('userId', _userId!);
+      if (_firstName != null && _firstName!.isNotEmpty) {
+        await prefs.setString('first_name', _firstName!);
+      }
+      if (_lastName != null && _lastName!.isNotEmpty) {
+        await prefs.setString('last_name', _lastName!);
+      }
+
+      debugPrint('💾 Saved current state to preferences');
+    } catch (e) {
+      debugPrint('❌ Error saving preferences: $e');
+    }
+  }
+
   /// Clear authentication data from memory (no disk update)
   void clearAuth() {
     _token = null;
     _username = null;
-    _userRole = null;
+    _role = null;
+    _userId = null;
     _firstName = null;
     _lastName = null;
     _isAuthenticated = false;
@@ -155,28 +234,40 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Role helpers
-  bool hasRole(String role) => _userRole?.toLowerCase() == role.toLowerCase();
+  bool hasRole(String roleToCheck) => _role?.toLowerCase() == roleToCheck.toLowerCase();
   bool get isStudent => hasRole('student');
   bool get isTeacher => hasRole('teacher');
   bool get isCounselor => hasRole('counselor');
 
-  /// Debug info
-  Map<String, String?> getUserInfo() {
+  /// Get user info map
+  Map<String, dynamic> getUserInfo() {
     return {
       'username': _username,
-      'role': _userRole,
+      'role': _role,
+      'userId': _userId,
       'first_name': _firstName,
       'last_name': _lastName,
+      'full_name': fullName,
+      'display_name': displayName,
       'token': _token != null ? '***' : null,
+      'is_authenticated': _isAuthenticated,
     };
   }
 
+  /// Debug print current state
   void debugPrintState() {
     debugPrint('📊 AuthProvider State:');
     debugPrint('   Token: ${_token != null ? "Present (${_token!.length} chars)" : "null"}');
     debugPrint('   Username: $_username');
-    debugPrint('   Name: ${_firstName ?? "(none)"} ${_lastName ?? "(none)"}');
-    debugPrint('   Role: $_userRole');
+    debugPrint('   Name: $_firstName $_lastName');
+    debugPrint('   Display Name: $displayName');
+    debugPrint('   Role: $_role');
+    debugPrint('   UserId: $_userId');
     debugPrint('   Authenticated: $_isAuthenticated');
+  }
+
+  /// Reload from preferences (useful for debugging)
+  Future<void> reload() async {
+    await _loadFromPreferences();
   }
 }

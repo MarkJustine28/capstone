@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'api',
     'guidance_tracker',
+    'reports',
 ]
 
 # Admin site customization
