@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/student_provider.dart';
-import '../../../services/api_services.dart';
 
 class SubmitIncidentPage extends StatefulWidget {
   const SubmitIncidentPage({super.key});
@@ -19,23 +18,32 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
   final TextEditingController _reportedStudentController = TextEditingController();
 
   Map<String, dynamic>? _selectedViolationType;
-  List<Map<String, dynamic>> _violationTypes = [];
   bool _isSubmitting = false;
   bool _showOtherField = false;
-  bool _loadingViolationTypes = true;
 
-  // Student info from API
+  // Student info
   Map<String, dynamic>? _studentInfo;
   bool _loadingStudentInfo = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchViolationTypes();
-    _fetchStudentInfo();
+    _fetchInitialData();
   }
 
-  // ✅ Fetch student info using ApiService
+  Future<void> _fetchInitialData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+    
+    if (authProvider.token != null) {
+      // Fetch violation types
+      await studentProvider.fetchViolationTypes(authProvider.token!);
+      
+      // Fetch student info
+      await _fetchStudentInfo();
+    }
+  }
+
   Future<void> _fetchStudentInfo() async {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -46,109 +54,22 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
         return;
       }
       
-      debugPrint("🌐 Fetching student info from: ${ApiService.baseUrl}/profile/");
+      // Use existing auth provider data first
+      setState(() {
+        _studentInfo = {
+          'first_name': authProvider.firstName,
+          'last_name': authProvider.lastName,
+          'username': authProvider.username,
+          // Add additional fields if available from profile API
+        };
+        _loadingStudentInfo = false;
+      });
       
-      final result = await ApiService.instance.get(
-        endpoint: '/profile/',
-        token: authProvider.token,
-      );
-
-      debugPrint("📡 Student info response: ${result['success']}");
-      
-      if (result['success'] == true) {
-        setState(() {
-          _studentInfo = result['data']['user'] ?? {};
-          _loadingStudentInfo = false;
-        });
-        debugPrint("✅ Successfully loaded student info: $_studentInfo");
-      } else {
-        debugPrint("❌ API returned success: false");
-        setState(() => _loadingStudentInfo = false);
-      }
+      debugPrint("✅ Using student info from auth provider");
     } catch (e) {
-      debugPrint("❌ Error fetching student info: $e");
+      debugPrint("❌ Error setting student info: $e");
       setState(() => _loadingStudentInfo = false);
     }
-  }
-
-  // ✅ Fetch violation types using ApiService
-  Future<void> _fetchViolationTypes() async {
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      
-      if (authProvider.token == null) {
-        debugPrint("❌ Missing token");
-        _setupFallbackViolationTypes();
-        return;
-      }
-      
-      debugPrint("🌐 Fetching violation types from: ${ApiService.baseUrl}/violation-types/");
-      
-      final result = await ApiService.instance.getViolationTypes(
-        token: authProvider.token!,
-      );
-
-      debugPrint("📡 Response status: ${result['success']}");
-      debugPrint("📡 Response data: ${result['data']}");
-    
-      if (result['success'] == true) {
-        List<Map<String, dynamic>> violationTypesData = [];
-        
-        final data = result['data'];
-        if (data is List) {
-          violationTypesData = List<Map<String, dynamic>>.from(data);
-        } else if (data is Map) {
-          if (data.containsKey('violation_types')) {
-            violationTypesData = List<Map<String, dynamic>>.from(data['violation_types']);
-          } else if (data.containsKey('data')) {
-            violationTypesData = List<Map<String, dynamic>>.from(data['data']);
-          } else {
-            violationTypesData = [Map<String, dynamic>.from(data)];
-          }
-        }
-        
-        setState(() {
-          _violationTypes = violationTypesData;
-          // Add "Others" option at the end
-          _violationTypes.add({
-            'id': null,
-            'name': 'Others',
-            'category': 'Others',
-            'severity_level': 'Medium',
-            'description': 'Other incidents not listed'
-          });
-          _loadingViolationTypes = false;
-        });
-        debugPrint("✅ Successfully loaded ${_violationTypes.length} violation types");
-        debugPrint("📋 Violation types: ${_violationTypes.map((v) => v['name']).toList()}");
-      } else {
-        debugPrint("❌ API returned success: false - ${result['error']}");
-        _setupFallbackViolationTypes();
-      }
-    } catch (e) {
-      debugPrint("❌ Error fetching violation types: $e");
-      _setupFallbackViolationTypes();
-    }
-  }
-
-  void _setupFallbackViolationTypes() {
-    setState(() {
-      _violationTypes = [
-        {'id': 1, 'name': 'Tardiness', 'category': 'Tardiness', 'severity_level': 'Low'},
-        {'id': 2, 'name': 'Using Vape/Cigarette', 'category': 'Using Vape/Cigarette', 'severity_level': 'High'},
-        {'id': 3, 'name': 'Misbehavior', 'category': 'Misbehavior', 'severity_level': 'Medium'},
-        {'id': 4, 'name': 'Bullying - Physical, Verbal/Emotional, Cyberbullying, Sexual, Racism', 'category': 'Bullying', 'severity_level': 'High'},
-        {'id': 5, 'name': 'Gambling', 'category': 'Gambling', 'severity_level': 'Medium'},
-        {'id': 6, 'name': 'Haircut', 'category': 'Haircut', 'severity_level': 'Low'},
-        {'id': 7, 'name': 'Not Wearing Proper Uniform/ID', 'category': 'Not Wearing Proper Uniform/ID', 'severity_level': 'Low'},
-        {'id': 8, 'name': 'Cheating', 'category': 'Cheating', 'severity_level': 'Medium'},
-        {'id': 9, 'name': 'Cutting Classes', 'category': 'Cutting Classes', 'severity_level': 'High'},
-        {'id': 10, 'name': 'Absenteeism', 'category': 'Absenteeism', 'severity_level': 'High'},
-        {'id': null, 'name': 'Others', 'category': 'Others', 'severity_level': 'Medium'},
-      ];
-      _loadingViolationTypes = false;
-    });
-    debugPrint("⚠️ Using fallback violation types");
   }
 
   String _getSubmissionTitle() {
@@ -161,15 +82,26 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
   Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
       case 'tardiness': return Colors.orange;
+      case 'substance use':
       case 'using vape/cigarette': return Colors.brown;
       case 'bullying': return Colors.red;
       case 'gambling': return Colors.deepOrange;
+      case 'grooming':
       case 'haircut': return Colors.teal;
+      case 'uniform violation':
       case 'not wearing proper uniform/id': return Colors.blue;
+      case 'academic dishonesty':
       case 'cheating': return Colors.purple;
-      case 'cutting classes': return Colors.pink;
-      case 'absenteeism': return Colors.indigo;
+      case 'attendance':
+      case 'cutting classes':
+      case 'absenteeism': return Colors.pink;
       case 'misbehavior': return Colors.deepPurple;
+      case 'violence': return Colors.red.shade900;
+      case 'property damage': return Colors.orange.shade800;
+      case 'theft': return Colors.red.shade700;
+      case 'technology violation': return Colors.indigo;
+      case 'policy violation': return Colors.deepOrange.shade700;
+      case 'conduct': return Colors.blueGrey;
       case 'others': return Colors.grey;
       default: return Colors.grey;
     }
@@ -210,7 +142,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
       }
     }
     
-    return authProvider.username ?? 'Unknown Student';
+    return authProvider.displayName;
   }
 
   String _getStudentGradeInfo() {
@@ -232,7 +164,6 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     return 'Grade/Section not specified';
   }
 
-  // ✅ Submit report using ApiService
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -247,6 +178,7 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
     setState(() => _isSubmitting = true);
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
 
     try {
       if (authProvider.token != null) {
@@ -281,45 +213,30 @@ ${_descriptionController.text.trim()}''';
           'is_self_report': false,
         };
 
-        debugPrint("📝 Submitting report via ApiService");
+        debugPrint("📝 Submitting report via StudentProvider");
         debugPrint("📝 Report submitted by: $reporterName");
         debugPrint("📝 Student being reported: $reportedStudentName");
 
-        final result = await ApiService.instance.post(
-          endpoint: '/student/reports/',
-          token: authProvider.token,
-          data: reportData,
-        );
+        // ✅ Use StudentProvider to submit report
+        await studentProvider.submitReport(reportData);
 
         if (mounted) {
-          if (result['success']) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("Report about $reportedStudentName submitted successfully by $reporterName!"),
-                backgroundColor: Colors.green,
-              ),
-            );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Report about $reportedStudentName submitted successfully by $reporterName!"),
+              backgroundColor: Colors.green,
+            ),
+          );
 
-            setState(() {
-              _selectedViolationType = null;
-              _showOtherField = false;
-            });
-            _descriptionController.clear();
-            _otherTitleController.clear();
-            _reportedStudentController.clear();
-
-            final studentProvider = Provider.of<StudentProvider>(context, listen: false);
-            await studentProvider.fetchReports(authProvider.token!);
-            
-            Navigator.pop(context);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("Failed to submit report: ${result['error']}"),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+          setState(() {
+            _selectedViolationType = null;
+            _showOtherField = false;
+          });
+          _descriptionController.clear();
+          _otherTitleController.clear();
+          _reportedStudentController.clear();
+          
+          Navigator.pop(context);
         }
       } else {
         if (mounted) {
@@ -346,6 +263,7 @@ ${_descriptionController.text.trim()}''';
   Widget build(BuildContext context) {
     final reporterName = _getStudentName();
     final reporterGradeInfo = _getStudentGradeInfo();
+    final studentProvider = Provider.of<StudentProvider>(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -547,7 +465,8 @@ ${_descriptionController.text.trim()}''';
               ),
               const SizedBox(height: 8),
               
-              if (_loadingViolationTypes)
+              // ✅ Use StudentProvider loading state
+              if (studentProvider.isLoadingViolationTypesGetter)
                 Container(
                   height: 60,
                   decoration: BoxDecoration(
@@ -570,6 +489,7 @@ ${_descriptionController.text.trim()}''';
                   ),
                 )
               else
+                // ✅ Use StudentProvider violation types
                 DropdownButtonFormField<Map<String, dynamic>>(
                   value: _selectedViolationType,
                   decoration: InputDecoration(
@@ -581,7 +501,7 @@ ${_descriptionController.text.trim()}''';
                   ),
                   isExpanded: true,
                   menuMaxHeight: 400,
-                  items: _violationTypes.map((Map<String, dynamic> violation) {
+                  items: studentProvider.violationTypes.map((Map<String, dynamic> violation) {
                     final name = violation['name']?.toString() ?? 'Unknown';
                     final category = violation['category']?.toString() ?? 'Other';
                     final severity = violation['severity_level']?.toString() ?? 'Medium';

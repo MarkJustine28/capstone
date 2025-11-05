@@ -6,249 +6,316 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class StudentProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _reports = [];
   List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _violationTypes = [];
   bool _isLoading = false;
+  bool _isLoadingViolationTypes = false;
   String? _error;
-  String? _token; // Add token storage
-
-  List<Map<String, dynamic>> get reports => _reports;
-  List<Map<String, dynamic>> get notifications => _notifications;
-  bool get isLoading => _isLoading;
-  bool get isLoadingReports => _isLoading; // Added this getter
-  String? get error => _error;
-  String? get token => _token; // Added this getter
+  String? _token;
 
   final String? serverIp = dotenv.env['SERVER_IP'];
 
-  // Add setToken method
+  // -----------------------------
+  // Getters
+  // -----------------------------
+  List<Map<String, dynamic>> get reports => _reports;
+  List<Map<String, dynamic>> get notifications => _notifications;
+  List<Map<String, dynamic>> get violationTypes => _violationTypes;
+  bool get isLoading => _isLoading;
+  bool get isLoadingReports => _isLoading;
+  bool get isLoadingViolationTypesGetter => _isLoadingViolationTypes;
+  String? get error => _error;
+  String? get token => _token;
+
+  // -----------------------------
+  // Set token
+  // -----------------------------
   void setToken(String token) {
     _token = token;
     notifyListeners();
   }
 
+  // -----------------------------
+  // Fetch Reports
+  // -----------------------------
   Future<void> fetchReports(String token) async {
-  if (serverIp == null) {
-    _error = "Server IP not configured";
+    if (serverIp == null) {
+      _error = "Server IP not configured";
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _error = null;
     notifyListeners();
-    return;
-  }
 
-  _isLoading = true;
-  _error = null;
-  notifyListeners();
+    try {
+      final url = Uri.parse("$serverIp/api/student/reports/");
+      debugPrint("🌐 Fetching reports from: $url");
 
-  try {
-    // Remove the duplicate :8000 port - serverIp already includes it
-    final url = Uri.parse("$serverIp/api/student/reports/");
-    debugPrint("🌐 Fetching reports from: $url");
-    
-    final response = await http.get(
-      url,
-      headers: {
-        "Authorization": "Token $token",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-    ).timeout(const Duration(seconds: 10));
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
 
-    debugPrint("📩 Reports Status Code: ${response.statusCode}");
-    debugPrint("📩 Reports Response: ${response.body}");
+      debugPrint("📩 Reports Status Code: ${response.statusCode}");
+      debugPrint("📩 Reports Response: ${response.body}");
 
-    if (response.statusCode == 200) {
-      final decoded = jsonDecode(response.body);
-      
-      if (decoded is Map<String, dynamic> && decoded['success'] == true) {
-        if (decoded['reports'] is List) {
-          _reports = List<Map<String, dynamic>>.from(decoded['reports']);
-          debugPrint("✅ Successfully loaded ${_reports.length} reports");
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+          if (decoded['reports'] is List) {
+            _reports = List<Map<String, dynamic>>.from(decoded['reports']);
+            debugPrint("✅ Successfully loaded ${_reports.length} reports");
+          } else {
+            _reports = [];
+            debugPrint("❌ Reports field is not a List: ${decoded['reports']}");
+          }
         } else {
-          debugPrint("❌ Reports field is not a List: ${decoded['reports']}");
+          _error = decoded['error'] ?? 'Failed to fetch reports';
           _reports = [];
         }
       } else {
-        _error = decoded['error'] ?? 'Failed to fetch reports';
+        try {
+          final errorBody = jsonDecode(response.body);
+          _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
+        } catch (_) {
+          _error = "HTTP ${response.statusCode}: ${response.body}";
+        }
         _reports = [];
       }
-    } else {
-      try {
-        final errorBody = jsonDecode(response.body);
-        _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
-      } catch (e) {
-        _error = "HTTP ${response.statusCode}: ${response.body}";
-      }
+    } catch (e) {
+      debugPrint("❌ Exception fetching reports: $e");
+      _error = "Network error: $e";
+      _reports = [];
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-  } catch (e) {
-    debugPrint("❌ Exception fetching reports: $e");
-    _error = "Network error: $e";
-    _reports = [];
-  } finally {
-    _isLoading = false;
-    notifyListeners();
-  }
-}
-
-Future<void> fetchNotifications(String token) async {
-  if (serverIp == null) {
-    _error = "Server IP not configured";
-    notifyListeners();
-    return;
   }
 
-  _isLoading = true;
-  _error = null;
-  notifyListeners();
+  // -----------------------------
+  // Fetch Notifications
+  // -----------------------------
+  Future<void> fetchNotifications(String token) async {
+    if (serverIp == null) {
+      _error = "Server IP not configured";
+      notifyListeners();
+      return;
+    }
 
-  try {
-    // Fixed URL - remove duplicate port
-    final url = Uri.parse("$serverIp/api/student/notifications/");
-    debugPrint("🌐 Fetching notifications from: $url");
-    
-    final response = await http.get(
-      url,
-      headers: {
-        "Authorization": "Token $token",
-        "Content-Type": "application/json",
-        "Accept": "application/json", // Added for consistency
-      },
-    ).timeout(const Duration(seconds: 10)); // Added timeout
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
 
-    debugPrint("📩 Notifications Status Code: ${response.statusCode}");
-    debugPrint("📩 Notifications Response: ${response.body}");
+    try {
+      final url = Uri.parse("$serverIp/api/student/notifications/");
+      debugPrint("🌐 Fetching notifications from: $url");
 
-    if (response.statusCode == 200) {
-      final decoded = jsonDecode(response.body);
-      
-      if (decoded is Map<String, dynamic> && decoded['success'] == true) {
-        if (decoded['notifications'] is List) {
-          _notifications = List<Map<String, dynamic>>.from(decoded['notifications']);
-          debugPrint("✅ Successfully loaded ${_notifications.length} notifications");
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint("📩 Notifications Status Code: ${response.statusCode}");
+      debugPrint("📩 Notifications Response: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+          if (decoded['notifications'] is List) {
+            _notifications = List<Map<String, dynamic>>.from(decoded['notifications']);
+            debugPrint("✅ Successfully loaded ${_notifications.length} notifications");
+          } else {
+            _notifications = [];
+            debugPrint("❌ Notifications field is not a List: ${decoded['notifications']}");
+          }
         } else {
-          debugPrint("❌ Notifications field is not a List: ${decoded['notifications']}");
+          _error = decoded['error'] ?? 'Failed to fetch notifications';
           _notifications = [];
         }
       } else {
-        _error = decoded['error'] ?? 'Failed to fetch notifications';
+        try {
+          final errorBody = jsonDecode(response.body);
+          _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
+        } catch (_) {
+          _error = "HTTP ${response.statusCode}: ${response.body}";
+        }
         _notifications = [];
       }
-    } else {
-      try {
-        final errorBody = jsonDecode(response.body);
-        _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
-      } catch (e) {
-        _error = "HTTP ${response.statusCode}: ${response.body}";
-      }
+    } catch (e) {
+      debugPrint("❌ Exception fetching notifications: $e");
+      _error = "Network error: $e";
+      _notifications = [];
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-  } catch (e) {
-    debugPrint("❌ Exception fetching notifications: $e");
-    _error = "Network error: $e";
-    _notifications = [];
-  } finally {
-    _isLoading = false;
-    notifyListeners();
-  }
-}
-
-// Update the submitReport method:
-Future<void> submitReport(Map<String, dynamic> reportData) async {
-  if (serverIp == null || _token == null) {
-    _error = "Server IP or token not configured";
-    notifyListeners();
-    return;
   }
 
-  _isLoading = true;
-  _error = null;
-  notifyListeners();
+  // -----------------------------
+  // Submit Report
+  // -----------------------------
+  Future<void> submitReport(Map<String, dynamic> reportData) async {
+    if (serverIp == null || _token == null) {
+      _error = "Server IP or token not configured";
+      notifyListeners();
+      return;
+    }
 
-  try {
-    // Remove the duplicate :8000 port - serverIp already includes it
-    final url = Uri.parse("$serverIp/api/student/reports/");
-    debugPrint("🌐 Submitting report to: $url");
-    debugPrint("📋 Report data: $reportData");
-    
-    final response = await http.post(
-      url,
-      headers: {
-        "Authorization": "Token $_token",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: jsonEncode(reportData),
-    ).timeout(const Duration(seconds: 15));
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
 
-    debugPrint("📩 Submit Report Status Code: ${response.statusCode}");
-    debugPrint("📩 Submit Report Response: ${response.body}");
+    try {
+      final url = Uri.parse("$serverIp/api/student/reports/");
+      debugPrint("🌐 Submitting report to: $url");
+      debugPrint("📋 Report data: $reportData");
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final decoded = jsonDecode(response.body);
-      
-      if (decoded is Map<String, dynamic> && decoded['success'] == true) {
-        debugPrint("✅ Report submitted successfully");
-        
-        // Add the new report to the local list if available in response
-        if (decoded.containsKey('report')) {
-          final newReport = decoded['report'];
-          _reports.insert(0, newReport);
+      final response = await http.post(
+        url,
+        headers: {
+          "Authorization": "Token $_token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode(reportData),
+      ).timeout(const Duration(seconds: 15));
+
+      debugPrint("📩 Submit Report Status Code: ${response.statusCode}");
+      debugPrint("📩 Submit Report Response: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+          debugPrint("✅ Report submitted successfully");
+
+          if (decoded.containsKey('report')) {
+            _reports.insert(0, decoded['report']);
+          }
+
+          // Refresh reports
+          try {
+            await fetchReports(_token!);
+          } catch (e) {
+            debugPrint("⚠️ Warning: Could not refresh reports after submission: $e");
+          }
+        } else {
+          _error = decoded['error'] ?? 'Failed to submit report';
+          throw Exception(_error);
         }
-        
-        // Optionally refresh all reports to get the latest data
-        try {
-          await fetchReports(_token!);
-        } catch (e) {
-          debugPrint("⚠️ Warning: Could not refresh reports after submission: $e");
-        }
-        
       } else {
-        _error = decoded['error'] ?? 'Failed to submit report';
+        try {
+          final errorBody = jsonDecode(response.body);
+          _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
+        } catch (_) {
+          _error = "HTTP ${response.statusCode}: ${response.body}";
+        }
         throw Exception(_error);
       }
-    } else {
-      try {
-        final errorBody = jsonDecode(response.body);
-        _error = errorBody['error'] ?? errorBody['detail'] ?? "HTTP ${response.statusCode}";
-      } catch (e) {
-        _error = "HTTP ${response.statusCode}: ${response.body}";
-      }
-      throw Exception(_error);
+    } catch (e) {
+      debugPrint("❌ Exception submitting report: $e");
+      _error = "Network error: $e";
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-  } catch (e) {
-    debugPrint("❌ Exception submitting report: $e");
-    _error = "Network error: $e";
-    rethrow;
-  } finally {
-    _isLoading = false;
-    notifyListeners();
   }
-}
 
+  // -----------------------------
+  // Mark Notification as Read
+  // -----------------------------
   Future<void> markNotificationAsRead(String token, int notificationId) async {
-  if (serverIp == null) return;
+    if (serverIp == null) return;
 
-  try {
-    // Fixed URL - remove duplicate port
-    final url = Uri.parse("$serverIp/api/notifications/$notificationId/read/");
-    
-    final response = await http.post(
-      url,
-      headers: {
-        "Authorization": "Token $token",
-        "Content-Type": "application/json",
-        "Accept": "application/json", // Added for consistency
-      },
-    ).timeout(const Duration(seconds: 10)); // Added timeout
+    try {
+      final url = Uri.parse("$serverIp/api/notifications/$notificationId/read/");
 
-    if (response.statusCode == 200) {
-      // Update the notification locally
-      final index = _notifications.indexWhere((n) => n['id'] == notificationId);
-      if (index != -1) {
-        _notifications[index]['is_read'] = true;
-        notifyListeners();
+      final response = await http.post(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final index = _notifications.indexWhere((n) => n['id'] == notificationId);
+        if (index != -1) {
+          _notifications[index]['is_read'] = true;
+          notifyListeners();
+        }
       }
+    } catch (e) {
+      debugPrint("❌ Error marking notification as read: $e");
     }
-  } catch (e) {
-    debugPrint("❌ Error marking notification as read: $e");
   }
-}
 
+  // -----------------------------
+  // Fetch Violation Types
+  // -----------------------------
+  Future<void> fetchViolationTypes(String token) async {
+    if (serverIp == null) return;
+
+    _isLoadingViolationTypes = true;
+    notifyListeners();
+
+    try {
+      final url = Uri.parse("$serverIp/api/reports/violation-types/");
+      debugPrint("🌐 Fetching violation types from: $url");
+
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded['success'] == true && decoded['data'] is List) {
+          _violationTypes = List<Map<String, dynamic>>.from(decoded['data']);
+          _violationTypes.add({
+            'id': null,
+            'name': 'Others',
+            'category': 'Others',
+            'severity_level': 'Medium',
+            'description': 'Other incidents not listed',
+          });
+          debugPrint("✅ Loaded ${_violationTypes.length} violation types");
+        } else {
+          _violationTypes = [];
+        }
+      } else {
+        _violationTypes = [];
+      }
+    } catch (e) {
+      _violationTypes = [];
+      debugPrint("❌ Exception fetching violation types: $e");
+    } finally {
+      _isLoadingViolationTypes = false;
+      notifyListeners();
+    }
+  }
+
+  // -----------------------------
+  // Utilities
+  // -----------------------------
   void clearError() {
     _error = null;
     notifyListeners();
@@ -257,8 +324,10 @@ Future<void> submitReport(Map<String, dynamic> reportData) async {
   void clearData() {
     _reports = [];
     _notifications = [];
+    _violationTypes = [];
     _error = null;
     _isLoading = false;
+    _isLoadingViolationTypes = false;
     notifyListeners();
   }
 }
