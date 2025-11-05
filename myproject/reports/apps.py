@@ -5,4 +5,4 @@ class ReportConfig(AppConfig):
     name = 'reports'
 
     def ready(self):
-        import report.signals  # 👈 Ensures signals are registered
+        import reports.signals  # 👈 Ensures signals are registered
