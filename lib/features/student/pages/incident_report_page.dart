@@ -26,23 +26,32 @@ class _SubmitIncidentPageState extends State<SubmitIncidentPage> {
   bool _loadingStudentInfo = true;
 
   @override
-  void initState() {
-    super.initState();
+void initState() {
+  super.initState();
+  // ✅ Defer initialization until after the first frame is rendered
+  WidgetsBinding.instance.addPostFrameCallback((_) {
     _fetchInitialData();
-  }
+  });
+}
 
-  Future<void> _fetchInitialData() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
-    
-    if (authProvider.token != null) {
+Future<void> _fetchInitialData() async {
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+  
+  if (authProvider.token != null) {
+    try {
       // Fetch violation types
       await studentProvider.fetchViolationTypes(authProvider.token!);
       
       // Fetch student info
       await _fetchStudentInfo();
+    } catch (e) {
+      debugPrint("❌ Error fetching initial data: $e");
     }
+  } else {
+    debugPrint("❌ No auth token available");
   }
+}
 
   Future<void> _fetchStudentInfo() async {
     try {
