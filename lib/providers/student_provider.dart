@@ -267,51 +267,54 @@ class StudentProvider extends ChangeNotifier {
   // Fetch Violation Types
   // -----------------------------
   Future<void> fetchViolationTypes(String token) async {
-    if (serverIp == null) return;
+  if (serverIp == null) return;
 
-    _isLoadingViolationTypes = true;
-    notifyListeners();
+  _isLoadingViolationTypes = true;
+  notifyListeners();
 
-    try {
-      final url = Uri.parse("$serverIp/api/reports/violation-types/");
-      debugPrint("🌐 Fetching violation types from: $url");
+  try {
+    final url = Uri.parse("$serverIp/api/reports/violation-types/");
+    debugPrint("🌐 Fetching violation types from: $url");
 
-      final response = await http.get(
-        url,
-        headers: {
-          "Authorization": "Token $token",
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-      ).timeout(const Duration(seconds: 10));
+    final response = await http.get(
+      url,
+      headers: {
+        "Authorization": "Token $token",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+    ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(response.body);
 
-        if (decoded['success'] == true && decoded['data'] is List) {
-          _violationTypes = List<Map<String, dynamic>>.from(decoded['data']);
-          _violationTypes.add({
-            'id': null,
-            'name': 'Others',
-            'category': 'Others',
-            'severity_level': 'Medium',
-            'description': 'Other incidents not listed',
-          });
-          debugPrint("✅ Loaded ${_violationTypes.length} violation types");
-        } else {
-          _violationTypes = [];
-        }
+      if (decoded is List) {
+        _violationTypes = List<Map<String, dynamic>>.from(decoded);
+
+        // Optionally append "Others"
+        _violationTypes.add({
+          'id': null,
+          'name': 'Others',
+        });
+
+        debugPrint("✅ Loaded ${_violationTypes.length} violation types");
       } else {
+        debugPrint("⚠️ Unexpected response format: $decoded");
         _violationTypes = [];
       }
-    } catch (e) {
+    } else {
+      debugPrint("❌ HTTP ${response.statusCode}: ${response.body}");
       _violationTypes = [];
-      debugPrint("❌ Exception fetching violation types: $e");
-    } finally {
-      _isLoadingViolationTypes = false;
-      notifyListeners();
     }
+  } catch (e) {
+    _violationTypes = [];
+    debugPrint("❌ Exception fetching violation types: $e");
+  } finally {
+    _isLoadingViolationTypes = false;
+    notifyListeners();
   }
+}
+
 
   // -----------------------------
   // Utilities
