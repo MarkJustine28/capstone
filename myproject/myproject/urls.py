@@ -28,7 +28,7 @@ urlpatterns = [
     
     # Include your app routes
     path('api/', include('api.urls')),       # Existing API routes
-    path('api/', include('reports.urls')),   # Add reports routes here
+    path('api/reports/', include('reports.urls')),   # Add reports routes here
 
     path("run-migrations/", run_migrations),
     path("create-admin/", create_admin),

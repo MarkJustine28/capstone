@@ -1,4 +1,3 @@
-# reports/views.py
 from rest_framework import generics
 from .models import ViolationType
 from .serializers import ViolationTypeSerializer
