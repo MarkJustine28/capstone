@@ -1,35 +1,45 @@
-# reports/signals.py
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
-from django.db import connection
-from reports.models import ViolationType
-
-def table_exists(table_name):
-    """Check if a table exists in the database."""
-    return table_name in connection.introspection.table_names()
+from api.models import ViolationType
 
 @receiver(post_migrate)
-def create_violation_types(sender, **kwargs):
-    if sender.name != 'reports':
-        return
+def populate_violation_types(sender, **kwargs):
+    """
+    Automatically populate violation types after migrations.
+    Prevents duplicates using get_or_create().
+    """
+    # Prevent running multiple times for unrelated apps
+    if sender.name != "api":
+        return  
 
-    # Only proceed if the table exists
-    if not table_exists('reports_violationtype'):
-        return
-
-    violation_names = [
-        "Absenteeism",
-        "Bullying - Physical, Verbal/Emotional, Cyberbullying, Sexual, Racism",
-        "Cheating",
-        "Cutting Classes",
-        "Gambling",
-        "Haircut",
-        "Misbehavior",
-        "Not Wearing Proper Uniform/ID",
-        "Others",
-        "Tardiness",
-        "Using Vape/Cigarette",
+    violations = [
+        {'name': 'Tardiness', 'category': 'Attendance', 'severity_level': 'Low'},
+        {'name': 'Using Vape/Cigarette', 'category': 'Substance', 'severity_level': 'High'},
+        {'name': 'Misbehavior', 'category': 'Behavioral', 'severity_level': 'Medium'},
+        {'name': 'Bullying - Physical', 'category': 'Bullying', 'severity_level': 'Critical'},
+        {'name': 'Bullying - Verbal/Emotional', 'category': 'Bullying', 'severity_level': 'High'},
+        {'name': 'Bullying - Cyberbullying', 'category': 'Bullying', 'severity_level': 'High'},
+        {'name': 'Bullying - Sexual', 'category': 'Bullying', 'severity_level': 'Critical'},
+        {'name': 'Bullying - Racism', 'category': 'Bullying', 'severity_level': 'Critical'},
+        {'name': 'Gambling', 'category': 'Behavioral', 'severity_level': 'Medium'},
+        {'name': 'Hair Cut', 'category': 'Dress Code', 'severity_level': 'Low'},
+        {'name': 'Not Wearing Proper Uniform/ID', 'category': 'Dress Code', 'severity_level': 'Low'},
+        {'name': 'Cheating', 'category': 'Academic', 'severity_level': 'High'},
+        {'name': 'Cutting Classes', 'category': 'Attendance', 'severity_level': 'Medium'},
+        {'name': 'Absenteeism', 'category': 'Attendance', 'severity_level': 'Medium'},
     ]
 
-    for name in violation_names:
-        ViolationType.objects.get_or_create(name=name)
+    created_count = 0
+    existing_count = 0
+
+    for data in violations:
+        obj, created = ViolationType.objects.get_or_create(
+            name=data['name'],
+            defaults=data
+        )
+        if created:
+            created_count += 1
+        else:
+            existing_count += 1
+
+    print(f"🚀 Violation Types Seeded → Created: {created_count}, Existing: {existing_count}")

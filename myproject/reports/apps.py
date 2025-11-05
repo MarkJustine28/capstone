@@ -1,9 +1,8 @@
-# reports/apps.py
 from django.apps import AppConfig
 
-class ReportsConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "reports"
+class ReportConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'report'
 
     def ready(self):
-        import reports.signals  # ensures signals are registered
+        import report.signals  # 👈 Ensures signals are registered
