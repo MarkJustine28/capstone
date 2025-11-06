@@ -298,11 +298,7 @@ class Report(models.Model):
     )
 
     # ✅ NEW: Counselor's follow-up notes
-    counselor_notes = models.TextField(
-        blank=True, 
-        null=True, 
-        help_text="Additional notes from counselor about this report"
-    )
+    counselor_notes = models.TextField(blank=True, null=True, help_text="Notes from counselor about this report")
     
     # Timestamps
     incident_date = models.DateTimeField(null=True, blank=True)
