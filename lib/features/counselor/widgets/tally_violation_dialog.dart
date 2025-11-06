@@ -566,7 +566,7 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.send),
-            label: Text(_isSending ? 'Sending...' : 'Send Summons'),
+            label: Text(_isSending ? 'Sending...' : 'Send Notif'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
