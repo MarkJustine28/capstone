@@ -30,12 +30,17 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
   bool _showInvalidSection = false;
 
   String get reportStatus => widget.report['status']?.toString().toLowerCase() ?? '';
-  bool get isAlreadySummoned => reportStatus == 'summoned';
+  bool get isPending => reportStatus == 'pending';
+  bool get isSummoned => reportStatus == 'summoned';
+  bool get canTally => isSummoned; // Only summoned reports can be tallied
 
   @override
   void initState() {
     super.initState();
-    _messageController.text = 'Please bring any relevant documents or information regarding this incident.';
+    _messageController.text = 
+      'You are being called to the Guidance Office regarding an incident report.\n\n'
+      'Please report as soon as possible to discuss this matter.\n\n'
+      'Bring any relevant information or documents that may help clarify the situation.';
   }
 
   Future<void> _selectDateTime() async {
@@ -66,11 +71,13 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
     }
   }
 
-  Future<void> _sendSummons() async {
+  Future<void> _sendGuidanceNotice() async {
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isSending = true);
 
     try {
-      final dynamic counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
       
       final success = await counselorProvider.sendCounselingSummons(
         reportId: widget.report['id'],
@@ -82,6 +89,11 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
         Navigator.of(context).pop();
         widget.onViolationTallied();
         
+        final studentName = widget.report['reported_student_name']?.toString() ?? 
+                           widget.report['student']?['name']?.toString() ?? 
+                           widget.report['student_name']?.toString() ??
+                           'the student';
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -94,12 +106,12 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        '✅ Summons Sent Successfully',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                        '📢 Guidance Notice Sent!',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
-                        'Student has been notified to report to guidance office',
-                        style: TextStyle(fontSize: 12),
+                        '$studentName has been notified to report to the guidance office.',
+                        style: const TextStyle(fontSize: 12, color: Colors.white),
                       ),
                     ],
                   ),
@@ -107,11 +119,16 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
               ],
             ),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
           ),
         );
       } else {
-        throw Exception('Failed to send summons');
+        throw Exception('Failed to send guidance notice');
       }
     } catch (e) {
       if (mounted) {
@@ -130,76 +147,74 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
   }
 
   Future<void> _markAsInvalid() async {
-  if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
 
-  setState(() => _isSending = true);
+    setState(() => _isSending = true);
 
-  try {
-    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-    
-    // ✅ Use the markReportAsInvalid method
-    final success = await counselorProvider.markReportAsInvalid(
-      reportId: widget.report['id'],
-      reason: _invalidReasonController.text.trim(),
-    );
-
-    if (success && mounted) {
-      Navigator.of(context).pop();
-      widget.onViolationTallied();
+    try {
+      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.cancel, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '✅ Report Marked as Invalid',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Notifications sent to student and reporter',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
+      final success = await counselorProvider.markReportAsInvalid(
+        reportId: widget.report['id'],
+        reason: _invalidReasonController.text.trim(),
+      );
+
+      if (success && mounted) {
+        Navigator.of(context).pop();
+        widget.onViolationTallied();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.cancel, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '✅ Report Marked as Invalid',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      Text(
+                        'Notifications sent to student and reporter',
+                        style: TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
           ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 4),
-        ),
-      );
-    } else {
-      throw Exception('Failed to mark report as invalid');
-    }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Error: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  } finally {
-    if (mounted) {
-      setState(() => _isSending = false);
+        );
+      } else {
+        throw Exception('Failed to mark report as invalid');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
     }
   }
-}
 
   void _proceedToTally() {
-    // Close current dialog and show tally dialog
     Navigator.of(context).pop();
     showDialog(
       context: context,
-      builder: (context) => _OriginalTallyDialog(
+      builder: (context) => _TallyConfirmationDialog(
         report: widget.report,
         violationTypes: widget.violationTypes,
         onViolationTallied: widget.onViolationTallied,
@@ -220,19 +235,35 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: isAlreadySummoned ? Colors.orange.shade100 : Colors.blue.shade100,
+              color: isPending 
+                  ? Colors.blue.shade100 
+                  : isSummoned 
+                      ? Colors.orange.shade100 
+                      : Colors.green.shade100,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              isAlreadySummoned ? Icons.assignment_ind : Icons.notifications_active,
-              color: isAlreadySummoned ? Colors.orange.shade700 : Colors.blue.shade700,
+              isPending 
+                  ? Icons.notifications_active 
+                  : isSummoned 
+                      ? Icons.assignment_ind 
+                      : Icons.check_circle,
+              color: isPending 
+                  ? Colors.blue.shade700 
+                  : isSummoned 
+                      ? Colors.orange.shade700 
+                      : Colors.green.shade700,
               size: 24,
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              isAlreadySummoned ? 'Student Summoned' : 'Call Student for Counseling',
+              isPending 
+                  ? 'Send Guidance Notice' 
+                  : isSummoned 
+                      ? 'Student Summoned' 
+                      : 'Process Report',
               style: const TextStyle(fontSize: 18),
             ),
           ),
@@ -247,7 +278,7 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Report Information
+                // Report Information Card
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -270,14 +301,27 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text('Student: $studentName'),
-                      Text('Violation: ${widget.report['violation_type'] ?? 'N/A'}'),
-                      Text('Status: ${reportStatus.toUpperCase()}', 
-                        style: TextStyle(
-                          color: isAlreadySummoned ? Colors.orange : Colors.blue,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      const Divider(height: 16),
+                      _buildInfoRow('Student', studentName, Icons.person),
+                      _buildInfoRow(
+                        'Violation', 
+                        widget.report['violation_type']?.toString() ?? 'N/A',
+                        Icons.warning,
+                      ),
+                      _buildInfoRow(
+                        'Reported by', 
+                        widget.report['reported_by']?['name']?.toString() ?? 'Unknown',
+                        Icons.person_outline,
+                      ),
+                      _buildInfoRow(
+                        'Status', 
+                        reportStatus.toUpperCase(),
+                        Icons.info,
+                        statusColor: isPending 
+                            ? Colors.blue 
+                            : isSummoned 
+                                ? Colors.orange 
+                                : Colors.green,
                       ),
                     ],
                   ),
@@ -285,190 +329,8 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                 
                 const SizedBox(height: 20),
 
-                if (isAlreadySummoned) ...[
-                  // Student has been summoned - show action options
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.info, color: Colors.orange.shade700),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            'Student has been summoned. After counseling session, choose an action:',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-
-                  // Action buttons
-                  const Text(
-                    'Counseling Session Result:',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Option 1: Tally (Violation Confirmed)
-                  Card(
-                    color: Colors.red.shade50,
-                    child: InkWell(
-                      onTap: _isSending ? null : _proceedToTally,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.gavel, color: Colors.white),
-                            ),
-                            const SizedBox(width: 12),
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Tally Violation',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Student admitted/confirmed violation',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Option 2: Mark as Invalid
-                  Card(
-                    color: Colors.grey.shade100,
-                    child: InkWell(
-                      onTap: _isSending ? null : () => setState(() => _showInvalidSection = !_showInvalidSection),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade600,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.cancel, color: Colors.white),
-                            ),
-                            const SizedBox(width: 12),
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Mark as Invalid',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  Text(
-                                    'No violation found/report unsubstantiated',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              _showInvalidSection ? Icons.expand_less : Icons.expand_more,
-                              size: 20,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Invalid reason input
-                  if (_showInvalidSection) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Reason for Marking as Invalid:',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _invalidReasonController,
-                            decoration: const InputDecoration(
-                              hintText: 'Explain why this report is invalid...',
-                              border: OutlineInputBorder(),
-                              filled: true,
-                              fillColor: Colors.white,
-                            ),
-                            maxLines: 3,
-                            validator: (value) {
-                              if (_showInvalidSection && (value == null || value.trim().isEmpty)) {
-                                return 'Please provide a reason';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _isSending ? null : _markAsInvalid,
-                              icon: _isSending
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.cancel),
-                              label: Text(_isSending ? 'Processing...' : 'Confirm Mark as Invalid'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ] else ...[
-                  // Student not yet summoned - show summons form
+                // PENDING STATE - Send Guidance Notice
+                if (isPending) ...[
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -482,7 +344,7 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Text(
-                            'Before tallying, the student must be called for counseling to verify the violation.',
+                            'Before processing this report, the student must be notified to report to your office for counseling.',
                             style: TextStyle(fontSize: 13),
                           ),
                         ),
@@ -492,10 +354,10 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                   
                   const SizedBox(height: 16),
 
-                  // Schedule Date/Time
+                  // Schedule Date/Time (Optional)
                   const Text(
-                    'Schedule Counseling Session (Optional):',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    'Schedule Appointment (Optional):',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const SizedBox(height: 8),
                   InkWell(
@@ -509,13 +371,13 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.calendar_today, size: 20),
+                          Icon(Icons.calendar_today, size: 20, color: Colors.blue.shade700),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               _selectedDate != null
                                   ? DateFormat('EEEE, MMMM d, y @ h:mm a').format(_selectedDate!)
-                                  : 'Select date and time (optional)',
+                                  : 'Tap to schedule date & time',
                               style: TextStyle(
                                 color: _selectedDate != null ? Colors.black : Colors.grey,
                               ),
@@ -529,22 +391,118 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                   
                   const SizedBox(height: 16),
 
-                  // Additional Message
+                  // Notice Message
                   const Text(
-                    'Additional Message (Optional):',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    'Notice Message:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Add any special instructions...',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      hintText: 'Message for the student...',
+                      border: const OutlineInputBorder(),
                       filled: true,
                       fillColor: Colors.white,
+                      prefixIcon: Icon(Icons.message, color: Colors.blue.shade700),
                     ),
-                    maxLines: 3,
+                    maxLines: 5,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter a message';
+                      }
+                      return null;
+                    },
                   ),
+                  
+                  const SizedBox(height: 16),
+
+                  // Quick Actions for Pending
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isSending ? null : () {
+                            setState(() => _showInvalidSection = !_showInvalidSection);
+                          },
+                          icon: const Icon(Icons.cancel),
+                          label: const Text('Mark Invalid'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange,
+                            side: BorderSide(color: Colors.orange.shade300),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (_showInvalidSection) ...[
+                    const SizedBox(height: 12),
+                    _buildInvalidSection(),
+                  ],
+                ],
+
+                // SUMMONED STATE - Post-Counseling Actions
+                if (isSummoned) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.orange.shade700),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Student has been summoned. After the counseling session, choose an appropriate action:',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'Counseling Session Result:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Option 1: Tally Violation (Confirmed)
+                  _buildActionCard(
+                    title: 'Tally Violation',
+                    subtitle: 'Student admitted to or violation was confirmed',
+                    icon: Icons.gavel,
+                    color: Colors.red,
+                    onTap: _isSending ? null : _proceedToTally,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Option 2: Mark as Invalid
+                  _buildActionCard(
+                    title: 'Mark as Invalid',
+                    subtitle: 'No violation found or report unsubstantiated',
+                    icon: Icons.cancel,
+                    color: Colors.grey.shade600,
+                    onTap: _isSending ? null : () {
+                      setState(() => _showInvalidSection = !_showInvalidSection);
+                    },
+                    trailing: Icon(
+                      _showInvalidSection ? Icons.expand_less : Icons.expand_more,
+                      size: 20,
+                    ),
+                  ),
+
+                  if (_showInvalidSection) ...[
+                    const SizedBox(height: 12),
+                    _buildInvalidSection(),
+                  ],
                 ],
               ],
             ),
@@ -556,9 +514,9 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
           onPressed: _isSending ? null : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        if (!isAlreadySummoned)
+        if (isPending && !_showInvalidSection)
           ElevatedButton.icon(
-            onPressed: _isSending ? null : _sendSummons,
+            onPressed: _isSending ? null : _sendGuidanceNotice,
             icon: _isSending
                 ? const SizedBox(
                     width: 16,
@@ -566,7 +524,7 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.send),
-            label: Text(_isSending ? 'Sending...' : 'Send Notif'),
+            label: Text(_isSending ? 'Sending...' : 'Send Notice'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
@@ -574,6 +532,148 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, IconData icon, {Color? statusColor}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: statusColor ?? Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                children: [
+                  TextSpan(
+                    text: '$label: ',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  TextSpan(
+                    text: value,
+                    style: TextStyle(
+                      color: statusColor ?? Colors.black87,
+                      fontWeight: statusColor != null ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    VoidCallback? onTap,
+    Widget? trailing,
+  }) {
+    return Card(
+      color: color == Colors.red ? Colors.red.shade50 : Colors.grey.shade100,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              trailing ?? const Icon(Icons.arrow_forward_ios, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInvalidSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Reason for Marking as Invalid:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _invalidReasonController,
+            decoration: const InputDecoration(
+              hintText: 'Explain why this report is invalid (e.g., unsubstantiated, false accusation, lack of evidence)...',
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            maxLines: 3,
+            validator: (value) {
+              if (_showInvalidSection && (value == null || value.trim().isEmpty)) {
+                return 'Please provide a reason for marking as invalid';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSending ? null : _markAsInvalid,
+              icon: _isSending
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.cancel),
+              label: Text(_isSending ? 'Processing...' : 'Confirm Mark as Invalid'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -585,23 +685,23 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
   }
 }
 
-// Original Tally Dialog (for when violation is confirmed after counseling)
-class _OriginalTallyDialog extends StatefulWidget {
+// Tally Confirmation Dialog (shown after counseling for confirmed violations)
+class _TallyConfirmationDialog extends StatefulWidget {
   final Map<String, dynamic> report;
   final List<Map<String, dynamic>> violationTypes;
   final VoidCallback onViolationTallied;
 
-  const _OriginalTallyDialog({
+  const _TallyConfirmationDialog({
     required this.report,
     required this.violationTypes,
     required this.onViolationTallied,
   });
 
   @override
-  State<_OriginalTallyDialog> createState() => _OriginalTallyDialogState();
+  State<_TallyConfirmationDialog> createState() => _TallyConfirmationDialogState();
 }
 
-class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
+class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
   final _formKey = GlobalKey<FormState>();
   final _counselorNotesController = TextEditingController();
   Map<String, dynamic>? _selectedViolationType;
@@ -614,14 +714,26 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
     super.initState();
     // Pre-select violation type from report if available
     if (widget.report['violation_type_id'] != null) {
-      _selectedViolationType = widget.violationTypes.firstWhere(
-        (type) => type['id'] == widget.report['violation_type_id'],
-        orElse: () => widget.violationTypes.first,
-      );
-      if (_selectedViolationType != null) {
-        _severity = _selectedViolationType!['severity_level'] ?? 'Medium';
+      try {
+        _selectedViolationType = widget.violationTypes.firstWhere(
+          (type) => type['id'] == widget.report['violation_type_id'],
+          orElse: () => widget.violationTypes.isNotEmpty ? widget.violationTypes.first : {},
+        );
+        if (_selectedViolationType != null && _selectedViolationType!.isNotEmpty) {
+          _severity = _selectedViolationType!['severity_level'] ?? 'Medium';
+        }
+      } catch (e) {
+        debugPrint('Error pre-selecting violation type: $e');
       }
     }
+
+    // Pre-fill counselor notes with report details
+    _counselorNotesController.text = 
+      'Counseling Session Summary:\n'
+      '- Student admitted to the violation\n'
+      '- Discussion held about the incident\n'
+      '- Student understands the consequences\n\n'
+      'Additional Notes:\n';
   }
 
   Future<void> _selectDateTime(BuildContext context) async {
@@ -666,12 +778,18 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
         throw Exception('Student ID not found in report');
       }
 
+      if (_selectedViolationType == null) {
+        throw Exception('Please select a violation type');
+      }
+
       final violationData = {
         'student_id': studentId,
         'violation_type_id': _selectedViolationType!['id'],
         'incident_date': _incidentDate.toIso8601String(),
-        'description': 'Reported by: ${widget.report['reported_by']?['name'] ?? 'Unknown'}\n\n'
-                      '${widget.report['content'] ?? widget.report['description'] ?? 'Violation tallied from report: ${widget.report['title']}'}',
+        'description': 'Report Title: ${widget.report['title'] ?? 'N/A'}\n\n'
+                      'Reported by: ${widget.report['reported_by']?['name'] ?? 'Unknown'}\n\n'
+                      'Original Report:\n${widget.report['content'] ?? widget.report['description'] ?? 'No description available'}\n\n'
+                      'Counseling Notes:\n${_counselorNotesController.text.trim()}',
         'location': widget.report['location'] ?? '',
         'severity_override': _severity,
         'related_report_id': widget.report['id'],
@@ -690,58 +808,63 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
           'resolved',
         );
         
-        // Refresh data
-        await counselorProvider.fetchStudentsList();
-        await counselorProvider.fetchStudentViolations();
-        await counselorProvider.fetchCounselorStudentReports();
+        // Refresh all data
+        await Future.wait([
+          counselorProvider.fetchStudentsList(),
+          counselorProvider.fetchStudentViolations(),
+          counselorProvider.fetchCounselorStudentReports(forceRefresh: true),
+        ]);
         
-        Navigator.of(context).pop();
-        widget.onViolationTallied();
-        
-        final studentName = widget.report['reported_student_name']?.toString() ?? 
-                           widget.report['student']?['name']?.toString() ?? 
-                           'student';
+        if (mounted) {
+          Navigator.of(context).pop();
+          widget.onViolationTallied();
+          
+          final studentName = widget.report['reported_student_name']?.toString() ?? 
+                             widget.report['student']?['name']?.toString() ?? 
+                             widget.report['student_name']?.toString() ??
+                             'student';
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '✅ Violation Tallied Successfully',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        'Notifications sent to $studentName and reporter',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '✅ Violation Tallied Successfully',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        Text(
+                          'Notifications sent to $studentName and the reporter',
+                          style: const TextStyle(fontSize: 12, color: Colors.white),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const StudentViolationsPage(),
+                    ),
+                  );
+                },
+              ),
             ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: 'View',
-              textColor: Colors.white,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const StudentViolationsPage(),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
+          );
+        }
       } else {
         throw Exception('Failed to tally violation');
       }
@@ -765,14 +888,22 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
   Widget build(BuildContext context) {
     final studentName = widget.report['reported_student_name']?.toString() ?? 
                        widget.report['student']?['name']?.toString() ?? 
+                       widget.report['student_name']?.toString() ??
                        'Unknown Student';
 
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.gavel, color: Colors.red),
-          SizedBox(width: 8),
-          Text('Confirm and Tally Violation'),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.red.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.gavel, color: Colors.red.shade700),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Confirm and Tally Violation')),
         ],
       ),
       content: SingleChildScrollView(
@@ -797,7 +928,7 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                       const SizedBox(width: 12),
                       const Expanded(
                         child: Text(
-                          'Violation confirmed after counseling session. Proceed to tally.',
+                          'Violation confirmed after counseling session. Proceeding to tally.',
                           style: TextStyle(fontSize: 13),
                         ),
                       ),
@@ -808,12 +939,26 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                 const SizedBox(height: 16),
 
                 // Student Name
-                Text('Student: $studentName', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Student: $studentName',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                  ],
+                ),
                 
-                const SizedBox(height: 16),
+                const Divider(height: 24),
 
                 // Incident Date
-                const Text('Incident Date & Time *', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Incident Date & Time *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
                 const SizedBox(height: 8),
                 InkWell(
                   onTap: () => _selectDateTime(context),
@@ -832,6 +977,7 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                             DateFormat('EEEE, MMMM d, y @ h:mm a').format(_incidentDate),
                           ),
                         ),
+                        const Icon(Icons.edit, size: 16),
                       ],
                     ),
                   ),
@@ -840,16 +986,25 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                 const SizedBox(height: 16),
 
                 // Violation Type
+                const Text(
+                  'Violation Type *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<Map<String, dynamic>>(
                   value: _selectedViolationType,
                   decoration: const InputDecoration(
-                    labelText: 'Violation Type *',
                     border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
+                  isExpanded: true,
                   items: widget.violationTypes.map((type) {
                     return DropdownMenuItem(
                       value: type,
-                      child: Text(type['name'] ?? 'Unknown'),
+                      child: Text(
+                        type['name'] ?? 'Unknown',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: (value) => setState(() {
@@ -864,16 +1019,37 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                 const SizedBox(height: 16),
 
                 // Severity
+                const Text(
+                  'Severity Level *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: _severity,
                   decoration: const InputDecoration(
-                    labelText: 'Severity Level *',
                     border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                   items: ['Low', 'Medium', 'High', 'Critical'].map((severity) {
                     return DropdownMenuItem(
                       value: severity,
-                      child: Text(severity),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 12,
+                            color: severity == 'Low' 
+                                ? Colors.green 
+                                : severity == 'Medium' 
+                                    ? Colors.orange 
+                                    : severity == 'High'
+                                        ? Colors.red
+                                        : Colors.purple,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(severity),
+                        ],
+                      ),
                     );
                   }).toList(),
                   onChanged: (value) => setState(() => _severity = value ?? 'Medium'),
@@ -882,20 +1058,52 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                 const SizedBox(height: 16),
 
                 // Counselor Notes
+                const Text(
+                  'Counseling Session Notes *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
                 TextFormField(
                   controller: _counselorNotesController,
                   decoration: const InputDecoration(
-                    labelText: 'Counselor Session Notes *',
-                    hintText: 'Summary of counseling session and student response...',
+                    hintText: 'Document the counseling session and student\'s response...',
                     border: OutlineInputBorder(),
                   ),
-                  maxLines: 4,
+                  maxLines: 6,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'Please add notes about the counseling session';
                     }
+                    if (value.trim().length < 20) {
+                      return 'Please provide more detailed notes (at least 20 characters)';
+                    }
                     return null;
                   },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Info box
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Once tallied, the violation will be added to the student\'s record and both the student and reporter will be notified.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -916,7 +1124,7 @@ class _OriginalTallyDialogState extends State<_OriginalTallyDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
               : const Icon(Icons.gavel),
-          label: Text(_isTallying ? 'Tallying...' : 'Tally Violation'),
+          label: Text(_isTallying ? 'Tallying...' : 'Confirm & Tally'),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,

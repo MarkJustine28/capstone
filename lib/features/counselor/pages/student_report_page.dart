@@ -619,34 +619,34 @@ Widget build(BuildContext context) {
                     ),
                     const SizedBox(width: 8),
                     if (status == "pending")
-                      Flexible(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          onPressed: isLoading 
-                              ? null 
-                              : () => _verifyAndTallyReport(context, index),
-                          icon: isLoading
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                )
-                              : const Icon(Icons.check_circle_outline, size: 16),
-                          label: Text(
-                            isLoading ? "Processing..." : "Mark Reviewed",
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isLoading ? Colors.grey : Colors.green,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                            minimumSize: const Size(0, 36),
-                          ),
-                        ),
-                      ),
+  Flexible(
+    flex: 2,
+    child: ElevatedButton.icon(
+      onPressed: isLoading 
+          ? null 
+          : () => _verifyAndTallyReport(context, index),
+      icon: isLoading
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Icon(Icons.notifications_active, size: 16), // ✅ Changed icon
+      label: Text(
+        isLoading ? "Sending..." : "Send Notice", // ✅ Changed text
+        style: const TextStyle(fontSize: 12),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isLoading ? Colors.grey : Colors.blue, // ✅ Changed color
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        minimumSize: const Size(0, 36),
+      ),
+    ),
+  ),
                   ],
                 ),
             ],
@@ -682,25 +682,30 @@ Widget build(BuildContext context) {
     }
   }
 
-  Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
+  // Update the _verifyAndTallyReport method:
+Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
   final report = counselorProvider.counselorStudentReports[index];
 
-  // Show verification dialog
-  final verified = await _showVerificationDialog(context, report);
-  if (!verified) {
-    // If not verified, mark as dismissed
-    await _markReportAsDismissed(context, index);
+  // ✅ Show dialog to send guidance notice instead of just marking as reviewed
+  final sendNotice = await _showGuidanceNoticeDialog(context, report);
+  if (!sendNotice) {
+    // If canceled, do nothing
     return;
   }
 
-  // Mark as reviewed (valid) - this makes it available for tallying
   setState(() {
     _loadingReports.add(index);
   });
 
   try {
-    final success = await counselorProvider.markStudentReportAsReviewed(index);
+    // ✅ Send guidance notice instead of marking as reviewed
+    final success = await counselorProvider.sendCounselingSummons(
+      reportId: report['id'],
+      scheduledDate: null, // Optional
+      message: 'Please report to the Guidance Office regarding an incident report. '
+              'We need to discuss this matter with you.',
+    );
     
     if (mounted) {
       if (success) {
@@ -711,12 +716,22 @@ Widget build(BuildContext context) {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
+                const Icon(Icons.notifications_active, color: Colors.white),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    "Report marked as valid! It's now available for tallying in Students Management.",
-                    style: const TextStyle(color: Colors.white),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "📢 Guidance Notice Sent!",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      Text(
+                        "Student ${report['reported_student_name'] ?? 'Unknown'} has been notified to report to guidance office.",
+                        style: const TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -724,12 +739,10 @@ Widget build(BuildContext context) {
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: 'Go to Students Management',
+              label: 'View in Tally',
               textColor: Colors.white,
               onPressed: () {
-                // Navigate to Students Management tab
-                // This depends on your tab structure - you might need to use a callback
-                // or state management to switch tabs
+                // Navigate to Students Management to see summoned reports
               },
             ),
           ),
@@ -737,7 +750,7 @@ Widget build(BuildContext context) {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌ Failed to mark report as reviewed'),
+            content: Text('❌ Failed to send guidance notice'),
             backgroundColor: Colors.red,
           ),
         );
@@ -747,7 +760,7 @@ Widget build(BuildContext context) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error reviewing report: $e'),
+          content: Text('Error sending notice: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -759,6 +772,244 @@ Widget build(BuildContext context) {
       });
     }
   }
+}
+
+// ✅ NEW: Dialog to confirm sending guidance notice
+Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic> report) async {
+  final messageController = TextEditingController(
+    text: 'Please report to the Guidance Office regarding an incident report. '
+          'We need to discuss this matter with you and verify the details.',
+  );
+  
+  return await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.notifications_active, color: Colors.blue.shade700),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('📢 Send Guidance Notice')),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Report Summary
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.person, color: Colors.orange, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Report: ${report['title'] ?? 'Untitled'}'),
+                    Text('Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}'),
+                    if (report['violation_type'] != null)
+                      Text('Violation Type: ${report['violation_type']}'),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Notice Message
+              const Text(
+                'Notice Message:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: messageController,
+                decoration: const InputDecoration(
+                  hintText: 'Enter message for the student...',
+                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                maxLines: 4,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Info box
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'The student will receive a notification to report to your office. '
+                        'After counseling, you can tally the violation from Students Management.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () {
+            messageController.dispose();
+            Navigator.of(context).pop(false);
+          },
+          icon: const Icon(Icons.close, color: Colors.grey),
+          label: const Text('Cancel'),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Mark as Invalid option
+            TextButton.icon(
+              onPressed: () async {
+                messageController.dispose();
+                Navigator.of(context).pop(false);
+                // Show invalid reason dialog
+                await _showMarkAsInvalidDialog(context, report);
+              },
+              icon: const Icon(Icons.block, color: Colors.red),
+              label: const Text('Mark Invalid'),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+            ),
+            const SizedBox(width: 8),
+            // Send Notice button
+            ElevatedButton.icon(
+              onPressed: () {
+                messageController.dispose();
+                Navigator.of(context).pop(true);
+              },
+              icon: const Icon(Icons.send, color: Colors.white),
+              label: const Text('Send Notice'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  ) ?? false;
+}
+
+// ✅ NEW: Dialog to mark report as invalid
+Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic> report) async {
+  final reasonController = TextEditingController();
+  
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.block, color: Colors.red),
+          SizedBox(width: 8),
+          Text('Mark Report as Invalid'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Why is this report invalid?',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: reasonController,
+            decoration: const InputDecoration(
+              hintText: 'e.g., Report is unsubstantiated, false accusation, etc.',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            reasonController.dispose();
+            Navigator.of(context).pop(false);
+          },
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (reasonController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please provide a reason')),
+              );
+              return;
+            }
+            Navigator.of(context).pop(true);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+  
+  if (confirmed == true && mounted) {
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    
+    final success = await counselorProvider.markReportAsInvalid(
+      reportId: report['id'],
+      reason: reasonController.text.trim(),
+    );
+    
+    if (success && mounted) {
+      await counselorProvider.fetchCounselorStudentReports(forceRefresh: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Report marked as invalid'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+  
+  reasonController.dispose();
 }
 
   Future<bool> _showVerificationDialog(BuildContext context, Map<String, dynamic> report) async {
