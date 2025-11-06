@@ -510,6 +510,7 @@ ${_descriptionController.text.trim()}''';
                   ),
                   isExpanded: true,
                   menuMaxHeight: 400,
+                  // ✅ FIX: Remove the padding and use simpler layout
                   items: studentProvider.violationTypes.map((Map<String, dynamic> violation) {
                     final name = violation['name']?.toString() ?? 'Unknown';
                     final category = violation['category']?.toString() ?? 'Other';
@@ -518,54 +519,41 @@ ${_descriptionController.text.trim()}''';
                     
                     return DropdownMenuItem<Map<String, dynamic>>(
                       value: violation,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: color,
-                                shape: BoxShape.circle,
-                              ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 4,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: name.startsWith('Bullying')
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                      color: name.startsWith('Bullying')
-                                          ? Colors.red.shade700
-                                          : Colors.black87,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '$category • $severity',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.normal,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
+                          ),
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: name.startsWith('Bullying')
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: name.startsWith('Bullying')
+                                    ? Colors.red.shade700
+                                    : Colors.black87,
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            severity,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   }).toList(),
