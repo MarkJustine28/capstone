@@ -600,7 +600,7 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
 
     // ✅ Make sure it has /api/ prefix
     final response = await http.get(
-      Uri.parse('http://192.168.163.123:8000/api/counselor/student-reports/'),  // ✅ Must have /api/
+      Uri.parse('$_baseUrl/api/counselor/student-reports/'),  // ✅ Must have /api/
       headers: {
         'Authorization': 'Token $_token',
         'Content-Type': 'application/json',
