@@ -669,6 +669,16 @@ def teacher_reports(request):
                 custom_violation=data.get('custom_violation'),
             )
             
+            # ✅ ADD THIS DEBUG BLOCK
+            logger.info(f"✅ Report created with ID: {report.id}, Status: {report.status}")
+            logger.info(f"✅ Reported student: {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+            logger.info(f"✅ Violation Type: {violation_type.name if violation_type else 'None'} (ID: {violation_type.id if violation_type else 'None'})")
+            logger.info(f"✅ Violation Type ID passed in: {violation_type_id}")
+
+            # ✅ Verify what's in the database
+            saved_report = Report.objects.select_related('violation_type').get(id=report.id)
+            logger.info(f"✅ VERIFICATION - Saved report violation_type: {saved_report.violation_type.name if saved_report.violation_type else 'None'}")
+            logger.info(f"✅ VERIFICATION - Saved report violation_type ID: {saved_report.violation_type.id if saved_report.violation_type else 'None'}")
             print(f"✅ Report created successfully (ID: {report.id})")
             
             # Create notification for counselor
@@ -1977,6 +1987,9 @@ def counselor_student_reports(request):
                     'evidence_files': evidence_url,  # ✅ Safe access
                     'counselor_notes': getattr(report, 'counselor_notes', ''),
                 }
+
+                logger.info(f"📤 Report #{report.id}: violation_type='{report.violation_type.name if report.violation_type else 'None'}', violation_type_id={report.violation_type.id if report.violation_type else 'None'}")
+                
                 reports_data.append(report_data)
                 
             except Exception as e:
@@ -3208,3 +3221,104 @@ def mark_report_invalid(request, report_id):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_report_status(request, report_id):
+    """Update report status (used for marking as reviewed, invalid, etc.)"""
+    try:
+        # Get the report
+        report = Report.objects.get(id=report_id)
+        
+        # Get data from request
+        new_status = request.data.get('status')
+        counselor_notes = request.data.get('notes', '')
+        
+        # Validate status
+        valid_statuses = ['pending', 'under_review', 'summoned', 'reviewed', 'resolved', 'invalid', 'dismissed']
+        if new_status not in valid_statuses:
+            return Response({
+                'success': False,
+                'error': f'Invalid status: {new_status}'
+            }, status=400)
+        
+        # Update the report
+        old_status = report.status
+        report.status = new_status
+        
+        # Update counselor notes if provided
+        if counselor_notes:
+            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+            note_entry = f"\n\n[{timestamp}] Status changed from {old_status} to {new_status}\nNotes: {counselor_notes}"
+            report.counselor_notes = (report.counselor_notes or '') + note_entry
+        
+        # If marking as reviewed, set the reviewed timestamp
+        if new_status == 'reviewed':
+            report.is_reviewed = True
+            report.reviewed_at = timezone.now()
+            report.assigned_counselor = request.user.counselor if hasattr(request.user, 'counselor') else None
+        
+        # If marking as resolved, set resolved timestamp
+        if new_status == 'resolved':
+            report.resolved_at = timezone.now()
+        
+        # If marking as invalid/dismissed
+        if new_status in ['invalid', 'dismissed']:
+            report.verification_status = 'dismissed' if hasattr(report, 'verification_status') else None
+        
+        report.save()
+        
+        # Create notifications
+        # 1. Notify the student
+        if report.student and report.student.user:
+            status_messages = {
+                'summoned': 'You have been summoned for counseling regarding your report.',
+                'reviewed': 'Your report has been reviewed and validated by the guidance counselor.',
+                'resolved': 'Your report has been resolved.',
+                'invalid': 'Your report has been marked as invalid.',
+                'dismissed': 'Your report has been dismissed.',
+            }
+            
+            Notification.objects.create(
+                user=report.student.user,
+                title=f'Report Status Update: {report.title}',
+                message=status_messages.get(new_status, f'Your report status has been updated to {new_status}.'),
+                type='report_updated',
+                related_report=report
+            )
+        
+        # 2. Notify the reporter if different from student
+        if report.reported_by and (not report.student or report.reported_by != report.student.user):
+            Notification.objects.create(
+                user=report.reported_by,
+                title=f'Report Status Update: {report.title}',
+                message=f'The report you submitted has been updated to {new_status}.',
+                type='report_updated',
+                related_report=report
+            )
+        
+        return Response({
+            'success': True,
+            'message': f'Report status updated to {new_status}',
+            'report': {
+                'id': report.id,
+                'status': report.status,
+                'is_reviewed': report.is_reviewed,
+                'counselor_notes': report.counselor_notes,
+            }
+        })
+        
+    except Report.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': f'Report with ID {report_id} not found'
+        }, status=404)
+    
+    except Exception as e:
+        print(f"❌ Error updating report status: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
