@@ -225,6 +225,10 @@ ${_descriptionController.text.trim()}''';
         debugPrint("📝 Submitting report via StudentProvider");
         debugPrint("📝 Report submitted by: $reporterName");
         debugPrint("📝 Student being reported: $reportedStudentName");
+        debugPrint("📝 Selected Violation Type: ${_selectedViolationType?['name']}");
+        debugPrint("📝 Violation Type ID: ${_selectedViolationType?['id']}");
+        debugPrint("📝 Report Title: $title");
+        debugPrint("📝 Full Report Data: $reportData");
 
         // ✅ Use StudentProvider to submit report
         await studentProvider.submitReport(reportData);

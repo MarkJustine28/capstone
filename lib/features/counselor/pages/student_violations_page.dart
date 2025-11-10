@@ -207,67 +207,81 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
       
       // Three-dot menu with all other actions
       PopupMenuButton<String>(
-        icon: const Icon(Icons.more_vert),
-        onSelected: (value) {
-          switch (value) {
-            case 'add_student':
-              _showAddStudentDialog(context);
-              break;
-            case 'bulk_add':
-              _showBulkAddDialog();
-              break;
-            case 'tally_report':
-              _showTallyReportDialog(context);
-              break;
-            case 'export_list':
-              _exportStudentsList();
-              break;
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'add_student',
-            child: Row(
-              children: [
-                Icon(Icons.person_add, size: 20, color: Colors.black,),
-                SizedBox(width: 12),
-                Text('Add Student'),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'bulk_add',
-            child: Row(
-              children: [
-                Icon(Icons.group_add, size: 20, color: Colors.black,),
-                SizedBox(width: 12),
-                Text('Bulk Add Students'),
-              ],
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'tally_report',
-            child: Row(
-              children: [
-                Icon(Icons.assignment, size: 20, color: Colors.black,),
-                SizedBox(width: 12),
-                Text('Tally Report'),
-              ],
-            ),
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
-            value: 'export_list',
-            child: Row(
-              children: [
-                Icon(Icons.download, size: 20, color: Colors.black,),
-                SizedBox(width: 12),
-                Text('Export List'),
-              ],
-            ),
-          ),
+  icon: const Icon(Icons.more_vert),
+  onSelected: (value) {
+    switch (value) {
+      case 'add_student':
+        _showAddStudentDialog(context);
+        break;
+      case 'bulk_add':
+        _showBulkAddDialog();
+        break;
+      case 'send_notice':
+        _showSendGuidanceNoticeDialog(context);
+        break;
+      case 'tally_report':
+        _showTallyReportDialog(context);
+        break;
+      case 'export_list':
+        _exportStudentsList();
+        break;
+    }
+  },
+  itemBuilder: (context) => [
+    const PopupMenuItem(
+      value: 'add_student',
+      child: Row(
+        children: [
+          Icon(Icons.person_add, size: 20, color: Colors.black),
+          SizedBox(width: 12),
+          Text('Add Student'),
         ],
       ),
+    ),
+    const PopupMenuItem(
+      value: 'bulk_add',
+      child: Row(
+        children: [
+          Icon(Icons.group_add, size: 20, color: Colors.black),
+          SizedBox(width: 12),
+          Text('Bulk Add Students'),
+        ],
+      ),
+    ),
+    const PopupMenuDivider(),
+    const PopupMenuItem(
+      value: 'send_notice',
+      child: Row(
+        children: [
+          Icon(Icons.notifications_active, size: 20, color: Colors.blue),
+          SizedBox(width: 12),
+          Text('Send Guidance Notice'),
+        ],
+      ),
+    ),
+    const PopupMenuItem(
+      value: 'tally_report',
+      child: Row(
+        children: [
+          Icon(Icons.assignment, size: 20, color: Colors.orange),
+          SizedBox(width: 12),
+          Text('Tally Report'),
+        ],
+      ),
+    ),
+    const PopupMenuDivider(),
+    const PopupMenuItem(
+      value: 'export_list',
+      child: Row(
+        children: [
+          Icon(Icons.download, size: 20, color: Colors.black),
+          SizedBox(width: 12),
+          Text('Export List'),
+        ],
+      ),
+    ),
+  ],
+),
     ],
   ),
           body: Column(
@@ -990,92 +1004,102 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
             const SizedBox(height: 4),
             // Prominent violation summary
             Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _getTalliedViolationColor(totalViolations).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _getTalliedViolationColor(totalViolations).withOpacity(0.3),
+  padding: const EdgeInsets.all(8),
+  decoration: BoxDecoration(
+    color: _getTalliedViolationColor(totalViolations).withOpacity(0.1),
+    borderRadius: BorderRadius.circular(8),
+    border: Border.all(
+      color: _getTalliedViolationColor(totalViolations).withOpacity(0.3),
+    ),
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Icon(
+            Icons.assignment_turned_in,
+            size: 16,
+            color: _getTalliedViolationColor(totalViolations),
+          ),
+          const SizedBox(width: 6),
+          // ✅ FIX: Wrap text in Expanded to prevent overflow
+          Expanded(
+            child: Text(
+              '$totalViolations Tallied Violation${totalViolations != 1 ? 's' : ''}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: _getTalliedViolationColor(totalViolations),
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+      if (totalViolations > 0) ...[
+        const SizedBox(height: 4),
+        // ✅ FIX: Use Column instead of Wrap to prevent overflow
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (activeViolations > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: _buildChip('Active: $activeViolations', Colors.orange),
+              ),
+            if (resolvedViolations > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: _buildChip('Resolved: $resolvedViolations', Colors.green),
+              ),
+            if (highSeverityViolations > 0)
+              _buildChip('High Severity: $highSeverityViolations', Colors.red),
+          ],
+        ),
+      ],
+      // Action recommendation
+      if (needsAttention) ...[
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: criticalAttention 
+                ? Colors.red.withOpacity(0.1) 
+                : Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                criticalAttention ? Icons.phone : Icons.notifications_active,
+                size: 14,
+                color: criticalAttention ? Colors.red : Colors.orange,
+              ),
+              const SizedBox(width: 6),
+              // ✅ FIX: Wrap text in Expanded
+              Expanded(
+                child: Text(
+                  criticalAttention 
+                      ? '⚠️ Requires immediate counselor intervention'
+                      : '📞 Consider calling student for counseling',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: criticalAttention ? Colors.red : Colors.orange,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 2, // Allow 2 lines
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.assignment_turned_in,
-                        size: 16,
-                        color: _getTalliedViolationColor(totalViolations),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(  // Add Expanded here to prevent overflow
-                        child: Text(
-                          '$totalViolations Tallied Violation${totalViolations != 1 ? 's' : ''}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: _getTalliedViolationColor(totalViolations),
-                          ),
-                          overflow: TextOverflow.ellipsis,  // Add this
-                          maxLines: 1,  // Add this
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (totalViolations > 0) ...[
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 2,
-                      children: [
-                        if (activeViolations > 0)
-                          _buildChip('Active: $activeViolations', Colors.orange),
-                        if (resolvedViolations > 0)
-                          _buildChip('Resolved: $resolvedViolations', Colors.green),
-                        if (highSeverityViolations > 0)
-                          _buildChip('High Severity: $highSeverityViolations', Colors.red),
-                      ],
-                    ),
-                  ],
-                  // Action recommendation
-                  if (needsAttention) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: criticalAttention 
-                            ? Colors.red.withOpacity(0.1) 
-                            : Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            criticalAttention ? Icons.phone : Icons.notifications_active,
-                            size: 14,
-                            color: criticalAttention ? Colors.red : Colors.orange,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              criticalAttention 
-                                  ? '⚠️ Requires immediate counselor intervention'
-                                  : '📞 Consider calling student for counseling',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: criticalAttention ? Colors.red : Colors.orange,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+            ],
+          ),
+        ),
+      ],
+    ],
+  ),
+),
           ],
         ),
         children: [
@@ -1497,130 +1521,1106 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
   }
 
   void _showTallyReportDialog(BuildContext context) {
-    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+  final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
 
-    // Fetch reviewed reports if not already loaded
-    if (counselorProvider.counselorStudentReports.isEmpty) {
-      counselorProvider.fetchCounselorStudentReports();
-    }
+  // Fetch reviewed reports if not already loaded
+  if (counselorProvider.counselorStudentReports.isEmpty) {
+    counselorProvider.fetchCounselorStudentReports();
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => Consumer<CounselorProvider>(
-        builder: (context, provider, child) {
-          // ✅ Filter for ONLY reviewed reports (exclude 'invalid', 'dismissed', 'resolved')
-          final reviewedReports = provider.counselorStudentReports
-              .where((report) {
-                final status = report['status']?.toString().toLowerCase();
-                return status == 'reviewed'; // ONLY show reviewed reports, not invalid/dismissed
-              })
-              .toList();
+  showDialog(
+    context: context,
+    builder: (context) => Consumer<CounselorProvider>(
+      builder: (context, provider, child) {
+        // ✅ Filter for ONLY reviewed reports (after counseling, validated)
+        final reviewedReports = provider.counselorStudentReports
+            .where((report) {
+              final status = report['status']?.toString().toLowerCase();
+              return status == 'reviewed'; // Only show reviewed reports ready for tallying
+            })
+            .toList();
 
-          return AlertDialog(
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.assignment, color: Colors.blue.shade700, size: 20),
+        return AlertDialog(
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text('📊 Tally Report', style: TextStyle(fontSize: 18)),
+                child: Icon(Icons.assignment, color: Colors.orange.shade700, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text('📊 Tally Report', style: TextStyle(fontSize: 18)),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Info box
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'These reports have been reviewed after counseling and are confirmed valid. '
+                          'Tally them to add violations to student records.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Reports list
+                Expanded(
+                  child: provider.isLoadingCounselorStudentReports
+                      ? const Center(child: CircularProgressIndicator())
+                      : reviewedReports.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.assignment_outlined, size: 48, color: Colors.grey),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    'No reviewed reports to tally',
+                                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Reports must be:\n'
+                                    '• Summoned (student notified)\n'
+                                    '• Counseled (session completed)\n'
+                                    '• Marked as "Reviewed" (validated)',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: reviewedReports.length,
+                              itemBuilder: (context, index) {
+                                final report = reviewedReports[index];
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(vertical: 4),
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: Colors.green.shade100,
+                                      child: Icon(Icons.check_circle, color: Colors.green.shade700),
+                                    ),
+                                    title: Text(
+                                      report['title'] ?? 'Untitled Report',
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        Text(
+                                          'Date: ${_formatDate(report['created_at'] ?? report['date'])}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                        ),
+                                        if (report['violation_type'] != null)
+                                          Text(
+                                            'Type: ${report['violation_type']}',
+                                            style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
+                                          ),
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 4),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade100,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.verified, size: 12, color: Colors.green.shade700),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Reviewed & Validated',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.green.shade700,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    trailing: ElevatedButton.icon(
+                                      onPressed: () {
+                                        Navigator.of(context).pop(); // Close selection dialog
+                                        _showTallyViolationDialog(report);
+                                      },
+                                      icon: const Icon(Icons.gavel, size: 16),
+                                      label: const Text('Tally'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red.shade700,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                 ),
               ],
             ),
-            content: SizedBox(
-              width: MediaQuery.of(context).size.width * 0.9,
-              height: MediaQuery.of(context).size.height * 0.7,
-              child: provider.isLoadingCounselorStudentReports
-                  ? const Center(child: CircularProgressIndicator())
-                  : reviewedReports.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.assignment_outlined, size: 48, color: Colors.grey),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'No reviewed reports available',
-                                style: TextStyle(fontSize: 16, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Reports must be:\n• Marked as "reviewed" (not invalid/dismissed)\n• Not yet tallied (not resolved)',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: reviewedReports.length,
-                          itemBuilder: (context, index) {
-                            final report = reviewedReports[index];
-                            return Card(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: Colors.blue.shade100,
-                                  child: Icon(Icons.report, color: Colors.blue.shade700),
-                                ),
-                                title: Text(
-                                  report['title'] ?? 'Untitled Report',
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    Text(
-                                      'Date: ${_formatDate(report['created_at'] ?? report['date'])}',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                    ),
-                                    if (report['violation_type'] != null)
-                                      Text(
-                                        'Type: ${report['violation_type']}',
-                                        style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
-                                      ),
-                                  ],
-                                ),
-                                trailing: ElevatedButton.icon(
-                                  onPressed: () {
-                                    Navigator.of(context).pop(); // Close selection dialog
-                                    _showTallyViolationDialog(report);
-                                  },
-                                  icon: const Icon(Icons.gavel, size: 16),
-                                  label: const Text('Tally'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red.shade700,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.close),
+              label: const Text('Close'),
             ),
-            actions: [
-              TextButton.icon(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close),
-                label: const Text('Cancel'),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+  void _showSendGuidanceNoticeDialog(BuildContext context) {
+  final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+
+  if (counselorProvider.studentReports.isEmpty) {
+    counselorProvider.fetchStudentReports();
+  }
+
+  showDialog(
+    context: context,
+    builder: (context) => Consumer<CounselorProvider>(
+      builder: (context, provider, child) {
+        // ✅ DEBUG: Print all reports to see their statuses
+        print('📊 Total student reports: ${provider.studentReports.length}');
+        for (var report in provider.studentReports) {
+          print('  Report #${report['id']}: status="${report['status']}", type="${report['report_type']}", reported_by_role="${report['reported_by']?['role']}"');
+        }
+
+        // ✅ FIX: Updated filter - show ALL summoned student reports regardless of type
+        final summonedReports = provider.studentReports
+            .where((report) {
+              final status = report['status']?.toString().toLowerCase();
+              
+              // ✅ DEBUG: Show which reports match
+              if (status == 'summoned') {
+                print('✅ Found summoned report: #${report['id']} - ${report['title']}');
+              }
+              
+              // ✅ FIX: Just check for summoned status, don't filter by report_type
+              // All reports in studentReports are already student-related reports
+              return status == 'summoned';
+            })
+            .toList();
+
+        print('📢 Summoned reports to display: ${summonedReports.length}');
+
+        return AlertDialog(
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.notifications_active, color: Colors.orange.shade700, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text('📢 Summoned Students', style: TextStyle(fontSize: 18)),
               ),
             ],
-          );
-        },
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Info box
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Post-Counseling Validation (${summonedReports.length} students):',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'These students have been summoned for counseling to validate their reports.\n\n'
+                              '• Mark as REVIEWED if report is valid (will appear in Tally Report)\n'
+                              '• Mark as INVALID if report is false or unsubstantiated',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Reports list
+                Expanded(
+                  child: provider.isLoadingCounselorStudentReports
+                      ? const Center(child: CircularProgressIndicator())
+                      : summonedReports.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.groups, size: 48, color: Colors.grey),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    'No summoned students',
+                                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Students will appear here after sending guidance notices from the Student Reports tab',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton.icon(
+                                    onPressed: () async {
+                                      await provider.fetchStudentReports();
+                                    },
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Refresh'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: summonedReports.length,
+                              itemBuilder: (context, index) {
+                                final report = summonedReports[index];
+                                
+                                // ✅ Better handling of report type display
+                                String reportTypeDisplay = 'Student Report';
+                                if (report['report_type'] == 'peer_report') {
+                                  reportTypeDisplay = 'Peer Report';
+                                } else if (report['report_type'] == 'self_report') {
+                                  reportTypeDisplay = 'Self-Report';
+                                }
+                                
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(vertical: 4),
+                                  color: Colors.orange.shade50,
+                                  child: ExpansionTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: Colors.orange.shade700,
+                                      child: const Icon(Icons.person, color: Colors.white),
+                                    ),
+                                    title: Text(
+                                      report['title'] ?? 'Untitled Report',
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'} ($reportTypeDisplay)',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        Text(
+                                          'Summoned: ${_formatDate(report['updated_at'] ?? report['created_at'])}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 4),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange.shade700,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.schedule, size: 10, color: Colors.white),
+                                              SizedBox(width: 3),
+                                              Flexible(
+                                                child: Text(
+                                                  'AWAITING VALIDATION',
+                                                  style: TextStyle(
+                                                    fontSize: 8,
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  maxLines: 1,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        color: Colors.white,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            // Report Details
+                                            Text(
+                                              'Report Details:',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.grey.shade700,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            if (report['violation_type'] != null)
+                                              _buildDetailRow('Violation', report['violation_type'].toString()),
+                                            if (report['content'] != null)
+                                              _buildDetailRow('Description', report['content'].toString()),
+                                            _buildDetailRow('Report Type', reportTypeDisplay),
+                                            _buildDetailRow('Report ID', '#${report['id']}'),
+                                            
+                                            const SizedBox(height: 16),
+                                            const Divider(),
+                                            const SizedBox(height: 16),
+
+                                            // Validation Instructions
+                                            Container(
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: Colors.blue.shade50,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: Colors.blue.shade200),
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 16),
+                                                  const SizedBox(width: 8),
+                                                  const Expanded(
+                                                    child: Text(
+                                                      'After validating the report through counseling, choose an action:',
+                                                      style: TextStyle(fontSize: 11),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+
+                                            const SizedBox(height: 12),
+
+                                            // Action Buttons
+                                            Row(
+                                              children: [
+                                                // Mark as Reviewed (Valid Report)
+                                                Expanded(
+                                                  child: ElevatedButton.icon(
+                                                    onPressed: () {
+                                                      Navigator.of(context).pop();
+                                                      _showMarkAsReviewedDialog(context, report);
+                                                    },
+                                                    icon: const Icon(Icons.check_circle, size: 16),
+                                                    label: const Text(
+                                                      'Valid Report\n(Mark Reviewed)',
+                                                      textAlign: TextAlign.center,
+                                                      style: TextStyle(fontSize: 10),
+                                                    ),
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: Colors.green,
+                                                      foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                // Mark as Invalid (False Report)
+                                                Expanded(
+                                                  child: ElevatedButton.icon(
+                                                    onPressed: () {
+                                                      Navigator.of(context).pop();
+                                                      _showMarkAsInvalidDialog(context, report);
+                                                    },
+                                                    icon: const Icon(Icons.cancel, size: 16),
+                                                    label: const Text(
+                                                      'False Report\n(Mark Invalid)',
+                                                      textAlign: TextAlign.center,
+                                                      style: TextStyle(fontSize: 10),
+                                                    ),
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: Colors.red,
+                                                      foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.close),
+              label: const Text('Close'),
+            ),
+            if (summonedReports.isNotEmpty)
+              TextButton.icon(
+                onPressed: () async {
+                  await provider.fetchStudentReports();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+              ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+  void _showMarkAsReviewedDialog(BuildContext context, Map<String, dynamic> report) {
+  final notesController = TextEditingController(
+    text: 'Counseling session completed. Violation confirmed after discussion with student and review of evidence.',
+  );
+
+  // ✅ FIX: Get the reported student's name (the one who committed the violation)
+  final reportedStudentName = report['reported_student_name']?.toString() ?? 
+                              report['student_name']?.toString() ?? 
+                              report['student']?['name']?.toString() ?? 
+                              'Unknown Student';
+
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.check_circle, color: Colors.green.shade700),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Mark as Reviewed')),
+        ],
       ),
-    );
-  }
+      content: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.8,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Marking as REVIEWED confirms the violation. '
+                        'This report will be available for tallying.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Student Information - REPORTED STUDENT (violator)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50, // Changed to red to indicate violator
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 20, color: Colors.red.shade700),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Reported Student (Violator):',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.warning, size: 18, color: Colors.red),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            reportedStudentName,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    Row(
+                      children: [
+                        const Icon(Icons.report, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Report: ${report['title'] ?? 'Untitled'}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (report['violation_type'] != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.gavel, size: 16, color: Colors.orange),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Violation: ${report['violation_type']}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Reported: ${_formatDate(report['created_at'])}',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              const Text(
+                'Counseling Session Notes:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Document your counseling session with $reportedStudentName',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: notesController,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: 'e.g., $reportedStudentName admitted to the violation during counseling...',
+                  helperText: 'These notes will be attached to the report',
+                ),
+                maxLines: 5,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Important Note
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.lightbulb_outline, color: Colors.amber.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'After marking as reviewed, this violation by $reportedStudentName will appear in the "Tally Report" section where you can officially record it.',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            notesController.dispose();
+            Navigator.of(context).pop();
+          },
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (notesController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please add counseling notes'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
+            final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+            
+            final success = await counselorProvider.updateReportStatus(
+              report['id'],
+              'reviewed',
+              notes: notesController.text.trim(),
+            );
+
+            if (success && context.mounted) {
+              notesController.dispose();
+              Navigator.of(context).pop();
+              
+              await counselorProvider.fetchStudentReports();
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              '✅ Report Marked as REVIEWED',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              'Violation by $reportedStudentName is now ready for tallying',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            } else if (context.mounted) {
+              notesController.dispose();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('❌ Failed to mark report as reviewed'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
+          icon: const Icon(Icons.check),
+          label: const Text('Confirm Reviewed'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+void _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic> report) {
+  final reasonController = TextEditingController();
+  
+  // ✅ FIX: Get the reported student's name (the one who was accused)
+  final reportedStudentName = report['reported_student_name']?.toString() ?? 
+                              report['student_name']?.toString() ?? 
+                              report['student']?['name']?.toString() ?? 
+                              'Unknown Student';
+  
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.cancel, color: Colors.red),
+          SizedBox(width: 8),
+          Expanded(child: Text('Mark Report as Invalid')),
+        ],
+      ),
+      content: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.8,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'This report will be marked as INVALID and closed. '
+                        'It will NOT be tallied as a violation.',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Student Information - REPORTED STUDENT (accused student)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50, // Changed to blue since report is invalid
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 20, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Reported Student (Accused):',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.shield, size: 18, color: Colors.green),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            reportedStudentName,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle, size: 12, color: Colors.green),
+                          SizedBox(width: 4),
+                          Text(
+                            'Will be cleared - Report is false/unsubstantiated',
+                            style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 16),
+                    Row(
+                      children: [
+                        const Icon(Icons.report, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Report: ${report['title'] ?? 'Untitled'}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (report['violation_type'] != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Alleged Violation: ${report['violation_type']}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              const Text(
+                'Reason for Marking as Invalid: *',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Explain why the accusation against $reportedStudentName is invalid',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: reasonController,
+                decoration: InputDecoration(
+                  hintText: 'e.g., After investigation, $reportedStudentName was found innocent. The report was unsubstantiated, no evidence found, false accusation...',
+                  border: const OutlineInputBorder(),
+                  helperText: 'Provide a clear explanation for dismissing this accusation',
+                  helperMaxLines: 2,
+                ),
+                maxLines: 4,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Warning Note
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'What happens next:',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '• $reportedStudentName will NOT receive any violation record\n'
+                            '• Both the reporter and $reportedStudentName will be notified\n'
+                            '• The report will be closed and archived\n'
+                            '• This action can be reviewed in audit logs',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            reasonController.dispose();
+            Navigator.of(context).pop();
+          },
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (reasonController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please provide a reason for marking as invalid'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
+            if (reasonController.text.trim().length < 20) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please provide a more detailed reason (at least 20 characters)'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
+            final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+            
+            final success = await counselorProvider.markReportAsInvalid(
+              reportId: report['id'],
+              reason: reasonController.text.trim(),
+            );
+
+            if (success && context.mounted) {
+              reasonController.dispose();
+              Navigator.of(context).pop();
+              
+              await counselorProvider.fetchStudentReports();
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.info, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              '✅ Report Marked as INVALID',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              '$reportedStudentName has been cleared - accusation dismissed',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            } else if (context.mounted) {
+              reasonController.dispose();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('❌ Failed to mark report as invalid'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
+          icon: const Icon(Icons.cancel),
+          label: const Text('Confirm Invalid'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   void _showTallyViolationDialog(Map<String, dynamic> report) {
     final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
