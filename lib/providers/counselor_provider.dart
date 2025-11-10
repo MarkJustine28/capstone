@@ -670,16 +670,16 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
   try {
     print('🔄 Updating report $reportId status to: $status');
     
-    // ✅ FIX: Add /api/ prefix to the URL
-    final response = await http.patch(
-      Uri.parse('$_baseUrl/api/counselor/student-reports/$reportId/update-status/'),
+    // ✅ FIX: Use the correct endpoint from urls.py
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/reports/$reportId/update-status/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Token $_token',
       },
       body: json.encode({
         'status': status,
-        'counselor_notes': notes ?? '',
+        if (notes != null) 'counselor_notes': notes,
       }),
     ).timeout(const Duration(seconds: 10));
 
@@ -692,27 +692,37 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
       if (data['success'] == true) {
         print('✅ Report status updated successfully');
         
-        // Update the local report in the list
-        final reportIndex = _counselorStudentReports.indexWhere((r) => r['id'] == reportId);
+        // Update local state
+        final reportIndex = _studentReports.indexWhere((r) => r['id'] == reportId);
         if (reportIndex != -1) {
-          _counselorStudentReports[reportIndex]['status'] = status;
+          _studentReports[reportIndex]['status'] = status;
           if (notes != null) {
-            _counselorStudentReports[reportIndex]['counselor_notes'] = notes;
+            _studentReports[reportIndex]['counselor_notes'] = notes;
           }
-          notifyListeners();
         }
         
+        // Also update counselorStudentReports if it exists there
+        final counselorReportIndex = _counselorStudentReports.indexWhere((r) => r['id'] == reportId);
+        if (counselorReportIndex != -1) {
+          _counselorStudentReports[counselorReportIndex]['status'] = status;
+          if (notes != null) {
+            _counselorStudentReports[counselorReportIndex]['counselor_notes'] = notes;
+          }
+        }
+        
+        notifyListeners();
         return true;
       } else {
-        _error = data['message'] ?? 'Failed to update report status';
-        print('❌ Failed to update report status: $_error');
+        _error = data['message'] ?? data['error'] ?? 'Failed to update report status';
+        print('❌ API returned success=false: $_error');
         notifyListeners();
         return false;
       }
     } else {
-      _error = 'Server error: ${response.statusCode}';
+      final errorData = json.decode(response.body);
+      _error = errorData['error'] ?? errorData['message'] ?? 'Server error: ${response.statusCode}';
       print('❌ Failed to update report status: $_error');
-      print('❌ Response: ${response.body}');
+      print('❌ Response body: ${response.body}');
       notifyListeners();
       return false;
     }
