@@ -3541,23 +3541,17 @@ def send_guidance_notice(request, report_id):
         
         print(f"✅ Report #{report_id} status changed: {old_status} → summoned")
         
-        # ✅ Create notifications for both parties (WITHOUT notification_type field)
-        from django.contrib.contenttypes.models import ContentType
-        report_content_type = ContentType.objects.get_for_model(Report)
-        
         notifications_sent = []
         
         # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
         if report.student and report.student.user:
+            # ✅ Create notification with ONLY the basic fields
             notification = Notification.objects.create(
                 user=report.student.user,
                 title='📢 Guidance Office Summon',
                 message=f'You are summoned to the guidance office regarding: "{report.title}". '
                        f'Please report to the guidance office as soon as possible for a counseling session. '
                        f'Reported by: {report.reported_by.get_full_name() if report.reported_by else "System"}',
-                related_content_type=report_content_type,
-                related_object_id=report.id,
-                # ✅ REMOVED: notification_type, action_url, priority (these seem to be properties, not fields)
                 is_read=False,
             )
             notifications_sent.append(report.student.user.username)
@@ -3576,9 +3570,6 @@ def send_guidance_notice(request, report_id):
                 user=report.reported_by,
                 title='📋 Report Update: Student Summoned',
                 message=reporter_message,
-                related_content_type=report_content_type,
-                related_object_id=report.id,
-                # ✅ REMOVED: notification_type, action_url, priority
                 is_read=False,
             )
             notifications_sent.append(report.reported_by.username)
