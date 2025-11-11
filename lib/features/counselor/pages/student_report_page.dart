@@ -444,17 +444,6 @@ Widget build(BuildContext context) {
               ),
             ),
           
-          // Show violation type if available
-          if (report["violation_type"] != null)
-            Text(
-              "Type: ${report["violation_type"]}",
-              style: TextStyle(
-                fontSize: 12,
-                color: isInvalid ? Colors.grey.shade500 : Colors.blue.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

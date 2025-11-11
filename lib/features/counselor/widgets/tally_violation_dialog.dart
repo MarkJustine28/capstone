@@ -32,7 +32,8 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
   String get reportStatus => widget.report['status']?.toString().toLowerCase() ?? '';
   bool get isPending => reportStatus == 'pending';
   bool get isSummoned => reportStatus == 'summoned';
-  bool get canTally => isSummoned; // Only summoned reports can be tallied
+  bool get isReviewed => reportStatus == 'reviewed';  // ✅ Add reviewed state
+  bool get canTally => isSummoned || isReviewed;  // ✅ Both can be tallied
 
   @override
   void initState() {
@@ -239,7 +240,9 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                   ? Colors.blue.shade100 
                   : isSummoned 
                       ? Colors.orange.shade100 
-                      : Colors.green.shade100,
+                      : isReviewed  // ✅ Green for reviewed
+                          ? Colors.green.shade100
+                          : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -247,12 +250,16 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                   ? Icons.notifications_active 
                   : isSummoned 
                       ? Icons.assignment_ind 
-                      : Icons.check_circle,
+                      : isReviewed  // ✅ Check icon for reviewed
+                          ? Icons.check_circle
+                          : Icons.info,
               color: isPending 
                   ? Colors.blue.shade700 
                   : isSummoned 
                       ? Colors.orange.shade700 
-                      : Colors.green.shade700,
+                      : isReviewed
+                          ? Colors.green.shade700
+                          : Colors.grey.shade700,
               size: 24,
             ),
           ),
@@ -263,7 +270,9 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                   ? 'Send Guidance Notice' 
                   : isSummoned 
                       ? 'Student Summoned' 
-                      : 'Process Report',
+                      : isReviewed  // ✅ Title for reviewed
+                          ? 'Tally Violation'
+                          : 'Process Report',
               style: const TextStyle(fontSize: 18),
             ),
           ),
@@ -304,11 +313,6 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                       const Divider(height: 16),
                       _buildInfoRow('Student', studentName, Icons.person),
                       _buildInfoRow(
-                        'Violation', 
-                        widget.report['violation_type']?.toString() ?? 'N/A',
-                        Icons.warning,
-                      ),
-                      _buildInfoRow(
                         'Reported by', 
                         widget.report['reported_by']?['name']?.toString() ?? 'Unknown',
                         Icons.person_outline,
@@ -321,7 +325,9 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                             ? Colors.blue 
                             : isSummoned 
                                 ? Colors.orange 
-                                : Colors.green,
+                                : isReviewed
+                                    ? Colors.green
+                                    : Colors.grey,
                       ),
                     ],
                   ),
@@ -503,6 +509,150 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                     const SizedBox(height: 12),
                     _buildInvalidSection(),
                   ],
+                ],
+
+                // ✅ NEW: REVIEWED STATE - Ready to Tally
+                if (isReviewed) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.shade200, width: 2),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade100,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.check_circle,
+                                color: Colors.green.shade700,
+                                size: 32,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Report Reviewed & Validated ✅',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'This violation has been confirmed through counseling and is ready to be officially recorded.',
+                                    style: TextStyle(fontSize: 13, color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Violation Summary
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(        ),
+                              if (widget.report['counselor_notes'] != null) ...[
+                                const Divider(height: 16),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.notes, color: Colors.grey.shade600, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        widget.report['counselor_notes'].toString(),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 20),
+                        
+                        // Tally Button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _isSending ? null : _proceedToTally,
+                            icon: _isSending
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.gavel, size: 24),
+                            label: Text(
+                              _isSending ? 'Processing...' : 'Tally Violation',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              elevation: 2,
+                            ),
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        // Info text
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.info_outline, size: 14, color: Colors.grey.shade600),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'This will officially record the violation in the student\'s record',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -1059,7 +1209,7 @@ class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
 
                 // Counselor Notes
                 const Text(
-                  'Counseling Session Notes *',
+                  'Counseling Session Notes',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const SizedBox(height: 8),

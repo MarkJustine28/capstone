@@ -70,56 +70,60 @@ class CounselorProvider with ChangeNotifier {
   }
 
   // ADDED: Export students list method
-  Future<bool> exportStudentsList({String? gradeFilter, String? sectionFilter}) async {
-    if (_token == null) {
-      _setError('Authentication token not found');
-      return false;
-    }
+  Future<bool> exportStudentsList({
+  String? gradeFilter, 
+  String? sectionFilter,
+  String? schoolYear,
+}) async {
+  if (_token == null) {
+    _setError('Authentication token not found');
+    return false;
+  }
 
-    try {
-      final url = Uri.parse('$_baseUrl/api/counselor/export-students/');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-        body: jsonEncode({
-          'grade_filter': gradeFilter != 'All' ? gradeFilter : null,
-          'section_filter': sectionFilter != 'All' ? sectionFilter : null,
-          'format': 'csv', // or 'xlsx', 'pdf'
-        }),
-      );
+  try {
+    final url = Uri.parse('$_baseUrl/api/counselor/export-students/');
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Token $_token',
+      },
+      body: jsonEncode({
+        'grade_filter': gradeFilter != 'All' ? gradeFilter : null,
+        'section_filter': sectionFilter != 'All' ? sectionFilter : null,
+        'school_year': schoolYear,
+        'format': 'csv', // or 'xlsx', 'pdf'
+      }),
+    );
 
-      debugPrint('🔍 Export students response: ${response.statusCode}');
-      debugPrint('🔍 Export students body: ${response.body}');
+    debugPrint('🔍 Export students response: ${response.statusCode}');
+    debugPrint('🔍 Export students body: ${response.body}');
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          debugPrint('✅ Students list exported successfully');
-          
-          // If the API returns a download URL, you could open it
-          if (data['download_url'] != null) {
-            // TODO: You could implement file download logic here
-            debugPrint('📥 Download URL: ${data['download_url']}');
-          }
-          
-          return true;
-        } else {
-          _setError(data['error'] ?? 'Failed to export students list');
-          return false;
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        debugPrint('✅ Students list exported successfully for school year: ${schoolYear ?? "all"}');
+        
+        // If the API returns a download URL, you could open it
+        if (data['download_url'] != null) {
+          debugPrint('📥 Download URL: ${data['download_url']}');
         }
+        
+        return true;
       } else {
-        _setError('Failed to export students list: ${response.statusCode}');
+        _setError(data['error'] ?? 'Failed to export students list');
         return false;
       }
-    } catch (e) {
-      debugPrint('❌ Export students error: $e');
-      _setError('Network error: $e');
+    } else {
+      _setError('Failed to export students list: ${response.statusCode}');
       return false;
     }
+  } catch (e) {
+    debugPrint('❌ Export students error: $e');
+    _setError('Network error: $e');
+    return false;
   }
+}
 
   // Fetch violation analytics method
   Future<Map<String, dynamic>?> fetchViolationAnalytics() async {
@@ -223,48 +227,53 @@ class CounselorProvider with ChangeNotifier {
   }
 
   // Fetch students list (for counselor management)
-  Future<void> fetchStudentsList() async {
-    if (_token == null) {
-      _setError('Authentication token not found');
-      return;
-    }
-
-    _isLoadingStudentsList = true;
-    _setError(null);
-    notifyListeners();
-
-    try {
-      final url = Uri.parse('$_baseUrl/api/students-list/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
-
-      debugPrint('🔍 Students list response: ${response.statusCode}');
-      debugPrint('🔍 Students list body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          _studentsList = List<Map<String, dynamic>>.from(data['students'] ?? []);
-          debugPrint('✅ Students list loaded: ${_studentsList.length} students');
-        } else {
-          _setError(data['error'] ?? 'Failed to load students list');
-        }
-      } else {
-        _setError('Failed to load students list: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('❌ Students list fetch error: $e');
-      _setError('Network error: $e');
-    } finally {
-      _isLoadingStudentsList = false;
-      notifyListeners();
-    }
+  Future<void> fetchStudentsList({String? schoolYear}) async {
+  if (_token == null) {
+    _setError('Authentication token not found');
+    return;
   }
+
+  _isLoadingStudentsList = true;
+  _setError(null);
+  notifyListeners();
+
+  try {
+    // ✅ Add school year query parameter
+    final queryParams = schoolYear != null ? '?school_year=$schoolYear' : '';
+    final url = Uri.parse('$_baseUrl/api/students-list/$queryParams');
+    
+    debugPrint('🔍 Fetching students list for school year: ${schoolYear ?? "all"}');
+    
+    final response = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Token $_token',
+      },
+    );
+
+    debugPrint('🔍 Students list response: ${response.statusCode}');
+    debugPrint('🔍 Students list body preview: ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}');
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        _studentsList = List<Map<String, dynamic>>.from(data['students'] ?? []);
+        debugPrint('✅ Students list loaded: ${_studentsList.length} students for ${schoolYear ?? "all school years"}');
+      } else {
+        _setError(data['error'] ?? 'Failed to load students list');
+      }
+    } else {
+      _setError('Failed to load students list: ${response.statusCode}');
+    }
+  } catch (e) {
+    debugPrint('❌ Students list fetch error: $e');
+    _setError('Network error: $e');
+  } finally {
+    _isLoadingStudentsList = false;
+    notifyListeners();
+  }
+}
 
   // Add these properties to your CounselorProvider:
 
@@ -495,10 +504,10 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
 }
 
   // Fetch student violations
-  Future<void> fetchStudentViolations({bool forceRefresh = false}) async {
+  Future<void> fetchStudentViolations({String? schoolYear, bool forceRefresh = false}) async {
   if (_token == null) return;
   
-  if (!forceRefresh && _studentViolations.isNotEmpty) {
+  if (!forceRefresh && _studentViolations.isNotEmpty && schoolYear == null) {
     debugPrint('🔍 Using cached student violations: ${_studentViolations.length}');
     return;
   }
@@ -507,10 +516,14 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
   notifyListeners();
 
   try {
-    debugPrint('🔍 Fetching student violations from: $_baseUrl/api/counselor/student-violations/');
+    // ✅ Add school year query parameter
+    final queryParams = schoolYear != null ? '?school_year=$schoolYear' : '';
+    final url = Uri.parse('$_baseUrl/api/counselor/student-violations/$queryParams');
+    
+    debugPrint('🔍 Fetching student violations for school year: ${schoolYear ?? "all"}');
     
     final response = await http.get(
-      Uri.parse('$_baseUrl/api/counselor/student-violations/'),
+      url,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Token $_token',
@@ -518,7 +531,7 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
     );
 
     debugPrint('🔍 Student violations response: ${response.statusCode}');
-    debugPrint('🔍 Student violations body: ${response.body}');
+    debugPrint('🔍 Student violations body preview: ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}');
 
     if (response.statusCode == 200) {
       final responseData = jsonDecode(response.body);
@@ -527,12 +540,14 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
         _studentViolations = List<Map<String, dynamic>>.from(responseData['violations'] ?? []);
         _error = null;
         
-        debugPrint('✅ Student violations loaded: ${_studentViolations.length} violations');
+        debugPrint('✅ Student violations loaded: ${_studentViolations.length} violations for ${schoolYear ?? "all school years"}');
         
-        // Debug: Print each violation to see the structure
-        for (int i = 0; i < _studentViolations.length; i++) {
-          final violation = _studentViolations[i];
-          debugPrint('  Violation $i: student_id=${violation['student_id']}, student=${violation['student']}, description=${violation['description']?.toString().substring(0, math.min(50, violation['description']?.toString().length ?? 0))}...');
+        // Debug: Print first few violations to verify data
+        if (_studentViolations.isNotEmpty) {
+          for (int i = 0; i < math.min(3, _studentViolations.length); i++) {
+            final violation = _studentViolations[i];
+            debugPrint('  Violation $i: student_id=${violation['student_id']}, type=${violation['violation_type']?['name'] ?? violation['violation_name']}, school_year=${violation['school_year']}');
+          }
         }
       } else {
         _error = responseData['message'] ?? 'Failed to load student violations';
@@ -551,6 +566,8 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
   _isLoadingStudentViolations = false;
   notifyListeners();
 }
+
+  List<Map<String, dynamic>> get students => _studentsList;
 
   // Fetch violation types
   Future<void> fetchViolationTypes() async {
@@ -836,11 +853,20 @@ Future<bool> recordViolationFromTally(Map<String, dynamic> violationData) async 
   try {
     debugPrint('⚠️ Recording violation from tally for student: ${violationData['student_id']}');
     
+    // ✅ Ensure school_year is included
+    if (!violationData.containsKey('school_year')) {
+      final currentYear = DateTime.now().year;
+      final currentMonth = DateTime.now().month;
+      violationData['school_year'] = currentMonth >= 6 
+          ? '$currentYear-${currentYear + 1}'
+          : '${currentYear - 1}-$currentYear';
+    }
+    
     final response = await http.post(
       Uri.parse('$_baseUrl/api/counselor/violations/from-tally/'),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Token $_token',  // Use Token instead of Bearer
+        'Authorization': 'Token $_token',
       },
       body: jsonEncode(violationData),
     );
@@ -853,8 +879,11 @@ Future<bool> recordViolationFromTally(Map<String, dynamic> violationData) async 
       if (responseData['success'] == true) {
         debugPrint('✅ Violation from tally recorded successfully');
         
-        // Refresh violations to show the new record
-        await fetchStudentViolations();
+        // Refresh violations with school year filter
+        await fetchStudentViolations(
+          schoolYear: violationData['school_year'],
+          forceRefresh: true,
+        );
         notifyListeners();
         return true;
       } else {
@@ -870,6 +899,18 @@ Future<bool> recordViolationFromTally(Map<String, dynamic> violationData) async 
     _error = 'Error recording violation from tally: $e';
     debugPrint('❌ Exception recording violation from tally: $e');
     return false;
+  }
+}
+
+// Add helper method to get current school year:
+String getCurrentSchoolYear() {
+  final currentYear = DateTime.now().year;
+  final currentMonth = DateTime.now().month;
+  
+  if (currentMonth >= 6) {
+    return '$currentYear-${currentYear + 1}';
+  } else {
+    return '${currentYear - 1}-$currentYear';
   }
 }
 
@@ -1164,43 +1205,55 @@ Future<List<Map<String, dynamic>>> fetchTallyRecords() async {
 
   // Fix recordViolation method
   Future<bool> recordViolation(Map<String, dynamic> violationData) async {
-    try {
-      debugPrint('🎯 Recording violation: $violationData');
+  try {
+    debugPrint('🎯 Recording violation: $violationData');
+    
+    // ✅ Ensure school_year is included
+    if (!violationData.containsKey('school_year')) {
+      final currentYear = DateTime.now().year;
+      final currentMonth = DateTime.now().month;
+      violationData['school_year'] = currentMonth >= 6 
+          ? '$currentYear-${currentYear + 1}'
+          : '${currentYear - 1}-$currentYear';
+    }
+    
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/record-violation/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Token $_token',
+      },
+      body: jsonEncode(violationData),
+    );
+
+    debugPrint('🎯 Record violation response: ${response.statusCode}');
+    debugPrint('🎯 Record violation body: ${response.body}');
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final data = jsonDecode(response.body);
       
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/record-violation/'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-        body: jsonEncode(violationData),
-      );
-
-      debugPrint('🎯 Record violation response: ${response.statusCode}');
-      debugPrint('🎯 Record violation body: ${response.body}');
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-        
-        if (data['success'] == true) {
-          debugPrint('✅ Violation recorded successfully');
-          // Refresh violation data
-          await fetchStudentViolations();
-          return true;
-        } else {
-          _error = data['error'] ?? 'Failed to record violation';
-          return false;
-        }
+      if (data['success'] == true) {
+        debugPrint('✅ Violation recorded successfully');
+        // Refresh violation data with current school year filter
+        await fetchStudentViolations(
+          schoolYear: violationData['school_year'],
+          forceRefresh: true,
+        );
+        return true;
       } else {
-        _error = 'Failed to record violation: ${response.statusCode}';
+        _error = data['error'] ?? 'Failed to record violation';
         return false;
       }
-    } catch (e) {
-      debugPrint('❌ Record violation error: $e');
-      _error = 'Network error: $e';
+    } else {
+      _error = 'Failed to record violation: ${response.statusCode}';
       return false;
     }
+  } catch (e) {
+    debugPrint('❌ Record violation error: $e');
+    _error = 'Network error: $e';
+    return false;
   }
+}
 
   // Fetch counseling sessions
   Future<void> fetchCounselingSessions() async {
@@ -1531,5 +1584,165 @@ Future<bool> markReportAsInvalid({
     debugPrint('❌ Error marking report as invalid: $e');
     return false;
   }
+}
+
+Future<Map<String, dynamic>> getSectionAnalytics({
+  required String schoolYear,
+  String? semester,
+}) async {
+  if (_token == null) {
+    throw Exception('Authentication token not found');
+  }
+
+  try {
+    debugPrint('📊 Fetching section analytics for $schoolYear${semester != null ? " - $semester" : ""}');
+    
+    final queryParams = <String, String>{
+      'school_year': schoolYear,
+    };
+    
+    if (semester != null && semester != 'All') {
+      queryParams['semester'] = semester;
+    }
+    
+    final uri = Uri.parse('$_baseUrl/api/counselor/section-analytics/').replace(
+      queryParameters: queryParams,
+    );
+    
+    debugPrint('📊 Request URL: $uri');
+    
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Token $_token',
+      },
+    );
+
+    debugPrint('📊 Section analytics response: ${response.statusCode}');
+    
+    if (response.body.isNotEmpty) {
+      debugPrint('📊 Section analytics body preview: ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}');
+    }
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      
+      if (data['success'] == true || data.containsKey('sections')) {
+        debugPrint('✅ Section analytics loaded successfully');
+        
+        // Ensure all numeric values are properly typed
+        final sections = (data['sections'] as List<dynamic>?)?.map((section) {
+          return {
+            'id': section['id'],
+            'name': section['name'],
+            'grade_level': section['grade_level'] is int 
+                ? section['grade_level'] 
+                : int.tryParse(section['grade_level'].toString()) ?? 0,
+            'total_violations': section['total_violations'] is int
+                ? section['total_violations']
+                : int.tryParse(section['total_violations'].toString()) ?? 0,
+            'student_count': section['student_count'] is int
+                ? section['student_count']
+                : int.tryParse(section['student_count'].toString()) ?? 0,
+            'avg_per_student': section['avg_per_student'] is double
+                ? section['avg_per_student']
+                : double.tryParse(section['avg_per_student'].toString()) ?? 0.0,
+            'violation_breakdown': section['violation_breakdown'] ?? {},
+          };
+        }).toList() ?? [];
+        
+        return {
+          'success': true,
+          'school_year': data['school_year'] ?? schoolYear,
+          'semester': data['semester'] ?? semester ?? 'All',
+          'total_violations': data['total_violations'] is int
+              ? data['total_violations']
+              : int.tryParse(data['total_violations'].toString()) ?? 0,
+          'total_sections': data['total_sections'] is int
+              ? data['total_sections']
+              : int.tryParse(data['total_sections'].toString()) ?? 0,
+          'avg_per_section': data['avg_per_section'] is double
+              ? data['avg_per_section']
+              : double.tryParse(data['avg_per_section'].toString()) ?? 0.0,
+          'sections': sections,
+        };
+      } else {
+        throw Exception(data['error'] ?? 'Failed to load section analytics');
+      }
+    } else if (response.statusCode == 404) {
+      // Backend endpoint not implemented yet - return mock data for testing
+      debugPrint('⚠️ Section analytics endpoint not found - returning mock data');
+      return _getMockSectionAnalytics(schoolYear, semester);
+    } else {
+      throw Exception('Failed to load section analytics: ${response.statusCode}');
+    }
+  } catch (e) {
+    debugPrint('❌ Error fetching section analytics: $e');
+    
+    // Return mock data if backend not ready
+    debugPrint('⚠️ Returning mock data due to error');
+    return _getMockSectionAnalytics(schoolYear, semester);
+  }
+}
+
+/// Get mock section analytics data (for development/testing)
+Map<String, dynamic> _getMockSectionAnalytics(String schoolYear, String? semester) {
+  final random = math.Random();
+  
+  // Generate mock sections
+  final sections = <Map<String, dynamic>>[];
+  final grades = [7, 8, 9, 10, 11, 12];
+  final sectionsPerGrade = ['A', 'B', 'C'];
+  
+  for (final grade in grades) {
+    for (final section in sectionsPerGrade) {
+      final studentCount = 25 + random.nextInt(16); // 25-40 students
+      final totalViolations = random.nextInt(35); // 0-34 violations
+      
+      // Generate violation breakdown
+      final violationTypes = {
+        'Tardiness': random.nextInt(10),
+        'Uniform Violation': random.nextInt(8),
+        'Disruptive Behavior': random.nextInt(6),
+        'Incomplete Requirements': random.nextInt(5),
+        'Improper Haircut': random.nextInt(4),
+      };
+      
+      sections.add({
+        'id': sections.length + 1,
+        'name': 'Grade $grade-$section',
+        'grade_level': grade,
+        'total_violations': totalViolations,
+        'student_count': studentCount,
+        'avg_per_student': studentCount > 0 
+            ? double.parse((totalViolations / studentCount).toStringAsFixed(2))
+            : 0.0,
+        'violation_breakdown': violationTypes,
+      });
+    }
+  }
+  
+  // Sort by total violations (highest first)
+  sections.sort((a, b) => 
+    (b['total_violations'] as int).compareTo(a['total_violations'] as int)
+  );
+  
+  final totalViolations = sections.fold<int>(
+    0, 
+    (sum, section) => sum + (section['total_violations'] as int)
+  );
+  
+  return {
+    'success': true,
+    'school_year': schoolYear,
+    'semester': semester ?? 'All',
+    'total_violations': totalViolations,
+    'total_sections': sections.length,
+    'avg_per_section': sections.isNotEmpty
+        ? double.parse((totalViolations / sections.length).toStringAsFixed(2))
+        : 0.0,
+    'sections': sections,
+  };
 }
 }

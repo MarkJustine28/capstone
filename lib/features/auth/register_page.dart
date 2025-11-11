@@ -35,6 +35,7 @@ class _RegisterPageState extends State<RegisterPage> {
   String? selectedAdvisingGrade;
   String? selectedStrand;
   String selectedSection = "";
+  String? selectedSchoolYear;
   bool isLoading = false;
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
@@ -113,6 +114,23 @@ class _RegisterPageState extends State<RegisterPage> {
     
     return gradeSections[selectedAdvisingGrade!] ?? [];
   }
+
+  List<String> get availableSchoolYears {
+  final currentYear = DateTime.now().year;
+  final month = DateTime.now().month;
+  
+  // School year starts in June (month 6)
+  int startYear = month >= 6 ? currentYear : currentYear - 1;
+  
+  // Generate current and next 2 school years
+  List<String> years = [];
+  for (int i = 0; i < 3; i++) {
+    final year = startYear + i;
+    years.add('$year-${year + 1}');
+  }
+  
+  return years;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -305,91 +323,110 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   List<Widget> _buildStudentFields() {
-    return [
-      const Text("Student Information", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
-      const SizedBox(height: 16),
-      
+  return [
+    const Text("Student Information", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+    const SizedBox(height: 16),
+    
+    // ✅ NEW: School Year Dropdown
+    DropdownButtonFormField<String>(
+      value: selectedSchoolYear,
+      decoration: InputDecoration(
+        labelText: "School Year *",
+        hintText: "Select academic year",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.calendar_today),
+        helperText: "Current enrollment year",
+      ),
+      items: availableSchoolYears.map((year) => DropdownMenuItem(
+        value: year,
+        child: Text(year),
+      )).toList(),
+      onChanged: (value) => setState(() => selectedSchoolYear = value),
+      validator: (value) => value == null ? "School year is required" : null,
+    ),
+    const SizedBox(height: 16),
+    
+    DropdownButtonFormField<String>(
+      value: selectedGradeLevel,
+      decoration: InputDecoration(
+        labelText: "Grade Level *",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.school),
+      ),
+      items: grades.map((grade) => DropdownMenuItem(value: grade, child: Text("Grade $grade"))).toList(),
+      onChanged: (value) => setState(() {
+        selectedGradeLevel = value;
+        selectedStrand = null;
+        selectedSection = "";
+      }),
+      validator: (value) => value == null ? "Required" : null,
+    ),
+    const SizedBox(height: 16),
+
+    if (hasStrands) ...[
       DropdownButtonFormField<String>(
-        value: selectedGradeLevel,
+        value: selectedStrand,
         decoration: InputDecoration(
-          labelText: "Grade Level *",
+          labelText: "Strand *",
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          prefixIcon: const Icon(Icons.school),
+          prefixIcon: const Icon(Icons.category),
         ),
-        items: grades.map((grade) => DropdownMenuItem(value: grade, child: Text("Grade $grade"))).toList(),
+        items: availableStrands.map((strand) => DropdownMenuItem(value: strand, child: Text(strand))).toList(),
         onChanged: (value) => setState(() {
-          selectedGradeLevel = value;
-          selectedStrand = null;
+          selectedStrand = value;
           selectedSection = "";
         }),
-        validator: (value) => value == null ? "Required" : null,
+        validator: (value) => hasStrands && value == null ? "Required" : null,
       ),
       const SizedBox(height: 16),
+    ],
 
-      if (hasStrands) ...[
-        DropdownButtonFormField<String>(
-          value: selectedStrand,
-          decoration: InputDecoration(
-            labelText: "Strand *",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            prefixIcon: const Icon(Icons.category),
-          ),
-          items: availableStrands.map((strand) => DropdownMenuItem(value: strand, child: Text(strand))).toList(),
-          onChanged: (value) => setState(() {
-            selectedStrand = value;
-            selectedSection = "";
-          }),
-          validator: (value) => hasStrands && value == null ? "Required" : null,
-        ),
-        const SizedBox(height: 16),
-      ],
-
-      DropdownButtonFormField<String>(
-        value: selectedSection.isEmpty ? null : selectedSection,
-        decoration: InputDecoration(
-          labelText: "Section *",
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          prefixIcon: const Icon(Icons.class_),
-        ),
-        items: availableSections.map((section) => DropdownMenuItem(value: section, child: Text(section))).toList(),
-        onChanged: (value) => setState(() => selectedSection = value ?? ""),
-        validator: (value) => value == null ? "Required" : null,
+    DropdownButtonFormField<String>(
+      value: selectedSection.isEmpty ? null : selectedSection,
+      decoration: InputDecoration(
+        labelText: "Section *",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.class_),
       ),
-      const SizedBox(height: 16),
+      items: availableSections.map((section) => DropdownMenuItem(value: section, child: Text(section))).toList(),
+      onChanged: (value) => setState(() => selectedSection = value ?? ""),
+      validator: (value) => value == null ? "Required" : null,
+    ),
+    const SizedBox(height: 16),
 
-      TextFormField(
-        controller: contactNumberController,
-        keyboardType: TextInputType.phone,
-        decoration: InputDecoration(
-          labelText: "Contact Number",
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          prefixIcon: const Icon(Icons.phone),
-        ),
+    TextFormField(
+      controller: contactNumberController,
+      keyboardType: TextInputType.phone,
+      decoration: InputDecoration(
+        labelText: "Contact Number",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.phone),
       ),
-      const SizedBox(height: 16),
+    ),
+    const SizedBox(height: 16),
 
-      TextFormField(
-        controller: guardianNameController,
-        decoration: InputDecoration(
-          labelText: "Guardian Name",
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          prefixIcon: const Icon(Icons.family_restroom),
-        ),
+    TextFormField(
+      controller: guardianNameController,
+      decoration: InputDecoration(
+        labelText: "Guardian Name",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.family_restroom),
       ),
-      const SizedBox(height: 16),
+    ),
+    const SizedBox(height: 16),
 
-      TextFormField(
-        controller: guardianContactController,
-        keyboardType: TextInputType.phone,
-        decoration: InputDecoration(
-          labelText: "Guardian Contact",
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          prefixIcon: const Icon(Icons.contact_phone),
-        ),
+    TextFormField(
+      controller: guardianContactController,
+      keyboardType: TextInputType.phone,
+      decoration: InputDecoration(
+        labelText: "Guardian Contact",
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: const Icon(Icons.contact_phone),
       ),
-      const SizedBox(height: 16),
-    ];
-  }
+    ),
+    const SizedBox(height: 16),
+  ];
+}
 
   List<Widget> _buildTeacherFields() {
     return [
@@ -540,86 +577,86 @@ class _RegisterPageState extends State<RegisterPage> {
   // ✅ REMOVED: _buildCounselorFields() method
 
   Future<void> registerUser() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    final serverIp = dotenv.env['SERVER_IP'];
-    if (serverIp == null || serverIp.isEmpty) {
-      _showErrorSnackBar("Server IP not configured");
-      return;
-    }
-
-    setState(() => isLoading = true);
-
-    try {
-      String baseUrl = serverIp;
-      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-        baseUrl = 'http://$baseUrl';
-      }
-
-      final url = Uri.parse("$baseUrl/api/register/");
-      debugPrint("🌐 Attempting registration to: $url");
-
-      final Map<String, dynamic> requestData = {
-        "username": usernameController.text.trim(),
-        "password": passwordController.text.trim(),
-        "role": selectedRole,
-        "first_name": firstNameController.text.trim(),
-        "last_name": lastNameController.text.trim(),
-        "email": emailController.text.trim(),
-      };
-
-      if (selectedRole == "student") {
-        requestData.addAll({
-          "grade_level": selectedGradeLevel,
-          "strand": hasStrands ? selectedStrand : null,
-          "section": selectedSection,
-          "contact_number": contactNumberController.text.trim(),
-          "guardian_name": guardianNameController.text.trim(),
-          "guardian_contact": guardianContactController.text.trim(),
-        });
-      } else if (selectedRole == "teacher") {
-        requestData.addAll({
-          "employee_id": employeeIdController.text.trim(),
-          "department": departmentController.text.trim(),
-          "specialization": specializationController.text.trim(),
-          "advising_grade": isAdviser ? selectedAdvisingGrade : null,
-          "advising_section": isAdviser ? advisingSectionController.text.trim() : null,
-        });
-      }
-      // ✅ REMOVED: counselor request data
-
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(requestData),
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 201 && data['success'] == true) {
-        if (mounted) {
-          if (selectedRole == "teacher" && data['approval_status'] == 'pending') {
-            _showTeacherPendingDialog();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(data['message'] ?? "Registration successful!"),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.pop(context);
-          }
-        }
-      } else {
-        _showErrorSnackBar(data['error'] ?? "Registration failed");
-      }
-    } catch (e) {
-      debugPrint("❌ Registration error: $e");
-      _showErrorSnackBar("Network error: $e");
-    } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
+  final serverIp = dotenv.env['SERVER_IP'];
+  if (serverIp == null || serverIp.isEmpty) {
+    _showErrorSnackBar("Server IP not configured");
+    return;
   }
+
+  setState(() => isLoading = true);
+
+  try {
+    String baseUrl = serverIp;
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = 'http://$baseUrl';
+    }
+
+    final url = Uri.parse("$baseUrl/api/register/");
+    debugPrint("🌐 Attempting registration to: $url");
+
+    final Map<String, dynamic> requestData = {
+      "username": usernameController.text.trim(),
+      "password": passwordController.text.trim(),
+      "role": selectedRole,
+      "first_name": firstNameController.text.trim(),
+      "last_name": lastNameController.text.trim(),
+      "email": emailController.text.trim(),
+    };
+
+    if (selectedRole == "student") {
+      requestData.addAll({
+        "school_year": selectedSchoolYear, // ✅ Added school year
+        "grade_level": selectedGradeLevel,
+        "strand": hasStrands ? selectedStrand : null,
+        "section": selectedSection,
+        "contact_number": contactNumberController.text.trim(),
+        "guardian_name": guardianNameController.text.trim(),
+        "guardian_contact": guardianContactController.text.trim(),
+      });
+    } else if (selectedRole == "teacher") {
+      requestData.addAll({
+        "employee_id": employeeIdController.text.trim(),
+        "department": departmentController.text.trim(),
+        "specialization": specializationController.text.trim(),
+        "advising_grade": isAdviser ? selectedAdvisingGrade : null,
+        "advising_section": isAdviser ? advisingSectionController.text.trim() : null,
+      });
+    }
+
+    final response = await http.post(
+      url,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(requestData),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 201 && data['success'] == true) {
+      if (mounted) {
+        if (selectedRole == "teacher" && data['approval_status'] == 'pending') {
+          _showTeacherPendingDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['message'] ?? "Registration successful!"),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context);
+        }
+      }
+    } else {
+      _showErrorSnackBar(data['error'] ?? "Registration failed");
+    }
+  } catch (e) {
+    debugPrint("❌ Registration error: $e");
+    _showErrorSnackBar("Network error: $e");
+  } finally {
+    if (mounted) setState(() => isLoading = false);
+  }
+}
 
   void _showTeacherPendingDialog() {
     showDialog(

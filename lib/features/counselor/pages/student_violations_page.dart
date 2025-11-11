@@ -15,8 +15,11 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
   String _searchQuery = '';
   String _selectedGrade = 'All';
   String _selectedSection = 'All';
+  String _selectedSchoolYear = ''; // ✅ Add this
+  List<String> availableSchoolYears = [];
   bool _showOnlyWithViolations = false;
   bool _showFolderView = true; // New toggle for folder view
+  bool _isLoadingSchoolYears = false;
 
   final List<String> grades = ['All', '7', '8', '9', '10', '11', '12'];
 
@@ -132,13 +135,41 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
     return ['All', ...gradeSections[_selectedGrade] ?? []];
   }
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchData();
-    });
+  List<String> _generateSchoolYears() {
+  final currentYear = DateTime.now().year;
+  final month = DateTime.now().month;
+  
+  // School year starts in June (month 6)
+  int startYear = month >= 6 ? currentYear : currentYear - 1;
+  
+  // Generate current and past 5 school years
+  List<String> years = [];
+  for (int i = 0; i < 6; i++) {
+    final year = startYear - i;
+    years.add('$year-${year + 1}');
   }
+  
+  return years;
+}
+
+  @override
+void initState() {
+  super.initState();
+  
+  // ✅ Generate available school years
+  availableSchoolYears = _generateSchoolYears();
+  
+  // ✅ Set default to current school year
+  final currentYear = DateTime.now().year;
+  final currentMonth = DateTime.now().month;
+  _selectedSchoolYear = currentMonth >= 6 
+      ? '$currentYear-${currentYear + 1}'
+      : '${currentYear - 1}-$currentYear';
+  
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _fetchData();
+  });
+}
 
   Future<void> _fetchData() async {
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -147,36 +178,59 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
   if (authProvider.token != null) {
     counselorProvider.setToken(authProvider.token!);
     
-    // ✅ Fetch all data sequentially to avoid conflicts
-    await counselorProvider.fetchStudentsList();
-    await counselorProvider.fetchStudentViolations();
+    // ✅ Pass school year to fetch methods
+    await counselorProvider.fetchStudentsList(schoolYear: _selectedSchoolYear);
+    
+    // ✅ DEBUG: Check what data we received
+    print('📊 Fetched students count: ${counselorProvider.studentsList.length}');
+    print('🔍 Selected school year: $_selectedSchoolYear');
+    if (counselorProvider.studentsList.isNotEmpty) {
+      final firstStudent = counselorProvider.studentsList.first;
+      print('📝 First student data: $firstStudent');
+      print('📅 First student school_year: ${firstStudent['school_year']}');
+    }
+    
+    await counselorProvider.fetchStudentViolations(schoolYear: _selectedSchoolYear);
     await counselorProvider.fetchViolationTypes();
-    await counselorProvider.fetchStudentReports(); // Use correct method name
-    await counselorProvider.fetchTeacherReports(); // Use correct method name
+    await counselorProvider.fetchStudentReports();
+    await counselorProvider.fetchTeacherReports();
   }
 }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CounselorProvider>(
-      builder: (context, provider, child) {
-        // Filter students based on search and filters
-        final filteredStudents = provider.studentsList.where((student) {
-          final matchesSearch = _searchQuery.isEmpty ||
-              student['name'].toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              student['student_id'].toLowerCase().contains(_searchQuery.toLowerCase());
-          
-          final matchesGrade = _selectedGrade == 'All' || student['grade_level'] == _selectedGrade;
-          final matchesSection = _selectedSection == 'All' || student['section'] == _selectedSection;
-          
-          // Filter by violation status if needed
-          if (_showOnlyWithViolations) {
-            final studentViolations = provider.studentViolations.where((v) => v['student']['id'] == student['id']).toList();
-            return matchesSearch && matchesGrade && matchesSection && studentViolations.isNotEmpty;
-          }
-          
-          return matchesSearch && matchesGrade && matchesSection;
-        }).toList();
+  return Consumer<CounselorProvider>(
+    builder: (context, provider, child) {
+      // ✅ FIX: Filter students based on search and filters INCLUDING school year
+      final filteredStudents = provider.studentsList.where((student) {
+        final matchesSearch = _searchQuery.isEmpty ||
+            (student['name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+            (student['student_id']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+        
+        final matchesGrade = _selectedGrade == 'All' || 
+            student['grade_level']?.toString() == _selectedGrade;
+        
+        final matchesSection = _selectedSection == 'All' || 
+            student['section']?.toString() == _selectedSection;
+        
+        // ✅ FIX: Proper school year filtering - CHANGED from isEmpty check
+        final studentSchoolYear = student['school_year']?.toString() ?? '';
+        final matchesSchoolYear = studentSchoolYear == _selectedSchoolYear; // ✅ Removed the isEmpty check
+
+        // Filter by violation status if needed
+        if (_showOnlyWithViolations) {
+          final studentViolations = provider.studentViolations.where((v) {
+            final violationStudentId = v['student_id']?.toString() ?? 
+                                       v['student']?['id']?.toString();
+            final currentStudentId = student['id']?.toString();
+            return violationStudentId == currentStudentId;
+          }).toList();
+          return matchesSearch && matchesGrade && matchesSection && 
+                 matchesSchoolYear && studentViolations.isNotEmpty;
+        }
+        
+        return matchesSearch && matchesGrade && matchesSection && matchesSchoolYear;
+      }).toList();
 
         // Sort students by grade and section
         filteredStudents.sort((a, b) {
@@ -309,117 +363,175 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
                     
                     // Filter dropdowns and toggle
                     LayoutBuilder(
-                      builder: (context, constraints) {
-                        if (constraints.maxWidth < 600) {
-                          return Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      value: _selectedGrade,
-                                      decoration: InputDecoration(
-                                        labelText: "Grade",
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                      ),
-                                      items: grades.map((grade) => DropdownMenuItem(
-                                        value: grade,
-                                        child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
-                                      )).toList(),
-                                      onChanged: (value) => setState(() {
-                                        _selectedGrade = value!;
-                                        _selectedSection = 'All';
-                                      }),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
-                                      decoration: InputDecoration(
-                                        labelText: "Section",
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                      ),
-                                      items: availableSections.map((section) => DropdownMenuItem(
-                                        value: section,
-                                        child: Text(section == 'All' ? 'All Sections' : section),
-                                      )).toList(),
-                                      onChanged: (value) => setState(() => _selectedSection = value!),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              CheckboxListTile(
-                                title: const Text("Show only students with violations"),
-                                value: _showOnlyWithViolations,
-                                onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
-                                controlAffinity: ListTileControlAffinity.leading,
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                            ],
-                          );
-                        }
-                        
-                        return Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String>(
-                                value: _selectedGrade,
-                                decoration: InputDecoration(
-                                  labelText: "Grade",
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                ),
-                                items: grades.map((grade) => DropdownMenuItem(
-                                  value: grade,
-                                  child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
-                                )).toList(),
-                                onChanged: (value) => setState(() {
-                                  _selectedGrade = value!;
-                                  _selectedSection = 'All';
-                                }),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String>(
-                                value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
-                                decoration: InputDecoration(
-                                  labelText: "Section",
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                ),
-                                items: availableSections.map((section) => DropdownMenuItem(
-                                  value: section,
-                                  child: Text(section == 'All' ? 'All' : section),
-                                )).toList(),
-                                onChanged: (value) => setState(() => _selectedSection = value!),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 3,
-                              child: CheckboxListTile(
-                                title: const Text("With Violations Only"),
-                                value: _showOnlyWithViolations,
-                                onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
-                                controlAffinity: ListTileControlAffinity.leading,
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+  builder: (context, constraints) {
+    if (constraints.maxWidth < 600) {
+      // Mobile layout
+      return Column(
+        children: [
+          // ✅ School Year Dropdown (Full width on mobile)
+          DropdownButtonFormField<String>(
+            value: _selectedSchoolYear,
+            decoration: InputDecoration(
+              labelText: "School Year",
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              filled: true,
+              fillColor: Colors.white,
+              prefixIcon: Icon(Icons.calendar_today, color: Colors.blue.shade700),
+            ),
+            items: availableSchoolYears.map((year) => DropdownMenuItem(
+              value: year,
+              child: Text(year),
+            )).toList(),
+            onChanged: (value) => setState(() {
+              _selectedSchoolYear = value!;
+              _fetchData(); // Refresh data when school year changes
+            }),
+          ),
+          const SizedBox(height: 8),
+          
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _selectedGrade,
+                  decoration: InputDecoration(
+                    labelText: "Grade",
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  items: grades.map((grade) => DropdownMenuItem(
+                    value: grade,
+                    child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
+                  )).toList(),
+                  onChanged: (value) => setState(() {
+                    _selectedGrade = value!;
+                    _selectedSection = 'All';
+                  }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
+                  decoration: InputDecoration(
+                    labelText: "Section",
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  items: availableSections.map((section) => DropdownMenuItem(
+                    value: section,
+                    child: Text(section == 'All' ? 'All Sections' : section),
+                  )).toList(),
+                  onChanged: (value) => setState(() => _selectedSection = value!),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            title: const Text("Show only students with violations"),
+            value: _showOnlyWithViolations,
+            onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ],
+      );
+    }
+    
+    // Desktop/Tablet layout
+    return Column(
+      children: [
+        // ✅ First row: School Year (takes full width for prominence)
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                value: _selectedSchoolYear,
+                decoration: InputDecoration(
+                  labelText: "School Year",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: Colors.blue.shade50,
+                  prefixIcon: Icon(Icons.calendar_today, color: Colors.blue.shade700),
+                ),
+                items: availableSchoolYears.map((year) => DropdownMenuItem(
+                  value: year,
+                  child: Text(
+                    year,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                )).toList(),
+                onChanged: (value) => setState(() {
+                  _selectedSchoolYear = value!;
+                  _fetchData(); // Refresh data when school year changes
+                }),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        // Second row: Grade, Section, and Violations checkbox
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                value: _selectedGrade,
+                decoration: InputDecoration(
+                  labelText: "Grade",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                items: grades.map((grade) => DropdownMenuItem(
+                  value: grade,
+                  child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
+                )).toList(),
+                onChanged: (value) => setState(() {
+                  _selectedGrade = value!;
+                  _selectedSection = 'All';
+                }),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
+                decoration: InputDecoration(
+                  labelText: "Section",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                items: availableSections.map((section) => DropdownMenuItem(
+                  value: section,
+                  child: Text(section == 'All' ? 'All' : section),
+                )).toList(),
+                onChanged: (value) => setState(() => _selectedSection = value!),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: CheckboxListTile(
+                title: const Text("With Violations Only"),
+                value: _showOnlyWithViolations,
+                onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  },
+),
                   ],
                 ),
               ),
@@ -742,6 +854,21 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
           });
         }
 
+        int totalSectionViolations = 0;
+        if (hasStudents) {
+          for (final student in students) {
+            final studentId = student['id']?.toString();
+            if (studentId != null) {
+              final studentViolations = provider.studentViolations.where((violation) {
+                final violationStudentId = violation['student_id']?.toString() ??
+                                          violation['student']?['id']?.toString();
+                return violationStudentId == studentId;
+              }).length;
+              totalSectionViolations += studentViolations;
+            }
+          }
+        }
+
         // Create placeholder student for empty sections
         final displayStudents = hasStudents ? students : [_createEmptyStudent(grade, section)];
 
@@ -764,12 +891,48 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
                   color: hasStudents ? Colors.black : Colors.grey.shade600,
                 ),
               ),
-              subtitle: Text(
-                hasStudents ? '${students.length} students' : 'Empty section',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: hasStudents ? Colors.grey : Colors.grey.shade500,
-                ),
+              subtitle: Row(
+                children: [
+                  Text(
+                    hasStudents ? '${students.length} students' : 'Empty section',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasStudents ? Colors.grey : Colors.grey.shade500,
+                    ),
+                  ),
+                  if (hasStudents && totalSectionViolations > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _getTalliedViolationColor(totalSectionViolations).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _getTalliedViolationColor(totalSectionViolations).withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.assignment_turned_in,
+                            size: 12,
+                            color: _getTalliedViolationColor(totalSectionViolations),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$totalSectionViolations tallied',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _getTalliedViolationColor(totalSectionViolations),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
               children: [
                 Container(
