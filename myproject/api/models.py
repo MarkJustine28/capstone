@@ -579,15 +579,30 @@ class StudentViolationRecord(models.Model):
     counselor_notes = models.TextField(blank=True, null=True)
     action_taken = models.TextField(blank=True, null=True)
     
-    # NEW: Academic context
+    # Academic context
     academic_quarter = models.CharField(max_length=10, blank=True, null=True,
                                        help_text="Q1, Q2, Q3, Q4")
     academic_year = models.CharField(max_length=10, blank=True, null=True,
                                     help_text="e.g., 2024-2025")
     
+    # ✅ UPDATED: School year tracking with auto-calculation
+    school_year = models.CharField(max_length=20, blank=True, null=True)  # Changed from default to blank=True
+    
     recorded_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    school_year = models.CharField(max_length=20, default='2025-2026')
+
+    def save(self, *args, **kwargs):
+        """Auto-populate school_year if not set"""
+        if not self.school_year:
+            from datetime import datetime
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            # School year starts in June (month 6)
+            if current_month >= 6:
+                self.school_year = f"{current_year}-{current_year + 1}"
+            else:
+                self.school_year = f"{current_year - 1}-{current_year}"
+        super().save(*args, **kwargs)
 
     @classmethod
     def get_total_violations_all_years(cls, student_id):
@@ -609,8 +624,8 @@ class StudentViolationRecord(models.Model):
     def get_academic_context(self):
         """Get formatted academic context"""
         context_parts = []
-        if self.academic_year:
-            context_parts.append(f"AY {self.academic_year}")
+        if self.school_year:
+            context_parts.append(f"S.Y. {self.school_year}")
         if self.academic_quarter:
             context_parts.append(self.academic_quarter)
         return " - ".join(context_parts) if context_parts else "Not specified"
@@ -620,7 +635,7 @@ class StudentViolationRecord(models.Model):
 
     def __str__(self):
         student_name = self.student.user.get_full_name() or self.student.user.username
-        return f"{student_name} - {self.violation_type.name}"
+        return f"{student_name} - {self.violation_type.name} ({self.school_year or 'N/A'})"
 
 class StudentViolationTally(models.Model):
     """Track violation tallies for each student - for quick reporting"""
