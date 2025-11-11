@@ -3518,113 +3518,12 @@ def send_guidance_notice(request, report_id):
     Send guidance notice to student and notify both reporter and reported student
     """
     try:
-        # Get the report
+        # ✅ FIX: Use correct field names from your Report model
+        # Correct fields: student, reported_by, assigned_counselor (NOT reported_by_user, handled_by_counselor, reported_student)
         report = Report.objects.select_related(
-            'reported_by_user',
-            'reported_student__user',
-            'handled_by_counselor__user'
-        ).get(id=report_id)
-        
-        # Get the counselor
-        counselor = Counselor.objects.filter(user=request.user).first()
-        if not counselor:
-            return Response({
-                'success': False,
-                'error': 'Only counselors can send guidance notices'
-            }, status=403)
-        
-        # Update report status to 'summoned'
-        report.status = 'summoned'
-        report.handled_by_counselor = counselor
-        report.save()
-        
-        # ✅ NEW: Create notifications for both parties
-        from django.contrib.contenttypes.models import ContentType
-        
-        # Get report content type for the notification
-        report_content_type = ContentType.objects.get_for_model(Report)
-        
-        # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
-        if report.reported_student and report.reported_student.user:
-            Notification.objects.create(
-                user=report.reported_student.user,
-                title='📢 Guidance Office Notice',
-                message=f'You are summoned to the guidance office regarding: "{report.title}". '
-                       f'Please report to the guidance office as soon as possible for a counseling session. '
-                       f'Reported by: {report.reported_by_user.get_full_name() if report.reported_by_user else "Unknown"}',
-                notification_type='guidance_summon',
-                related_content_type=report_content_type,
-                related_object_id=report.id,
-                action_url=f'/student/reports/{report.id}',
-                priority='high',
-                is_read=False,
-            )
-            print(f'✅ Notified reported student: {report.reported_student.user.username}')
-        
-        # 2. Notify the REPORTER (the one who reported the incident)
-        if report.reported_by_user:
-            reporter_message = (
-                f'Your report "{report.title}" has been reviewed. '
-                f'The student {report.reported_student.user.get_full_name() if report.reported_student else "involved"} '
-                f'has been summoned to the guidance office for counseling. '
-                f'You may be called for additional information if needed.'
-            )
-            
-            Notification.objects.create(
-                user=report.reported_by_user,
-                title='📋 Report Update: Student Summoned',
-                message=reporter_message,
-                notification_type='report_update',
-                related_content_type=report_content_type,
-                related_object_id=report.id,
-                action_url=f'/reports/{report.id}',
-                priority='medium',
-                is_read=False,
-            )
-            print(f'✅ Notified reporter: {report.reported_by_user.username}')
-        
-        # ✅ OPTIONAL: Notify parent/guardian if contact info available
-        if report.reported_student and report.reported_student.guardian_contact:
-            # TODO: Implement SMS/Email notification to guardian
-            print(f'📧 TODO: Send notification to guardian: {report.reported_student.guardian_name}')
-        
-        return Response({
-            'success': True,
-            'message': 'Guidance notice sent successfully',
-            'notifications_sent': {
-                'reported_student': report.reported_student.user.username if report.reported_student else None,
-                'reporter': report.reported_by_user.username if report.reported_by_user else None,
-            },
-            'report_id': report.id,
-            'status': report.status,
-        })
-        
-    except Report.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Report not found'
-        }, status=404)
-    except Exception as e:
-        print(f"❌ Error sending guidance notice: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def send_guidance_notice(request, report_id):
-    """
-    Send guidance notice to student and notify both reporter and reported student
-    """
-    try:
-        # Get the report
-        report = Report.objects.select_related(
-            'reported_by_user',
-            'reported_student__user',
-            'handled_by_counselor__user'
+            'reported_by',           # ✅ Changed from 'reported_by_user'
+            'student__user',         # ✅ Changed from 'reported_student__user'
+            'assigned_counselor__user'  # ✅ Changed from 'handled_by_counselor__user'
         ).get(id=report_id)
         
         # Get the counselor
@@ -3638,7 +3537,7 @@ def send_guidance_notice(request, report_id):
         # Update report status to 'summoned'
         old_status = report.status
         report.status = 'summoned'
-        report.handled_by_counselor = counselor
+        report.assigned_counselor = counselor  # ✅ Changed from handled_by_counselor
         report.save()
         
         print(f"✅ Report #{report_id} status changed: {old_status} → summoned")
@@ -3650,13 +3549,13 @@ def send_guidance_notice(request, report_id):
         notifications_sent = []
         
         # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
-        if report.reported_student and report.reported_student.user:
+        if report.student and report.student.user:  # ✅ Changed from report.reported_student
             Notification.objects.create(
-                user=report.reported_student.user,
+                user=report.student.user,
                 title='📢 Guidance Office Summon',
                 message=f'You are summoned to the guidance office regarding: "{report.title}". '
                        f'Please report to the guidance office as soon as possible for a counseling session. '
-                       f'Reported by: {report.reported_by_user.get_full_name() if report.reported_by_user else "System"}',
+                       f'Reported by: {report.reported_by.get_full_name() if report.reported_by else "System"}',  # ✅ Changed
                 notification_type='guidance_summon',
                 related_content_type=report_content_type,
                 related_object_id=report.id,
@@ -3664,20 +3563,20 @@ def send_guidance_notice(request, report_id):
                 priority='high',
                 is_read=False,
             )
-            notifications_sent.append(report.reported_student.user.username)
-            print(f'📢 Notified reported student: {report.reported_student.user.username}')
+            notifications_sent.append(report.student.user.username)
+            print(f'📢 Notified reported student: {report.student.user.username}')
         
         # 2. Notify the REPORTER (the one who reported the incident)
-        if report.reported_by_user:
+        if report.reported_by:  # ✅ Changed from report.reported_by_user
             reporter_message = (
                 f'Your report "{report.title}" has been reviewed and validated. '
-                f'The student {report.reported_student.user.get_full_name() if report.reported_student else "involved"} '
+                f'The student {report.student.user.get_full_name() if report.student else "involved"} '  # ✅ Changed
                 f'has been summoned to the guidance office for counseling. '
                 f'Thank you for your report. You may be contacted if additional information is needed.'
             )
             
             Notification.objects.create(
-                user=report.reported_by_user,
+                user=report.reported_by,
                 title='📋 Report Update: Student Summoned',
                 message=reporter_message,
                 notification_type='report_update',
@@ -3687,15 +3586,15 @@ def send_guidance_notice(request, report_id):
                 priority='medium',
                 is_read=False,
             )
-            notifications_sent.append(report.reported_by_user.username)
-            print(f'📋 Notified reporter: {report.reported_by_user.username}')
+            notifications_sent.append(report.reported_by.username)
+            print(f'📋 Notified reporter: {report.reported_by.username}')
         
         return Response({
             'success': True,
             'message': 'Guidance notice sent successfully',
             'notifications_sent': {
-                'reported_student': report.reported_student.user.username if report.reported_student else None,
-                'reporter': report.reported_by_user.username if report.reported_by_user else None,
+                'reported_student': report.student.user.username if report.student else None,  # ✅ Changed
+                'reporter': report.reported_by.username if report.reported_by else None,  # ✅ Changed
             },
             'report_id': report.id,
             'status': report.status,
