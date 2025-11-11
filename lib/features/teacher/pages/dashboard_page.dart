@@ -913,24 +913,31 @@ Widget build(BuildContext context) {
         initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
       }
       
+      // ✅ NEW: Get current school year
+      final currentYear = DateTime.now().year;
+      final currentMonth = DateTime.now().month;
+      final currentSchoolYear = currentMonth >= 6 
+          ? '$currentYear-${currentYear + 1}' 
+          : '${currentYear - 1}-$currentYear';
+      
       return Scaffold(
         appBar: AppBar(
           title: const Text('My Profile'),
           backgroundColor: Colors.blue.shade700,
           foregroundColor: Colors.white,
-          automaticallyImplyLeading: false, // ✅ Remove back button
+          automaticallyImplyLeading: false,
           actions: [
             IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Logout',
-              onPressed: _logout, // ✅ Now shows confirmation dialog
+              onPressed: _logout,
             ),
           ],
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
-            children: [
+            children: [           
               CircleAvatar(
                 radius: 60,
                 backgroundColor: Colors.blue.shade700,
@@ -965,6 +972,8 @@ Widget build(BuildContext context) {
                 {'label': 'Employee ID', 'value': profile?['employee_id'] ?? 'N/A'},
                 {'label': 'Username', 'value': profile?['username'] ?? 'N/A'},
                 {'label': 'Department', 'value': profile?['department'] ?? 'N/A'},
+                // ✅ NEW: Add school year to personal info
+                {'label': 'Current School Year', 'value': currentSchoolYear},
               ]),
               
               const SizedBox(height: 16),
@@ -977,9 +986,8 @@ Widget build(BuildContext context) {
               
               const SizedBox(height: 24),
               
-              // ✅ Logout button with confirmation
               ElevatedButton.icon(
-                onPressed: _logout, // ✅ Now shows confirmation dialog
+                onPressed: _logout,
                 icon: const Icon(Icons.logout),
                 label: const Text('Logout'),
                 style: ElevatedButton.styleFrom(

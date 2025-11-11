@@ -22,6 +22,7 @@ import '../features/counselor/pages/dashboard_page.dart';
 import '../features/counselor/pages/student_report_page.dart';
 import '../features/counselor/pages/teacher_reports_page.dart';
 import '../features/counselor/pages/counseling_session_page.dart';
+import '../features/counselor/pages/settings_page.dart'; // ✅ NEW: Import counselor settings
 
 class AppRoutes {
   // Authentication
@@ -48,7 +49,7 @@ class AppRoutes {
   static const String counselorStudentReports = '/counselor-student-reports';
   static const String counselorTeacherReports = '/counselor-teacher-reports';
   static const String counselorAppointments = '/counselor-appointments';
-  static const String counselorSettings = '/counselor-settings';
+  static const String counselorSettings = '/counselor-settings'; // ✅ ADDED: Counselor settings route
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     // Extract arguments if provided
@@ -113,6 +114,10 @@ class AppRoutes {
       case counselorAppointments:
         return MaterialPageRoute(
             builder: (_) => const CounselingSessionPage());
+      
+      // ✅ NEW: Counselor Settings Route
+      case counselorSettings:
+        return MaterialPageRoute(builder: (_) => const CounselorSettingsPage());
 
       // Fallback
       default:

@@ -1,3 +1,4 @@
+import '../../../widgets/school_year_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
@@ -284,16 +285,29 @@ Widget build(BuildContext context) {
               backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
               actions: [
-                const NotificationBell(), // ✅ Add notification bell
+                const NotificationBell(), // ✅ Notification bell
+                
+                // ✅ NEW: Settings Button
                 IconButton(
-                  icon: const Icon(Icons.refresh, color:Colors.white),
+                  icon: const Icon(Icons.settings, color: Colors.white),
+                  tooltip: 'Settings',
+                  onPressed: () {
+                    Navigator.pushNamed(context, AppRoutes.counselorSettings); // ✅ CORRECT
+                  },
+                ),
+                
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  tooltip: 'Refresh',
                   onPressed: () {
                     setState(() => _isLoading = true);
                     _fetchDashboardData();
                   },
                 ),
+                
                 IconButton(
                   icon: const Icon(Icons.logout, color: Colors.white),
+                  tooltip: 'Logout',
                   onPressed: () async {
                     final shouldLogout = await _confirmLogout(context);
                     if (shouldLogout) {
@@ -347,29 +361,45 @@ Widget build(BuildContext context) {
   }
 
   Widget _buildOverviewTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Greeting Card
-          _buildGreetingCard(),
-          const SizedBox(height: 20),
+  return Consumer<CounselorProvider>(
+    builder: (context, counselorProvider, child) {
+      return SingleChildScrollView(
+        padding: EdgeInsets.zero, // Remove padding from ScrollView
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ✅ NEW: School Year Banner at the very top
+            const SchoolYearBanner(),
+            
+            // Main content with padding
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Greeting Card
+                  _buildGreetingCard(),
+                  const SizedBox(height: 20),
 
-          // Quick Stats Cards
-          _buildQuickStatsGrid(),
-          const SizedBox(height: 20),
+                  // Quick Stats Cards
+                  _buildQuickStatsGrid(),
+                  const SizedBox(height: 20),
 
-          // NEW: Top Violations Overview
-          _buildTopViolationsOverview(),
-          const SizedBox(height: 20),
+                  // Top Violations Overview
+                  _buildTopViolationsOverview(),
+                  const SizedBox(height: 20),
 
-          // Recent Activity
-          _buildRecentActivitySection(),
-        ],
-      ),
-    );
-  }
+                  // Recent Activity
+                  _buildRecentActivitySection(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   // Add this method to your _CounselorDashboardPageState class:
 
@@ -691,43 +721,131 @@ String _formatDate(String? dateStr) {
 
   // Add this method to your _CounselorDashboardPageState class:
   Widget _buildQuickStatsGrid() {
-  return GridView.count(
-    shrinkWrap: true,
-    physics: const NeverScrollableScrollPhysics(),
-    crossAxisCount: 2,
-    crossAxisSpacing: 16,
-    mainAxisSpacing: 16,
-    childAspectRatio: 1.5,
-    children: [
-      _buildStatCard(
-        "📊 Total Reports",
-        "${_studentReportsCount + _teacherReportsCount}",
-        "All submitted reports",
-        Colors.blue,
-        onTap: () {}, // Could navigate to combined reports view
+  return Consumer<CounselorProvider>(
+    builder: (context, provider, child) {
+      final isFiltered = provider.selectedSchoolYear != 'all';
+      
+      return Column(
+        children: [
+          // Show filter indicator if not viewing all years
+          if (isFiltered)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.filter_list, size: 16, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Showing data for S.Y. ${provider.selectedSchoolYear}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          
+          // Existing grid
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 1.5,
+            children: [
+              _buildStatCard(
+                "📊 Total Reports",
+                "${_studentReportsCount + _teacherReportsCount}",
+                "All submitted reports",
+                Colors.blue,
+                onTap: () {},
+              ),
+              _buildStatCard(
+                "👥 Student Reports", 
+                "$_studentReportsCount",
+                "${_reportStatusCounts['pending'] ?? 0} pending review",
+                Colors.green,
+                onTap: () => setState(() => _currentTabIndex = 2),
+              ),
+              _buildStatCard(
+                "🏫 Teacher Reports",
+                "$_teacherReportsCount", 
+                "From educators",
+                Colors.orange,
+                onTap: () => setState(() => _currentTabIndex = 3),
+              ),
+              _buildStatCard(
+                "📊 Total Tallied Reports",
+                "${Provider.of<CounselorProvider>(context, listen: false).studentViolations.length}",
+                "Manually tallied by counselor",
+                Colors.red,
+                onTap: () => setState(() => _currentTabIndex = 1),
+              ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Widget _buildEmptyState(String schoolYear) {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.inbox_outlined,
+            size: 80,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Activity Found',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            schoolYear == 'all'
+                ? 'No reports or violations recorded yet'
+                : 'No data for S.Y. $schoolYear',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.counselorSettings);
+            },
+            icon: const Icon(Icons.settings),
+            label: const Text('Change School Year'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
       ),
-      _buildStatCard(
-        "👥 Student Reports", 
-        "$_studentReportsCount",
-        "${_reportStatusCounts['pending'] ?? 0} pending review",
-        Colors.green,
-        onTap: () => setState(() => _currentTabIndex = 2),
-      ),
-      _buildStatCard(
-        "🏫 Teacher Reports",
-        "$_teacherReportsCount", 
-        "From educators",
-        Colors.orange,
-        onTap: () => setState(() => _currentTabIndex = 3),
-      ),
-      _buildStatCard(
-        "📊 Total Tallied Reports",
-        "${Provider.of<CounselorProvider>(context, listen: false).studentViolations.length}",
-        "Manually tallied by counselor",
-        Colors.red,
-        onTap: () => setState(() => _currentTabIndex = 1),
-      ),
-    ],
+    ),
   );
 }
 
@@ -818,84 +936,125 @@ Widget _buildStatCard(String title, String value, String subtitle, Color color, 
   // Replace the _buildManageStudentsTab method with this to link to your existing page:
 
   Widget _buildManageStudentsTab() {
-    // Navigate to the existing StudentViolationsPage
-    return const StudentViolationsPage();
-  }
+  return Column(
+    children: [
+      // ✅ NEW: School Year Banner
+      const SchoolYearBanner(),
+      
+      // Existing content
+      const Expanded(
+        child: StudentViolationsPage(),
+      ),
+    ],
+  );
+}
 
   // (Removed unused _showStudentViolations method)
 
   // Add this method to your _CounselorDashboardPageState class:
   Widget _buildStudentReportsContent() {
-    // Navigate to the existing StudentReportPage
-    return const StudentReportPage();
-  }
+  return Column(
+    children: [
+      // ✅ NEW: School Year Banner
+      const SchoolYearBanner(),
+      
+      // Existing content
+      const Expanded(
+        child: StudentReportPage(),
+      ),
+    ],
+  );
+}
 
   // Add this method to your _CounselorDashboardPageState class:
 
   Widget _buildTeacherReportsContent() {
-    // Navigate to the existing TeacherReportsPage
-    return const TeacherReportsPage();
-  }
+  return Column(
+    children: [
+      // ✅ NEW: School Year Banner
+      const SchoolYearBanner(),
+      
+      // Existing content
+      const Expanded(
+        child: TeacherReportsPage(),
+      ),
+    ],
+  );
+}
 
   // Add this method to your _CounselorDashboardPageState class:
 
   Widget _buildAnalyticsContent() {
-  return SingleChildScrollView(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Analytics Header
-        Row(
-          children: [
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+  return Column(
+    children: [
+      // ✅ NEW: School Year Banner
+      const SchoolYearBanner(),
+      
+      // Existing analytics content
+      Expanded(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Analytics Header
+              Row(
                 children: [
-                  Text(
-                    'Analytics Dashboard',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.purple.shade700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Analytics Dashboard',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.purple.shade700,
+                          ),
+                        ),
+                        Consumer<CounselorProvider>(
+                          builder: (context, provider, child) {
+                            return Text(
+                              'School Year: ${provider.selectedSchoolYear}',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    'Comprehensive analysis of reports and violations',
-                    style: TextStyle(color: Colors.grey.shade600),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+
+              // Status Distribution Chart
+              _buildStatusDistributionCard(),
+              const SizedBox(height: 20),
+
+              // Violation Types Analysis
+              _buildViolationTypesCard(),
+              const SizedBox(height: 20),
+
+              // Top Students with Most Violations
+              _buildTopViolatorsCard(),
+              const SizedBox(height: 20),
+
+              // Monthly Trends
+              _buildMonthlyTrendsCard(),
+              const SizedBox(height: 20),
+
+              // Risk Analysis Section
+              _buildRiskAnalysisCard(),
+              const SizedBox(height: 20),
+
+              // Recommendations Section
+              _buildRecommendationsCard(),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
-
-        // Status Distribution Chart
-        _buildStatusDistributionCard(),
-        const SizedBox(height: 20),
-
-        // Violation Types Analysis
-        _buildViolationTypesCard(),
-        const SizedBox(height: 20),
-
-        // ✅ NEW: Top Students with Most Violations
-        _buildTopViolatorsCard(),
-        const SizedBox(height: 20),
-
-        // Monthly Trends
-        _buildMonthlyTrendsCard(),
-        const SizedBox(height: 20),
-
-        // Risk Analysis Section
-        _buildRiskAnalysisCard(),
-        const SizedBox(height: 20),
-
-        // Recommendations Section
-        _buildRecommendationsCard(),
-      ],
-    ),
+      ),
+    ],
   );
 }
 

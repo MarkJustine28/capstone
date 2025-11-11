@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/counselor_provider.dart';
+import '../../../widgets/school_year_banner.dart';
 
 class StudentReportPage extends StatefulWidget {
   const StudentReportPage({super.key});
@@ -217,93 +218,103 @@ Widget build(BuildContext context) {
       final isLoading = provider.isLoadingCounselorStudentReports || provider.isLoading;
 
       return Scaffold(
-        // Use AppBar instead of custom container for proper system padding
-        appBar: AppBar(
-          automaticallyImplyLeading: false, // Hide back button since we're in a tab
-          backgroundColor: Colors.blue.shade700,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Student Reports',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+          // Use AppBar instead of custom container for proper system padding
+          appBar: AppBar(
+            automaticallyImplyLeading: false, // Hide back button since we're in a tab
+            backgroundColor: Colors.blue.shade700,
+            foregroundColor: Colors.white,
+            elevation: 4,
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Student Reports',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
+                Text(
+                  '${reports.length} reports • S.Y. ${provider.selectedSchoolYear}', // ✅ Show school year
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              // Filter Button
+              IconButton(
+                icon: const Icon(Icons.filter_list, color: Colors.white),
+                onPressed: () => _showFilterDialog(),
+                tooltip: 'Filter Reports',
               ),
-              Text(
-                '${reports.length} reports submitted by students',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                ),
+              // Refresh Button
+              IconButton(
+                icon: isLoading 
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.refresh, color: Colors.white),
+                onPressed: isLoading ? null : () => _fetchReports(),
+                tooltip: 'Refresh',
+              ),
+              // Export Button
+              IconButton(
+                icon: const Icon(Icons.download, color: Colors.white),
+                onPressed: () => _exportReports(),
+                tooltip: 'Export Reports',
+              ),
+              const SizedBox(width: 8), // Add some padding from the edge
+            ],
+          ),
+          body: Column(
+            children: [
+              // ✅ NEW: School Year Banner
+              const SchoolYearBanner(),
+              
+              // Main content
+              Expanded(
+                child: isLoading && reports.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text("Loading student reports..."),
+                          ],
+                        ),
+                      )
+                    : reports.isEmpty
+                        ? _buildEmptyState(provider.selectedSchoolYear) // ✅ Pass school year
+                        : RefreshIndicator(
+                            onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(8),
+                              itemCount: reports.length,
+                              itemBuilder: (context, index) {
+                                final report = reports[index];
+                                final isLoading = _loadingReports.contains(index);
+                                
+                                return _buildReportCard(report, index, isLoading);
+                              },
+                            ),
+                          ),
               ),
             ],
           ),
-          actions: [
-            // Filter Button
-            IconButton(
-              icon: const Icon(Icons.filter_list, color: Colors.white),
-              onPressed: () => _showFilterDialog(),
-              tooltip: 'Filter Reports',
-            ),
-            // Refresh Button
-            IconButton(
-              icon: isLoading 
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Icon(Icons.refresh, color: Colors.white),
-              onPressed: isLoading ? null : () => _fetchReports(),
-              tooltip: 'Refresh',
-            ),
-            // Export Button
-            IconButton(
-              icon: const Icon(Icons.download, color: Colors.white),
-              onPressed: () => _exportReports(),
-              tooltip: 'Export Reports',
-            ),
-            const SizedBox(width: 8), // Add some padding from the edge
-          ],
-        ),
-        body: isLoading && reports.isEmpty
-            ? const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text("Loading student reports..."),
-                  ],
-                ),
-              )
-            : reports.isEmpty
-                ? _buildEmptyState()
-                : RefreshIndicator(
-                    onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: reports.length,
-                      itemBuilder: (context, index) {
-                        final report = reports[index];
-                        final isLoading = _loadingReports.contains(index);
-                        
-                        return _buildReportCard(report, index, isLoading);
-                      },
-                    ),
-                  ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   void _showFilterDialog() {
     showDialog(
@@ -340,7 +351,7 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(String schoolYear) { // ✅ Add schoolYear parameter
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -348,7 +359,7 @@ Widget build(BuildContext context) {
           Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
           Text(
-            "No student reports available",
+            "No Student Reports",
             style: TextStyle(
               fontSize: 18,
               color: Colors.grey.shade600,
@@ -357,7 +368,9 @@ Widget build(BuildContext context) {
           ),
           const SizedBox(height: 8),
           Text(
-            "Reports will appear here when students submit them",
+            schoolYear == 'all'
+                ? 'No reports available across all years'
+                : 'No reports found for S.Y. $schoolYear', // ✅ Show school year context
             style: TextStyle(color: Colors.grey.shade500),
             textAlign: TextAlign.center,
           ),

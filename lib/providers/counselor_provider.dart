@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:math' as math;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CounselorProvider with ChangeNotifier {
   String? _token;
@@ -41,6 +42,13 @@ class CounselorProvider with ChangeNotifier {
   List<Map<String, dynamic>> get violationTypes => _violationTypes;
   List<Map<String, dynamic>> get counselingSessions => _counselingSessions;
   bool get isLoadingCounselingSessions => _isLoadingCounselingSessions;
+
+  // ✅ NEW: School year filtering
+  String _selectedSchoolYear = 'current';
+  List<String> _availableSchoolYears = [];
+  
+  String get selectedSchoolYear => _selectedSchoolYear;
+  List<String> get availableSchoolYears => _availableSchoolYears;
 
   // Base URL helper
   String get _baseUrl {
@@ -124,6 +132,91 @@ class CounselorProvider with ChangeNotifier {
     return false;
   }
 }
+
+// ✅ NEW: Initialize with saved school year
+  Future<void> initializeSchoolYear() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedYear = prefs.getString('selected_school_year');
+      
+      if (savedYear != null) {
+        _selectedSchoolYear = savedYear;
+      } else {
+        _selectedSchoolYear = _getCurrentSchoolYear();
+      }
+      
+      debugPrint('📅 Initialized school year: $_selectedSchoolYear');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ Error initializing school year: $e');
+      _selectedSchoolYear = _getCurrentSchoolYear();
+    }
+  }
+
+  // ✅ NEW: Fetch available school years from backend
+  Future<void> fetchAvailableSchoolYears() async {
+    if (_token == null) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/counselor/available-school-years/'),
+        headers: {
+          'Authorization': 'Token $_token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      debugPrint('📅 Available school years response: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          _availableSchoolYears = List<String>.from(data['school_years'] ?? []);
+          debugPrint('✅ Available school years: $_availableSchoolYears');
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error fetching school years: $e');
+    }
+  }
+
+  // ✅ NEW: Set school year and refresh all data
+  Future<bool> setSchoolYear(String schoolYear) async {
+  try {
+    _selectedSchoolYear = schoolYear;
+    
+    // Save to SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_school_year', schoolYear);
+    
+    debugPrint('📅 School year changed to: $schoolYear');
+    notifyListeners();
+    
+    // Refresh all data with new school year filter
+    await Future.wait([
+      fetchCounselorStudentReports(forceRefresh: true),
+      fetchStudentViolations(forceRefresh: true),
+      fetchProfile(),  // ✅ FIXED: Changed from fetchCounselorProfile() to fetchProfile()
+      fetchStudentsList(schoolYear: schoolYear),  // ✅ ADDED: Pass school year parameter
+      // Add other fetch methods as needed
+    ]);
+    
+    debugPrint('✅ All data refreshed for school year: $schoolYear');
+    return true;
+  } catch (e) {
+    debugPrint('❌ Error setting school year: $e');
+    return false;
+  }
+}
+
+  // ✅ HELPER: Get current school year
+  String _getCurrentSchoolYear() {
+    final now = DateTime.now();
+    final year = now.year;
+    final month = now.month;
+    return month >= 6 ? '$year-${year + 1}' : '${year - 1}-$year';
+  }
 
   // Fetch violation analytics method
   Future<Map<String, dynamic>?> fetchViolationAnalytics() async {
@@ -308,7 +401,9 @@ Future<void> fetchCounselorStudentReports({bool forceRefresh = false}) async {
 
   try {
     // Use the same working endpoint as fetchStudentReports
-    final url = Uri.parse('$_baseUrl/api/counselor/student-reports/');
+    final url = _selectedSchoolYear == 'all'
+        ? Uri.parse('$_baseUrl/api/counselor/student-reports/')
+        : Uri.parse('$_baseUrl/api/counselor/student-reports/?school_year=$_selectedSchoolYear');
     
     debugPrint("📡 Fetching from: $url");
     final stopwatch = Stopwatch()..start();
@@ -517,8 +612,9 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
 
   try {
     // ✅ Add school year query parameter
-    final queryParams = schoolYear != null ? '?school_year=$schoolYear' : '';
-    final url = Uri.parse('$_baseUrl/api/counselor/student-violations/$queryParams');
+    final url = _selectedSchoolYear == 'all'
+        ? Uri.parse('$_baseUrl/api/counselor/student-violations/')
+        : Uri.parse('$_baseUrl/api/counselor/student-violations/?school_year=$_selectedSchoolYear');
     
     debugPrint('🔍 Fetching student violations for school year: ${schoolYear ?? "all"}');
     
