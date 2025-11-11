@@ -215,30 +215,42 @@ def register_view(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         with transaction.atomic():
-            # ✅ Create user with appropriate is_active status
+            # Create user
             user = User.objects.create_user(
                 username=username,
                 password=password,
                 email=email,
                 first_name=first_name,
                 last_name=last_name,
-                is_active=True if role != 'teacher' else False  # ✅ Teachers need approval
+                is_active=True if role != 'teacher' else False
             )
             
             logger.info(f"✅ User created: {username}, role: {role}, is_active: {user.is_active}")
             
             # Create role-specific profile
             if role == 'student':
-                Student.objects.create(
+                # ✅ Calculate current school year if not provided
+                school_year = data.get('school_year')
+                if not school_year:
+                    current_year = datetime.now().year
+                    current_month = datetime.now().month
+                    school_year = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+                
+                # ✅ Generate student_id if not provided
+                student_id = data.get('student_id', f"STU{user.id:06d}")
+                
+                student = Student.objects.create(
                     user=user,
+                    student_id=student_id,
                     grade_level=data.get('grade_level', ''),
                     section=data.get('section', ''),
                     strand=data.get('strand', ''),
+                    school_year=school_year,  # ✅ Save school_year
                     contact_number=data.get('contact_number', ''),
                     guardian_name=data.get('guardian_name', ''),
                     guardian_contact=data.get('guardian_contact', '')
                 )
-                logger.info(f"✅ Student profile created for {username}")
+                logger.info(f"✅ Student profile created for {username} - School Year: {school_year}")
                 
             elif role == 'teacher':
                 # ✅ Create teacher with pending approval status
@@ -1022,12 +1034,23 @@ def student_reports(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_students_list(request):
-    """Get students list"""
+    """Get list of students with optional school year filter"""
     try:
-        students = Student.objects.select_related('user').all()
+        school_year = request.GET.get('school_year', None)
         
+        print(f"🔍 Fetching students list for school year: {school_year or 'all'}")
+        
+        # Base query
+        students_query = Student.objects.select_related('user').all()
+        
+        # Apply school year filter if provided
+        if school_year:
+            students_query = students_query.filter(school_year=school_year)
+            print(f"📊 Filtered to {students_query.count()} students for school year {school_year}")
+        
+        # Serialize the data with school_year included
         students_data = []
-        for student in students:
+        for student in students_query:
             students_data.append({
                 'id': student.id,
                 'user_id': student.user.id,
@@ -1035,27 +1058,121 @@ def get_students_list(request):
                 'last_name': student.user.last_name,
                 'username': student.user.username,
                 'email': student.user.email,
-                'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'student_id': student.student_id,
                 'grade_level': student.grade_level,
-                'strand': getattr(student, 'strand', ''),
+                'strand': student.strand if student.strand else '',
                 'section': student.section,
-                'contact_number': getattr(student, 'contact_number', ''),
-                'guardian_name': getattr(student, 'guardian_name', ''),
-                'guardian_contact': getattr(student, 'guardian_contact', ''),
+                'school_year': student.school_year,  # ✅ MUST INCLUDE THIS
+                'contact_number': student.contact_number,
+                'guardian_name': student.guardian_name,
+                'guardian_contact': student.guardian_contact,
             })
+        
+        print(f"✅ Returning {len(students_data)} students")
+        if students_data:
+            print(f"📝 Sample: {students_data[0]['first_name']} {students_data[0]['last_name']} - school_year: '{students_data[0]['school_year']}'")
         
         return Response({
             'success': True,
             'students': students_data,
-            'total_count': len(students_data)
+            'total': len(students_data),
+            'school_year_filter': school_year,
         })
         
     except Exception as e:
+        print(f"❌ Error fetching students: {e}")
+        import traceback
+        traceback.print_exc()
         return Response({
             'success': False,
             'error': str(e),
             'students': []
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_student_violations(request):
+    """Get student violations with optional school year filter"""
+    try:
+        school_year = request.GET.get('school_year', None)
+        
+        print(f"🔍 Fetching student violations for school year: {school_year or 'all'}")
+        
+        # ✅ Base query
+        violations_query = StudentViolationRecord.objects.select_related(
+            'student__user',
+            'violation_type',
+            'counselor__user',
+            'related_report'
+        ).all()
+        
+        # ✅ Filter by school year if provided
+        if school_year:
+            violations_query = violations_query.filter(student__school_year=school_year)
+            print(f"📊 Found {violations_query.count()} violations for school year {school_year}")
+        
+        violations_data = []
+        for violation in violations_query:
+            violations_data.append({
+                'id': violation.id,
+                'student_id': violation.student.id,
+                'student': {
+                    'id': violation.student.id,
+                    'name': f"{violation.student.user.first_name} {violation.student.user.last_name}",
+                    'student_id': violation.student.student_id,
+                    'user_id': violation.student.user.id,
+                    'grade_level': violation.student.grade_level,
+                    'section': violation.student.section,
+                    'school_year': violation.student.school_year,  # ✅ Include school_year
+                },
+                'violation_type': {
+                    'id': violation.violation_type.id,
+                    'name': violation.violation_type.name,
+                    'category': violation.violation_type.category,
+                    'severity_level': violation.violation_type.severity_level,
+                },
+                'counselor': {
+                    'id': violation.counselor.id,
+                    'name': f"{violation.counselor.user.first_name} {violation.counselor.user.last_name}",
+                },
+                'incident_date': violation.incident_date.isoformat(),
+                'description': violation.description,
+                'location': violation.location or '',
+                'status': violation.status,
+                'severity_level': violation.violation_type.severity_level,
+                'counselor_notes': violation.counselor_notes or '',
+                'action_taken': violation.action_taken or '',
+                'recorded_at': violation.recorded_at.isoformat(),
+                'school_year': violation.student.school_year,  # ✅ Include at root level too
+                # Related report info
+                'related_report_id': violation.related_report.id if violation.related_report else None,
+                'related_report': {
+                    'id': violation.related_report.id,
+                    'title': violation.related_report.title,
+                    'status': violation.related_report.status,
+                } if violation.related_report else None,
+            })
+        
+        print(f"✅ Returning {len(violations_data)} violations")
+        if violations_data:
+            print(f"📝 Sample violation: Student {violations_data[0]['student']['name']} - SY: {violations_data[0]['school_year']}")
+        
+        return Response({
+            'success': True,
+            'violations': violations_data,
+            'count': len(violations_data),
+            'school_year_filter': school_year,
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching violations: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e),
+            'violations': []
+        }, status=500)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -3318,6 +3435,50 @@ def update_report_status(request, report_id):
         print(f"❌ Error updating report status: {str(e)}")
         import traceback
         traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_students_school_year(request):
+    """Bulk update students' school year - ADMIN/COUNSELOR ONLY"""
+    try:
+        # Verify counselor or admin
+        if not (request.user.is_staff or hasattr(request.user, 'counselor')):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Admin or counselor role required.'
+            }, status=403)
+        
+        default_school_year = request.data.get('school_year')
+        
+        # Calculate current school year if not provided
+        if not default_school_year:
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            default_school_year = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+        
+        # Update all students without school_year
+        students_without_sy = Student.objects.filter(
+            models.Q(school_year__isnull=True) | models.Q(school_year='')
+        )
+        
+        count = students_without_sy.count()
+        students_without_sy.update(school_year=default_school_year)
+        
+        logger.info(f"✅ Updated {count} students to school year: {default_school_year}")
+        
+        return Response({
+            'success': True,
+            'message': f'Updated {count} students to school year {default_school_year}',
+            'count': count,
+            'school_year': default_school_year
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating students school year: {e}")
         return Response({
             'success': False,
             'error': str(e)

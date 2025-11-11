@@ -45,6 +45,8 @@ class Student(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
 
+    school_year = models.CharField(max_length=10, default='2024-2025')
+
     def clean(self):
         """Custom validation to ensure strand is provided for grades 11-12"""
         from django.core.exceptions import ValidationError
@@ -72,6 +74,7 @@ class Student(models.Model):
         return f"{full_name} - Student"
 
     class Meta:
+        db_table = 'students'
         # Ensure unique combination of grade, strand, and section per student
         constraints = [
             models.UniqueConstraint(

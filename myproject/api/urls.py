@@ -25,6 +25,7 @@ urlpatterns = [
     path('violation-types/', views.violation_types, name='violation_types'),
     path('students-list/', views.get_students_list, name='students_list_alias'),
     path('get-violation-types/', views.get_violation_types, name='get_violation_types'),
+    path('update-students-school-year/', views.update_students_school_year, name='update_students_school_year'),
     
     # Student management (counselor only)
     path('add-student/', views.add_student, name='add_student'),
