@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../providers/counselor_provider.dart';
+import '../../../widgets/school_year_banner.dart'; // ✅ ADD THIS IMPORT
+import '../../../config/routes.dart';
 
 class TeacherReportsPage extends StatefulWidget {
   const TeacherReportsPage({Key? key}) : super(key: key);
@@ -666,6 +668,7 @@ IconData _getStatusIcon(String status) {
       builder: (context, provider, child) {
         final filteredReports = _getFilteredReports();
         final isLoading = provider.isLoading;
+        final schoolYear = provider.selectedSchoolYear;
 
         return Scaffold(
           appBar: AppBar(
@@ -682,7 +685,7 @@ IconData _getStatusIcon(String status) {
                   ),
                 ),
                 Text(
-                  '${filteredReports.length} reports submitted by teachers',
+                  '${filteredReports.length} reports • S.Y. $schoolYear', // ✅ Added school year
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
@@ -719,6 +722,9 @@ IconData _getStatusIcon(String status) {
           ),
           body: Column(
             children: [
+              // ✅ NEW: School Year Banner
+              const SchoolYearBanner(),
+              
               // Search Bar
               Container(
                 padding: const EdgeInsets.all(16),
@@ -749,7 +755,7 @@ IconData _getStatusIcon(String status) {
                         children: [
                           _buildFilterChip('All', 'all', Colors.grey),
                           _buildFilterChip('Pending', 'pending', Colors.orange),
-                          _buildFilterChip('Under Review', 'under_review', Colors.blue),  // ✅ Changed
+                          _buildFilterChip('Under Review', 'under_review', Colors.blue),
                           _buildFilterChip('Resolved', 'resolved', Colors.green),
                           _buildFilterChip('Dismissed', 'dismissed', Colors.red),
                         ],
@@ -773,7 +779,7 @@ IconData _getStatusIcon(String status) {
                         ),
                       )
                     : filteredReports.isEmpty
-                        ? _buildEmptyState()
+                        ? _buildEmptyState(schoolYear) // ✅ Pass school year
                         : RefreshIndicator(
                             onRefresh: _fetchReports,
                             child: ListView.builder(
@@ -837,7 +843,7 @@ IconData _getStatusIcon(String status) {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(String schoolYear) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -847,7 +853,7 @@ IconData _getStatusIcon(String status) {
           Text(
             _searchQuery.isNotEmpty
                 ? 'No reports match your search'
-                : 'No teacher reports available',
+                : 'No Teacher Reports',
             style: TextStyle(
               fontSize: 18,
               color: Colors.grey.shade600,
@@ -856,15 +862,44 @@ IconData _getStatusIcon(String status) {
           ),
           const SizedBox(height: 8),
           Text(
-            "Reports will appear here when teachers submit them",
+            schoolYear == 'all'
+                ? 'No reports available across all years'
+                : 'No reports for S.Y. $schoolYear',
             style: TextStyle(color: Colors.grey.shade500),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 8),
+          Text(
+            "Reports will appear here when teachers submit them",
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _fetchReports,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _fetchReports,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (schoolYear != 'all')
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pushNamed(context, AppRoutes.counselorSettings);
+                  },
+                  icon: const Icon(Icons.calendar_today),
+                  label: const Text('Change Year'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.blue.shade700,
+                  ),
+                ),
+            ],
           ),
         ],
       ),
