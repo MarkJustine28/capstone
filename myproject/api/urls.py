@@ -26,6 +26,7 @@ urlpatterns = [
     path('students-list/', views.get_students_list, name='students_list_alias'),
     path('get-violation-types/', views.get_violation_types, name='get_violation_types'),
     path('update-students-school-year/', views.update_students_school_year, name='update_students_school_year'),
+    path('counselor/reports/<int:report_id>/send-guidance-notice/', views.send_guidance_notice, name='send_guidance_notice'),
     
     # Student management (counselor only)
     path('add-student/', views.add_student, name='add_student'),
@@ -46,6 +47,9 @@ urlpatterns = [
     path('counselor/violation-types/', views.counselor_violation_types, name='counselor_violation_types'),
     path('counselor/violation-analytics/', views.counselor_violation_analytics, name='counselor_violation_analytics'),
     path('counselor/update-teacher-report-status/<int:report_id>/', views.counselor_update_teacher_report_status, name='counselor_update_teacher_report_status'),
+    path('counselor/reports/<int:report_id>/send-guidance-notice/', 
+         views.send_guidance_notice, 
+         name='send_guidance_notice'),
     
     # Reports
     path('reports/<int:report_id>/update-status/', views.update_report_status, name='update_report_status'),

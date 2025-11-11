@@ -3342,97 +3342,124 @@ def mark_report_invalid(request, report_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def update_report_status(request, report_id):
-    """Update report status (used for marking as reviewed, invalid, etc.)"""
+    """Update report status with notifications"""
     try:
-        # Get the report
-        report = Report.objects.get(id=report_id)
+        report = Report.objects.select_related(
+            'reported_by_user',
+            'reported_student__user',
+            'handled_by_counselor__user'
+        ).get(id=report_id)
         
-        # Get data from request
         new_status = request.data.get('status')
-        counselor_notes = request.data.get('notes', '')
+        notes = request.data.get('notes', '')
         
-        # Validate status
-        valid_statuses = ['pending', 'under_review', 'summoned', 'reviewed', 'resolved', 'invalid', 'dismissed']
-        if new_status not in valid_statuses:
+        # Get counselor
+        counselor = Counselor.objects.filter(user=request.user).first()
+        if not counselor:
             return Response({
                 'success': False,
-                'error': f'Invalid status: {new_status}'
-            }, status=400)
+                'error': 'Only counselors can update report status'
+            }, status=403)
         
-        # Update the report
         old_status = report.status
         report.status = new_status
+        report.handled_by_counselor = counselor
         
-        # Update counselor notes if provided
-        if counselor_notes:
-            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
-            note_entry = f"\n\n[{timestamp}] Status changed from {old_status} to {new_status}\nNotes: {counselor_notes}"
-            report.counselor_notes = (report.counselor_notes or '') + note_entry
-        
-        # If marking as reviewed, set the reviewed timestamp
-        if new_status == 'reviewed':
-            report.is_reviewed = True
-            report.reviewed_at = timezone.now()
-            report.assigned_counselor = request.user.counselor if hasattr(request.user, 'counselor') else None
-        
-        # If marking as resolved, set resolved timestamp
-        if new_status == 'resolved':
-            report.resolved_at = timezone.now()
-        
-        # If marking as invalid/dismissed
-        if new_status in ['invalid', 'dismissed']:
-            report.verification_status = 'dismissed' if hasattr(report, 'verification_status') else None
+        # Add notes if provided
+        if notes:
+            if report.counselor_notes:
+                report.counselor_notes += f"\n\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {notes}"
+            else:
+                report.counselor_notes = notes
         
         report.save()
         
-        # Create notifications
-        # 1. Notify the student
-        if report.student and report.student.user:
-            status_messages = {
-                'summoned': 'You have been summoned for counseling regarding your report.',
-                'reviewed': 'Your report has been reviewed and validated by the guidance counselor.',
-                'resolved': 'Your report has been resolved.',
-                'invalid': 'Your report has been marked as invalid.',
-                'dismissed': 'Your report has been dismissed.',
-            }
-            
-            Notification.objects.create(
-                user=report.student.user,
-                title=f'Report Status Update: {report.title}',
-                message=status_messages.get(new_status, f'Your report status has been updated to {new_status}.'),
-                type='report_updated',
-                related_report=report
-            )
+        # ✅ NEW: Send notifications based on status change
+        from django.contrib.contenttypes.models import ContentType
+        report_content_type = ContentType.objects.get_for_model(Report)
         
-        # 2. Notify the reporter if different from student
-        if report.reported_by and (not report.student or report.reported_by != report.student.user):
-            Notification.objects.create(
-                user=report.reported_by,
-                title=f'Report Status Update: {report.title}',
-                message=f'The report you submitted has been updated to {new_status}.',
-                type='report_updated',
-                related_report=report
-            )
+        # Notification for SUMMONED status
+        if new_status == 'summoned' and old_status != 'summoned':
+            # Notify reported student
+            if report.reported_student and report.reported_student.user:
+                Notification.objects.create(
+                    user=report.reported_student.user,
+                    title='📢 Guidance Office Notice',
+                    message=f'You are summoned to the guidance office regarding: "{report.title}". '
+                           f'Please report as soon as possible for counseling.',
+                    notification_type='guidance_summon',
+                    related_content_type=report_content_type,
+                    related_object_id=report.id,
+                    action_url=f'/student/reports/{report.id}',
+                    priority='high',
+                )
+            
+            # Notify reporter
+            if report.reported_by_user:
+                Notification.objects.create(
+                    user=report.reported_by_user,
+                    title='📋 Report Update: Student Summoned',
+                    message=f'Your report "{report.title}" has been reviewed. The student has been summoned to guidance office.',
+                    notification_type='report_update',
+                    related_content_type=report_content_type,
+                    related_object_id=report.id,
+                    action_url=f'/reports/{report.id}',
+                    priority='medium',
+                )
+        
+        # Notification for REVIEWED status
+        elif new_status == 'reviewed':
+            if report.reported_by_user:
+                Notification.objects.create(
+                    user=report.reported_by_user,
+                    title='✅ Report Reviewed',
+                    message=f'Your report "{report.title}" has been validated and marked as reviewed. It will be tallied as a violation.',
+                    notification_type='report_update',
+                    related_content_type=report_content_type,
+                    related_object_id=report.id,
+                    priority='medium',
+                )
+        
+        # Notification for INVALID status
+        elif new_status == 'invalid':
+            # Notify reporter that their report was invalid
+            if report.reported_by_user:
+                Notification.objects.create(
+                    user=report.reported_by_user,
+                    title='❌ Report Marked Invalid',
+                    message=f'Your report "{report.title}" has been reviewed and marked as invalid. Reason: {notes[:100]}',
+                    notification_type='report_update',
+                    related_content_type=report_content_type,
+                    related_object_id=report.id,
+                    priority='medium',
+                )
+            
+            # Notify reported student that they were cleared
+            if report.reported_student and report.reported_student.user:
+                Notification.objects.create(
+                    user=report.reported_student.user,
+                    title='✅ Report Cleared',
+                    message=f'The report against you regarding "{report.title}" has been investigated and found to be invalid. You are cleared.',
+                    notification_type='cleared',
+                    related_content_type=report_content_type,
+                    related_object_id=report.id,
+                    priority='high',
+                )
         
         return Response({
             'success': True,
             'message': f'Report status updated to {new_status}',
-            'report': {
-                'id': report.id,
-                'status': report.status,
-                'is_reviewed': report.is_reviewed,
-                'counselor_notes': report.counselor_notes,
-            }
+            'report_id': report.id,
+            'status': report.status,
         })
         
     except Report.DoesNotExist:
         return Response({
             'success': False,
-            'error': f'Report with ID {report_id} not found'
+            'error': 'Report not found'
         }, status=404)
-    
     except Exception as e:
-        print(f"❌ Error updating report status: {str(e)}")
+        print(f"❌ Error updating report status: {e}")
         import traceback
         traceback.print_exc()
         return Response({
@@ -3479,6 +3506,211 @@ def update_students_school_year(request):
         
     except Exception as e:
         logger.error(f"❌ Error updating students school year: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_guidance_notice(request, report_id):
+    """
+    Send guidance notice to student and notify both reporter and reported student
+    """
+    try:
+        # Get the report
+        report = Report.objects.select_related(
+            'reported_by_user',
+            'reported_student__user',
+            'handled_by_counselor__user'
+        ).get(id=report_id)
+        
+        # Get the counselor
+        counselor = Counselor.objects.filter(user=request.user).first()
+        if not counselor:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send guidance notices'
+            }, status=403)
+        
+        # Update report status to 'summoned'
+        report.status = 'summoned'
+        report.handled_by_counselor = counselor
+        report.save()
+        
+        # ✅ NEW: Create notifications for both parties
+        from django.contrib.contenttypes.models import ContentType
+        
+        # Get report content type for the notification
+        report_content_type = ContentType.objects.get_for_model(Report)
+        
+        # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
+        if report.reported_student and report.reported_student.user:
+            Notification.objects.create(
+                user=report.reported_student.user,
+                title='📢 Guidance Office Notice',
+                message=f'You are summoned to the guidance office regarding: "{report.title}". '
+                       f'Please report to the guidance office as soon as possible for a counseling session. '
+                       f'Reported by: {report.reported_by_user.get_full_name() if report.reported_by_user else "Unknown"}',
+                notification_type='guidance_summon',
+                related_content_type=report_content_type,
+                related_object_id=report.id,
+                action_url=f'/student/reports/{report.id}',
+                priority='high',
+                is_read=False,
+            )
+            print(f'✅ Notified reported student: {report.reported_student.user.username}')
+        
+        # 2. Notify the REPORTER (the one who reported the incident)
+        if report.reported_by_user:
+            reporter_message = (
+                f'Your report "{report.title}" has been reviewed. '
+                f'The student {report.reported_student.user.get_full_name() if report.reported_student else "involved"} '
+                f'has been summoned to the guidance office for counseling. '
+                f'You may be called for additional information if needed.'
+            )
+            
+            Notification.objects.create(
+                user=report.reported_by_user,
+                title='📋 Report Update: Student Summoned',
+                message=reporter_message,
+                notification_type='report_update',
+                related_content_type=report_content_type,
+                related_object_id=report.id,
+                action_url=f'/reports/{report.id}',
+                priority='medium',
+                is_read=False,
+            )
+            print(f'✅ Notified reporter: {report.reported_by_user.username}')
+        
+        # ✅ OPTIONAL: Notify parent/guardian if contact info available
+        if report.reported_student and report.reported_student.guardian_contact:
+            # TODO: Implement SMS/Email notification to guardian
+            print(f'📧 TODO: Send notification to guardian: {report.reported_student.guardian_name}')
+        
+        return Response({
+            'success': True,
+            'message': 'Guidance notice sent successfully',
+            'notifications_sent': {
+                'reported_student': report.reported_student.user.username if report.reported_student else None,
+                'reporter': report.reported_by_user.username if report.reported_by_user else None,
+            },
+            'report_id': report.id,
+            'status': report.status,
+        })
+        
+    except Report.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Report not found'
+        }, status=404)
+    except Exception as e:
+        print(f"❌ Error sending guidance notice: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_guidance_notice(request, report_id):
+    """
+    Send guidance notice to student and notify both reporter and reported student
+    """
+    try:
+        # Get the report
+        report = Report.objects.select_related(
+            'reported_by_user',
+            'reported_student__user',
+            'handled_by_counselor__user'
+        ).get(id=report_id)
+        
+        # Get the counselor
+        counselor = Counselor.objects.filter(user=request.user).first()
+        if not counselor:
+            return Response({
+                'success': False,
+                'error': 'Only counselors can send guidance notices'
+            }, status=403)
+        
+        # Update report status to 'summoned'
+        old_status = report.status
+        report.status = 'summoned'
+        report.handled_by_counselor = counselor
+        report.save()
+        
+        print(f"✅ Report #{report_id} status changed: {old_status} → summoned")
+        
+        # ✅ Create notifications for both parties
+        from django.contrib.contenttypes.models import ContentType
+        report_content_type = ContentType.objects.get_for_model(Report)
+        
+        notifications_sent = []
+        
+        # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
+        if report.reported_student and report.reported_student.user:
+            Notification.objects.create(
+                user=report.reported_student.user,
+                title='📢 Guidance Office Summon',
+                message=f'You are summoned to the guidance office regarding: "{report.title}". '
+                       f'Please report to the guidance office as soon as possible for a counseling session. '
+                       f'Reported by: {report.reported_by_user.get_full_name() if report.reported_by_user else "System"}',
+                notification_type='guidance_summon',
+                related_content_type=report_content_type,
+                related_object_id=report.id,
+                action_url=f'/student/reports/{report.id}',
+                priority='high',
+                is_read=False,
+            )
+            notifications_sent.append(report.reported_student.user.username)
+            print(f'📢 Notified reported student: {report.reported_student.user.username}')
+        
+        # 2. Notify the REPORTER (the one who reported the incident)
+        if report.reported_by_user:
+            reporter_message = (
+                f'Your report "{report.title}" has been reviewed and validated. '
+                f'The student {report.reported_student.user.get_full_name() if report.reported_student else "involved"} '
+                f'has been summoned to the guidance office for counseling. '
+                f'Thank you for your report. You may be contacted if additional information is needed.'
+            )
+            
+            Notification.objects.create(
+                user=report.reported_by_user,
+                title='📋 Report Update: Student Summoned',
+                message=reporter_message,
+                notification_type='report_update',
+                related_content_type=report_content_type,
+                related_object_id=report.id,
+                action_url=f'/reports/{report.id}',
+                priority='medium',
+                is_read=False,
+            )
+            notifications_sent.append(report.reported_by_user.username)
+            print(f'📋 Notified reporter: {report.reported_by_user.username}')
+        
+        return Response({
+            'success': True,
+            'message': 'Guidance notice sent successfully',
+            'notifications_sent': {
+                'reported_student': report.reported_student.user.username if report.reported_student else None,
+                'reporter': report.reported_by_user.username if report.reported_by_user else None,
+            },
+            'report_id': report.id,
+            'status': report.status,
+            'total_notified': len(notifications_sent),
+        })
+        
+    except Report.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Report not found'
+        }, status=404)
+    except Exception as e:
+        print(f"❌ Error sending guidance notice: {e}")
+        import traceback
+        traceback.print_exc()
         return Response({
             'success': False,
             'error': str(e)
