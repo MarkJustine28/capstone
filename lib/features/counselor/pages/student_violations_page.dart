@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/counselor_provider.dart';
 import '../widgets/tally_violation_dialog.dart';
+import '../../../widgets/school_year_banner.dart';
 
 class StudentViolationsPage extends StatefulWidget {
   const StudentViolationsPage({super.key});
@@ -198,7 +199,7 @@ void initState() {
 }
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
   return Consumer<CounselorProvider>(
     builder: (context, provider, child) {
       // ✅ FIX: Filter students based on search and filters INCLUDING school year
@@ -213,9 +214,9 @@ void initState() {
         final matchesSection = _selectedSection == 'All' || 
             student['section']?.toString() == _selectedSection;
         
-        // ✅ FIX: Proper school year filtering - CHANGED from isEmpty check
+        // ✅ FIX: Proper school year filtering
         final studentSchoolYear = student['school_year']?.toString() ?? '';
-        final matchesSchoolYear = studentSchoolYear == _selectedSchoolYear; // ✅ Removed the isEmpty check
+        final matchesSchoolYear = studentSchoolYear == _selectedSchoolYear;
 
         // Filter by violation status if needed
         if (_showOnlyWithViolations) {
@@ -232,346 +233,320 @@ void initState() {
         return matchesSearch && matchesGrade && matchesSection && matchesSchoolYear;
       }).toList();
 
-        // Sort students by grade and section
-        filteredStudents.sort((a, b) {
-          final gradeCompare = (a['grade_level'] ?? '').toString().compareTo((b['grade_level'] ?? '').toString());
-          if (gradeCompare != 0) return gradeCompare;
-          return (a['section'] ?? '').toString().compareTo((b['section'] ?? '').toString());
-        });
+      // Sort students by grade and section
+      filteredStudents.sort((a, b) {
+        final gradeCompare = (a['grade_level'] ?? '').toString().compareTo((b['grade_level'] ?? '').toString());
+        if (gradeCompare != 0) return gradeCompare;
+        return (a['section'] ?? '').toString().compareTo((b['section'] ?? '').toString());
+      });
 
-        return Scaffold(
-  appBar: AppBar(
-    title: const Text("Students Management"),
-    backgroundColor: Colors.blue.shade700,
-    foregroundColor: Colors.white,
-    actions: [
-      // View Toggle Button (Keep visible)
-      IconButton(
-        icon: Icon(_showFolderView ? Icons.list : Icons.folder),
-        onPressed: () => setState(() => _showFolderView = !_showFolderView),
-        tooltip: _showFolderView ? "Switch to List View" : "Switch to Folder View",
-      ),
-      
-      // Refresh Button (Keep visible)
-      IconButton(
-        icon: const Icon(Icons.refresh),
-        onPressed: _fetchData,
-        tooltip: "Refresh",
-      ),
-      
-      // Three-dot menu with all other actions
-      PopupMenuButton<String>(
-  icon: const Icon(Icons.more_vert),
-  onSelected: (value) {
-    switch (value) {
-      case 'add_student':
-        _showAddStudentDialog(context);
-        break;
-      case 'bulk_add':
-        _showBulkAddDialog();
-        break;
-      case 'send_notice':
-        _showSendGuidanceNoticeDialog(context);
-        break;
-      case 'tally_report':
-        _showTallyReportDialog(context);
-        break;
-      case 'export_list':
-        _exportStudentsList();
-        break;
-    }
-  },
-  itemBuilder: (context) => [
-    const PopupMenuItem(
-      value: 'add_student',
-      child: Row(
-        children: [
-          Icon(Icons.person_add, size: 20, color: Colors.black),
-          SizedBox(width: 12),
-          Text('Add Student'),
-        ],
-      ),
-    ),
-    const PopupMenuItem(
-      value: 'bulk_add',
-      child: Row(
-        children: [
-          Icon(Icons.group_add, size: 20, color: Colors.black),
-          SizedBox(width: 12),
-          Text('Bulk Add Students'),
-        ],
-      ),
-    ),
-    const PopupMenuDivider(),
-    const PopupMenuItem(
-      value: 'send_notice',
-      child: Row(
-        children: [
-          Icon(Icons.notifications_active, size: 20, color: Colors.blue),
-          SizedBox(width: 12),
-          Text('Send Guidance Notice'),
-        ],
-      ),
-    ),
-    const PopupMenuItem(
-      value: 'tally_report',
-      child: Row(
-        children: [
-          Icon(Icons.assignment, size: 20, color: Colors.orange),
-          SizedBox(width: 12),
-          Text('Tally Report'),
-        ],
-      ),
-    ),
-    const PopupMenuDivider(),
-    const PopupMenuItem(
-      value: 'export_list',
-      child: Row(
-        children: [
-          Icon(Icons.download, size: 20, color: Colors.black),
-          SizedBox(width: 12),
-          Text('Export List'),
-        ],
-      ),
-    ),
-  ],
-),
-    ],
-  ),
-          body: Column(
+      return Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Search and Filter Section
-              Container(
-                padding: const EdgeInsets.all(16),
-                color: Colors.grey.shade50,
-                child: Column(
-                  children: [
-                    // Search bar
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: "Search by student name or ID...",
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      onChanged: (value) => setState(() => _searchQuery = value),
-                    ),
-                    const SizedBox(height: 12),
-                    
-                    // Filter dropdowns and toggle
-                    LayoutBuilder(
-  builder: (context, constraints) {
-    if (constraints.maxWidth < 600) {
-      // Mobile layout
-      return Column(
-        children: [
-          // ✅ School Year Dropdown (Full width on mobile)
-          DropdownButtonFormField<String>(
-            value: _selectedSchoolYear,
-            decoration: InputDecoration(
-              labelText: "School Year",
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              filled: true,
-              fillColor: Colors.white,
-              prefixIcon: Icon(Icons.calendar_today, color: Colors.blue.shade700),
-            ),
-            items: availableSchoolYears.map((year) => DropdownMenuItem(
-              value: year,
-              child: Text(year),
-            )).toList(),
-            onChanged: (value) => setState(() {
-              _selectedSchoolYear = value!;
-              _fetchData(); // Refresh data when school year changes
-            }),
-          ),
-          const SizedBox(height: 8),
-          
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _selectedGrade,
-                  decoration: InputDecoration(
-                    labelText: "Grade",
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  items: grades.map((grade) => DropdownMenuItem(
-                    value: grade,
-                    child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
-                  )).toList(),
-                  onChanged: (value) => setState(() {
-                    _selectedGrade = value!;
-                    _selectedSection = 'All';
-                  }),
-                ),
+              const Text(
+                "Students Management",
+                style: TextStyle(fontSize: 18),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
-                  decoration: InputDecoration(
-                    labelText: "Section",
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  items: availableSections.map((section) => DropdownMenuItem(
-                    value: section,
-                    child: Text(section == 'All' ? 'All Sections' : section),
-                  )).toList(),
-                  onChanged: (value) => setState(() => _selectedSection = value!),
+              Text(
+                '${filteredStudents.length} students • S.Y. $_selectedSchoolYear', // ✅ Show school year
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          CheckboxListTile(
-            title: const Text("Show only students with violations"),
-            value: _showOnlyWithViolations,
-            onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
-      );
-    }
-    
-    // Desktop/Tablet layout
-    return Column(
-      children: [
-        // ✅ First row: School Year (takes full width for prominence)
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                value: _selectedSchoolYear,
-                decoration: InputDecoration(
-                  labelText: "School Year",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: true,
-                  fillColor: Colors.blue.shade50,
-                  prefixIcon: Icon(Icons.calendar_today, color: Colors.blue.shade700),
-                ),
-                items: availableSchoolYears.map((year) => DropdownMenuItem(
-                  value: year,
-                  child: Text(
-                    year,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+          backgroundColor: Colors.blue.shade700,
+          foregroundColor: Colors.white,
+          actions: [
+            // View Toggle Button (Keep visible)
+            IconButton(
+              icon: Icon(_showFolderView ? Icons.list : Icons.folder),
+              onPressed: () => setState(() => _showFolderView = !_showFolderView),
+              tooltip: _showFolderView ? "Switch to List View" : "Switch to Folder View",
+            ),
+            
+            // Refresh Button (Keep visible)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _fetchData,
+              tooltip: "Refresh",
+            ),
+            
+            // Three-dot menu with all other actions
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                switch (value) {
+                  case 'add_student':
+                    _showAddStudentDialog(context);
+                    break;
+                  case 'bulk_add':
+                    _showBulkAddDialog();
+                    break;
+                  case 'send_notice':
+                    _showSendGuidanceNoticeDialog(context);
+                    break;
+                  case 'tally_report':
+                    _showTallyReportDialog(context);
+                    break;
+                  case 'export_list':
+                    _exportStudentsList();
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'add_student',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add, size: 20, color: Colors.black),
+                      SizedBox(width: 12),
+                      Text('Add Student'),
+                    ],
                   ),
-                )).toList(),
-                onChanged: (value) => setState(() {
-                  _selectedSchoolYear = value!;
-                  _fetchData(); // Refresh data when school year changes
-                }),
-              ),
+                ),
+                const PopupMenuItem(
+                  value: 'bulk_add',
+                  child: Row(
+                    children: [
+                      Icon(Icons.group_add, size: 20, color: Colors.black),
+                      SizedBox(width: 12),
+                      Text('Bulk Add Students'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'send_notice',
+                  child: Row(
+                    children: [
+                      Icon(Icons.notifications_active, size: 20, color: Colors.blue),
+                      SizedBox(width: 12),
+                      Text('Send Guidance Notice'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'tally_report',
+                  child: Row(
+                    children: [
+                      Icon(Icons.assignment, size: 20, color: Colors.orange),
+                      SizedBox(width: 12),
+                      Text('Tally Report'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'export_list',
+                  child: Row(
+                    children: [
+                      Icon(Icons.download, size: 20, color: Colors.black),
+                      SizedBox(width: 12),
+                      Text('Export List'),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        
-        // Second row: Grade, Section, and Violations checkbox
-        Row(
+        body: Column(
           children: [
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                value: _selectedGrade,
-                decoration: InputDecoration(
-                  labelText: "Grade",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                items: grades.map((grade) => DropdownMenuItem(
-                  value: grade,
-                  child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
-                )).toList(),
-                onChanged: (value) => setState(() {
-                  _selectedGrade = value!;
-                  _selectedSection = 'All';
-                }),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
-                decoration: InputDecoration(
-                  labelText: "Section",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                items: availableSections.map((section) => DropdownMenuItem(
-                  value: section,
-                  child: Text(section == 'All' ? 'All' : section),
-                )).toList(),
-                onChanged: (value) => setState(() => _selectedSection = value!),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 3,
-              child: CheckboxListTile(
-                title: const Text("With Violations Only"),
-                value: _showOnlyWithViolations,
-                onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  },
-),
-                  ],
-                ),
-              ),
-              
-              // Students List - Switch between folder and list view
-              Expanded(
-                child: provider.isLoadingStudentsList
-                    ? const Center(child: CircularProgressIndicator())
-                    : filteredStudents.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
+            // ✅ NEW: School Year Banner
+            const SchoolYearBanner(),
+            
+            // Search and Filter Section
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.grey.shade50,
+              child: Column(
+                children: [
+                  // Search bar
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: "Search by student name or ID...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    onChanged: (value) => setState(() => _searchQuery = value),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Filter dropdowns and toggle
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.maxWidth < 600) {
+                        // Mobile layout - Remove school year dropdown (shown in banner)
+                        return Column(
+                          children: [
+                            Row(
                               children: [
-                                Icon(Icons.person_off, size: 64, color: Colors.grey),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _searchQuery.isNotEmpty ? "No students found matching your search" : "No students registered",
-                                  style: const TextStyle(fontSize: 16, color: Colors.grey),
-                                ),
-                                if (_searchQuery.isEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  ElevatedButton.icon(
-                                    onPressed: () => _showAddStudentDialog(context),
-                                    icon: const Icon(Icons.person_add),
-                                    label: const Text("Add First Student"),
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: _selectedGrade,
+                                    decoration: InputDecoration(
+                                      labelText: "Grade",
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                    ),
+                                    items: grades.map((grade) => DropdownMenuItem(
+                                      value: grade,
+                                      child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
+                                    )).toList(),
+                                    onChanged: (value) => setState(() {
+                                      _selectedGrade = value!;
+                                      _selectedSection = 'All';
+                                    }),
                                   ),
-                                ],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
+                                    decoration: InputDecoration(
+                                      labelText: "Section",
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                    ),
+                                    items: availableSections.map((section) => DropdownMenuItem(
+                                      value: section,
+                                      child: Text(section == 'All' ? 'All Sections' : section),
+                                    )).toList(),
+                                    onChanged: (value) => setState(() => _selectedSection = value!),
+                                  ),
+                                ),
                               ],
                             ),
-                          )
-                        : _showFolderView
-                            ? _buildFolderView(filteredStudents, provider)
-                            : _buildListView(filteredStudents, provider),
+                            const SizedBox(height: 8),
+                            CheckboxListTile(
+                              title: const Text("Show only students with violations"),
+                              value: _showOnlyWithViolations,
+                              onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ],
+                        );
+                      }
+                      
+                      // Desktop/Tablet layout - Remove school year dropdown (shown in banner)
+                      return Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedGrade,
+                                  decoration: InputDecoration(
+                                    labelText: "Grade",
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                  ),
+                                  items: grades.map((grade) => DropdownMenuItem(
+                                    value: grade,
+                                    child: Text(grade == 'All' ? 'All Grades' : 'Grade $grade'),
+                                  )).toList(),
+                                  onChanged: (value) => setState(() {
+                                    _selectedGrade = value!;
+                                    _selectedSection = 'All';
+                                  }),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: DropdownButtonFormField<String>(
+                                  value: availableSections.contains(_selectedSection) ? _selectedSection : 'All',
+                                  decoration: InputDecoration(
+                                    labelText: "Section",
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                  ),
+                                  items: availableSections.map((section) => DropdownMenuItem(
+                                    value: section,
+                                    child: Text(section == 'All' ? 'All' : section),
+                                  )).toList(),
+                                  onChanged: (value) => setState(() => _selectedSection = value!),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 3,
+                                child: CheckboxListTile(
+                                  title: const Text("With Violations Only"),
+                                  value: _showOnlyWithViolations,
+                                  onChanged: (value) => setState(() => _showOnlyWithViolations = value ?? false),
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+            ),
+            
+            // Students List - Switch between folder and list view
+            Expanded(
+              child: provider.isLoadingStudentsList
+                  ? const Center(child: CircularProgressIndicator())
+                  : filteredStudents.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.person_off, size: 64, color: Colors.grey),
+                              const SizedBox(height: 16),
+                              Text(
+                                _searchQuery.isNotEmpty 
+                                    ? "No students found matching your search" 
+                                    : "No students for S.Y. $_selectedSchoolYear", // ✅ Show school year context
+                                style: const TextStyle(fontSize: 16, color: Colors.grey),
+                              ),
+                              if (_searchQuery.isEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Try changing the school year filter or add new students',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: () => _showAddStudentDialog(context),
+                                  icon: const Icon(Icons.person_add),
+                                  label: const Text("Add Student"),
+                                ),
+                              ],
+                            ],
+                          ),
+                        )
+                      : _showFolderView
+                          ? _buildFolderView(filteredStudents, provider)
+                          : _buildListView(filteredStudents, provider),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   // NEW: List View - Simple table-like structure
   Widget _buildListView(List<Map<String, dynamic>> students, CounselorProvider provider) {
