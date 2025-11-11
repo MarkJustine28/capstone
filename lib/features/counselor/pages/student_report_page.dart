@@ -676,10 +676,9 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
   final report = counselorProvider.counselorStudentReports[index];
 
-  // ✅ Show dialog to send guidance notice instead of just marking as reviewed
+  // ✅ Show dialog to send guidance notice with both parties notified
   final sendNotice = await _showGuidanceNoticeDialog(context, report);
   if (!sendNotice) {
-    // If canceled, do nothing
     return;
   }
 
@@ -688,13 +687,8 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   });
 
   try {
-    // ✅ Send guidance notice instead of marking as reviewed
-    final success = await counselorProvider.sendCounselingSummons(
-      reportId: report['id'],
-      scheduledDate: null, // Optional
-      message: 'Please report to the Guidance Office regarding an incident report. '
-              'We need to discuss this matter with you.',
-    );
+    // ✅ NEW: Send guidance notice to BOTH reporter and reported student
+    final success = await counselorProvider.sendGuidanceNotice(report['id']);
     
     if (mounted) {
       if (success) {
@@ -713,12 +707,13 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        "📢 Guidance Notice Sent!",
+                        "📢 Guidance Notices Sent!",
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
-                        "Student ${report['reported_student_name'] ?? 'Unknown'} has been notified to report to guidance office.",
-                        style: const TextStyle(fontSize: 12, color: Colors.white),
+                        "✓ ${report['reported_student_name'] ?? 'Student'} notified to report to guidance office\n"
+                        "✓ ${report['reported_by']?['name'] ?? 'Reporter'} notified that student was summoned",
+                        style: const TextStyle(fontSize: 11, color: Colors.white),
                       ),
                     ],
                   ),
@@ -728,10 +723,10 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: 'View in Tally',
+              label: 'View List',
               textColor: Colors.white,
               onPressed: () {
-                // Navigate to Students Management to see summoned reports
+                // Navigate to Students Management -> Send Guidance Notice tab
               },
             ),
           ),
@@ -739,7 +734,7 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌ Failed to send guidance notice'),
+            content: Text('❌ Failed to send guidance notices'),
             backgroundColor: Colors.red,
           ),
         );
@@ -749,7 +744,7 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error sending notice: $e'),
+          content: Text('Error sending notices: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -765,10 +760,8 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
 
 // ✅ NEW: Dialog to confirm sending guidance notice
 Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic> report) async {
-  final messageController = TextEditingController(
-    text: 'Please report to the Guidance Office regarding an incident report. '
-          'We need to discuss this matter with you and verify the details.',
-  );
+  final reportedStudentName = report['reported_student_name'] ?? report['student_name'] ?? 'Unknown Student';
+  final reporterName = report['reported_by']?['name'] ?? 'Unknown Reporter';
   
   return await showDialog<bool>(
     context: context,
@@ -805,44 +798,116 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.person, color: Colors.orange, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      '📄 Report Summary',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
-                    const SizedBox(height: 8),
-                    Text('Report: ${report['title'] ?? 'Untitled'}'),
-                    Text('Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}'),
+                    const Divider(),
+                    Text('Title: ${report['title'] ?? 'Untitled'}'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Student Reported: $reportedStudentName',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text('Reported by: $reporterName'),
                     if (report['violation_type'] != null)
-                      Text('Violation Type: ${report['violation_type']}'),
+                      Text('Violation: ${report['violation_type']}'),
                   ],
                 ),
               ),
               
               const SizedBox(height: 16),
               
-              // Notice Message
-              const Text(
-                'Notice Message:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: messageController,
-                decoration: const InputDecoration(
-                  hintText: 'Enter message for the student...',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
+              // ✅ NEW: Show who will be notified
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
-                maxLines: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.people, color: Colors.blue.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Both parties will be notified:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Reported Student notification
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(Icons.person, color: Colors.orange.shade700, size: 16),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '📢 $reportedStudentName',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              const Text(
+                                'Will receive: "You are summoned to the guidance office regarding an incident report. Please report as soon as possible."',
+                                style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    
+                    // Reporter notification
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(Icons.assignment_ind, color: Colors.green.shade700, size: 16),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '📋 $reporterName',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              const Text(
+                                'Will receive: "Your report has been reviewed. The student has been summoned to the guidance office for counseling."',
+                                style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               
               const SizedBox(height: 16),
@@ -851,21 +916,20 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: Colors.amber.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade200),
+                  border: Border.all(color: Colors.amber.shade200),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                    Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'The student will receive a notification to report to your office. '
-                        'After counseling, you can tally the violation from Students Management.',
+                        'This report will move to "Send Guidance Notice" tab where you can later mark it as reviewed or invalid after counseling.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.blue.shade800,
+                          color: Colors.amber.shade800,
                         ),
                       ),
                     ),
@@ -878,10 +942,7 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
       ),
       actions: [
         TextButton.icon(
-          onPressed: () {
-            messageController.dispose();
-            Navigator.of(context).pop(false);
-          },
+          onPressed: () => Navigator.of(context).pop(false),
           icon: const Icon(Icons.close, color: Colors.grey),
           label: const Text('Cancel'),
         ),
@@ -891,9 +952,7 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
             // Mark as Invalid option
             TextButton.icon(
               onPressed: () async {
-                messageController.dispose();
                 Navigator.of(context).pop(false);
-                // Show invalid reason dialog
                 await _showMarkAsInvalidDialog(context, report);
               },
               icon: const Icon(Icons.block, color: Colors.red),
@@ -901,17 +960,15 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
               style: TextButton.styleFrom(foregroundColor: Colors.red),
             ),
             const SizedBox(width: 8),
-            // Send Notice button
+            // Send Notice to Both button
             ElevatedButton.icon(
-              onPressed: () {
-                messageController.dispose();
-                Navigator.of(context).pop(true);
-              },
+              onPressed: () => Navigator.of(context).pop(true),
               icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Send Notice'),
+              label: const Text('Send Notice to Both'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
             ),
           ],

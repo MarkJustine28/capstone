@@ -24,7 +24,6 @@ class Command(BaseCommand):
             {'id': 12, 'name': 'Hair Cut', 'category': 'Dress Code', 'severity_level': 'Low'},
             {'id': 13, 'name': 'Not Wearing Proper Uniform/ID', 'category': 'Dress Code', 'severity_level': 'Low'},
             {'id': 14, 'name': 'Using Vape/Cigarette', 'category': 'Substance', 'severity_level': 'High'},
-            {'id': 15, 'name': 'Others', 'category': 'Other', 'severity_level': 'Medium'},
         ]
 
         created_count = 0

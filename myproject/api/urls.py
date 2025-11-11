@@ -71,4 +71,11 @@ urlpatterns = [
     # Counseling notifications
     path('send-counseling-notification/', views.send_counseling_notification, name='send_counseling_notification'),
     path('send-bulk-notifications/', views.send_bulk_notifications, name='send_bulk_notifications'),
+
+    # ✅ NEW: School year management
+    path('admin/rollover-school-year/', views.rollover_school_year, name='rollover_school_year'),
+    # ✅ NEW: Adviser section management
+    path('teacher/advisory-section/', views.adviser_manage_section, name='adviser_manage_section'),
+    # ✅ NEW: Student violation history
+    path('students/<int:student_id>/violation-history/', views.get_student_violation_history, name='student_violation_history'),
 ]

@@ -3600,3 +3600,371 @@ def send_guidance_notice(request, report_id):
             'success': False,
             'error': str(e)
         }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def rollover_school_year(request):
+    """
+    Roll over students to new school year (Admin/Counselor only)
+    - Archives current school year data
+    - Preserves ALL violation records
+    - Updates students to new school year
+    - Promotes grade levels
+    """
+    try:
+        # Verify admin or counselor
+        if not (request.user.is_staff or hasattr(request.user, 'counselor')):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Admin or counselor role required.'
+            }, status=403)
+        
+        new_school_year = request.data.get('new_school_year')
+        dry_run = request.data.get('dry_run', False)
+        
+        # Calculate school year if not provided
+        if not new_school_year:
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            new_school_year = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+        
+        logger.info(f"{'🔍 DRY RUN' if dry_run else '🚀 EXECUTING'}: School Year Rollover to {new_school_year}")
+        
+        students = Student.objects.select_related('user').all()
+        updated_count = 0
+        archived_count = 0
+        errors = []
+        
+        from api.models import StudentSchoolYearHistory
+        
+        with transaction.atomic():
+            for student in students:
+                try:
+                    old_year = student.school_year or 'Unknown'
+                    old_grade = student.grade_level
+                    
+                    # 1. Archive current year to history
+                    history, created = StudentSchoolYearHistory.objects.get_or_create(
+                        student=student,
+                        school_year=old_year,
+                        defaults={
+                            'grade_level': old_grade,
+                            'section': student.section,
+                            'strand': student.strand,
+                            'is_active': False,
+                        }
+                    )
+                    
+                    if created:
+                        archived_count += 1
+                        logger.info(f"📝 Archived: {student.user.get_full_name()} - {old_year} ({old_grade} {student.section})")
+                    
+                    if not dry_run:
+                        # 2. Promote grade level (if not Grade 12)
+                        new_grade = old_grade
+                        if old_grade.isdigit():
+                            grade_num = int(old_grade)
+                            if grade_num < 12:
+                                new_grade = str(grade_num + 1)
+                        
+                        # 3. Update student to new school year
+                        student.school_year = new_school_year
+                        student.grade_level = new_grade
+                        # Note: Section stays same until adviser updates
+                        student.save()
+                        
+                        # 4. Create new history entry for new year
+                        StudentSchoolYearHistory.objects.create(
+                            student=student,
+                            school_year=new_school_year,
+                            grade_level=new_grade,
+                            section=student.section,
+                            strand=student.strand,
+                            is_active=True,
+                        )
+                        
+                        updated_count += 1
+                        logger.info(f"✅ Updated: {student.user.get_full_name()} - {old_grade} → {new_grade}")
+                
+                except Exception as e:
+                    error_msg = f"Error updating student {student.id}: {str(e)}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+            
+            if dry_run:
+                logger.info("⚠️ DRY RUN COMPLETE - Rolling back transaction")
+                transaction.set_rollback(True)
+        
+        # Get violation counts by school year
+        from django.db.models import Count
+        violation_counts = StudentViolationRecord.objects.values('student__school_year').annotate(
+            count=Count('id')
+        ).order_by('-student__school_year')
+        
+        return Response({
+            'success': True,
+            'message': f"{'DRY RUN: ' if dry_run else ''}School year rollover {'simulated' if dry_run else 'completed'}",
+            'new_school_year': new_school_year,
+            'students_updated': updated_count,
+            'history_archived': archived_count,
+            'total_students': students.count(),
+            'errors': errors if errors else None,
+            'violations_by_year': list(violation_counts),
+            'note': 'Advisers should now update student sections for their advisory classes' if not dry_run else 'This was a dry run - no changes were made'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in school year rollover: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def adviser_manage_section(request):
+    """
+    GET: View current advisory section with violation history
+    POST: Update students in advisory section
+    """
+    try:
+        # Get teacher
+        teacher = Teacher.objects.filter(user=request.user).first()
+        if not teacher:
+            return Response({
+                'success': False,
+                'error': 'Only teachers can manage advisory sections'
+            }, status=403)
+        
+        # Get current school year
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        current_sy = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+        
+        if request.method == 'GET':
+            # Get current advisory students
+            advisory_students = Student.objects.filter(
+                school_year=current_sy,
+                section=teacher.advising_section
+            ).select_related('user').order_by('user__last_name', 'user__first_name')
+            
+            students_data = []
+            for student in advisory_students:
+                # Get violation counts
+                current_year_violations = StudentViolationRecord.objects.filter(
+                    student=student,
+                    student__school_year=current_sy
+                ).count()
+                
+                all_time_violations = StudentViolationRecord.objects.filter(
+                    student=student
+                ).count()
+                
+                # Get violations grouped by year
+                from api.models import StudentSchoolYearHistory
+                violations_by_year = []
+                
+                # Get all school years this student was enrolled
+                history = StudentSchoolYearHistory.objects.filter(
+                    student=student
+                ).order_by('-school_year')
+                
+                for h in history:
+                    year_violations = StudentViolationRecord.objects.filter(
+                        student=student,
+                        incident_date__year=int(h.school_year.split('-')[0])
+                    ).count()
+                    
+                    violations_by_year.append({
+                        'school_year': h.school_year,
+                        'count': year_violations,
+                        'grade_level': h.grade_level,
+                        'section': h.section,
+                    })
+                
+                students_data.append({
+                    'id': student.id,
+                    'student_id': student.student_id,
+                    'name': student.user.get_full_name(),
+                    'grade_level': student.grade_level,
+                    'section': student.section,
+                    'strand': student.strand,
+                    'school_year': student.school_year,
+                    'violations_current_year': current_year_violations,
+                    'violations_all_time': all_time_violations,
+                    'violations_by_year': violations_by_year,
+                    'contact_number': student.contact_number,
+                    'guardian_name': student.guardian_name,
+                    'guardian_contact': student.guardian_contact,
+                })
+            
+            return Response({
+                'success': True,
+                'school_year': current_sy,
+                'advisory_section': teacher.advising_section,
+                'advising_grade': teacher.advising_grade,
+                'advising_strand': teacher.advising_strand,
+                'students': students_data,
+                'total_students': len(students_data),
+            })
+        
+        elif request.method == 'POST':
+            # Update section assignments
+            updates = request.data.get('updates', [])
+            # Expected format: [{'student_id': 1, 'section': 'Amber', 'grade_level': '12', 'strand': 'ICT'}, ...]
+            
+            updated_count = 0
+            errors = []
+            
+            from api.models import StudentSchoolYearHistory
+            
+            with transaction.atomic():
+                for update in updates:
+                    try:
+                        student = Student.objects.get(id=update['student_id'])
+                        
+                        # Update student info
+                        if 'section' in update:
+                            student.section = update['section']
+                        if 'grade_level' in update:
+                            student.grade_level = update['grade_level']
+                        if 'strand' in update:
+                            student.strand = update['strand']
+                        
+                        student.save()
+                        
+                        # Update active history record
+                        history = StudentSchoolYearHistory.objects.filter(
+                            student=student,
+                            school_year=current_sy,
+                            is_active=True
+                        ).first()
+                        
+                        if history:
+                            history.section = student.section
+                            history.grade_level = student.grade_level
+                            history.strand = student.strand
+                            history.adviser = teacher
+                            history.save()
+                        else:
+                            # Create new history if missing
+                            StudentSchoolYearHistory.objects.create(
+                                student=student,
+                                school_year=current_sy,
+                                grade_level=student.grade_level,
+                                section=student.section,
+                                strand=student.strand,
+                                adviser=teacher,
+                                is_active=True,
+                            )
+                        
+                        updated_count += 1
+                        logger.info(f"✅ Updated: {student.user.get_full_name()} - {student.grade_level} {student.section}")
+                        
+                    except Student.DoesNotExist:
+                        errors.append(f"Student ID {update['student_id']} not found")
+                    except Exception as e:
+                        errors.append(f"Error updating student {update.get('student_id')}: {str(e)}")
+            
+            return Response({
+                'success': True,
+                'message': f'Updated {updated_count} students',
+                'updated_count': updated_count,
+                'errors': errors if errors else None,
+            })
+    
+    except Exception as e:
+        logger.error(f"❌ Error in adviser_manage_section: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_student_violation_history(request, student_id):
+    """Get complete violation history across ALL school years"""
+    try:
+        student = Student.objects.select_related('user').get(id=student_id)
+        
+        # Get all violations for this student (across all years)
+        all_violations = StudentViolationRecord.objects.filter(
+            student_id=student_id
+        ).select_related(
+            'violation_type',
+            'counselor__user',
+            'related_report'
+        ).order_by('-incident_date')
+        
+        # Group by school year
+        violations_by_year = {}
+        for v in all_violations:
+            # Determine school year from incident date
+            incident_year = v.incident_date.year
+            incident_month = v.incident_date.month
+            sy = f"{incident_year}-{incident_year + 1}" if incident_month >= 6 else f"{incident_year - 1}-{incident_year}"
+            
+            if sy not in violations_by_year:
+                violations_by_year[sy] = []
+            
+            violations_by_year[sy].append({
+                'id': v.id,
+                'violation_type': v.violation_type.name if v.violation_type else 'Unknown',
+                'category': v.violation_type.category if v.violation_type else 'Unknown',
+                'severity': v.severity_level,
+                'incident_date': v.incident_date.isoformat(),
+                'description': v.description,
+                'counselor': v.counselor.user.get_full_name() if v.counselor else None,
+                'status': v.status,
+                'related_report_id': v.related_report.id if v.related_report else None,
+            })
+        
+        # Get school year history
+        from api.models import StudentSchoolYearHistory
+        school_history = StudentSchoolYearHistory.objects.filter(
+            student=student
+        ).order_by('-school_year')
+        
+        history_data = []
+        for h in school_history:
+            year_violations = violations_by_year.get(h.school_year, [])
+            history_data.append({
+                'school_year': h.school_year,
+                'grade_level': h.grade_level,
+                'section': h.section,
+                'strand': h.strand,
+                'adviser': h.adviser.user.get_full_name() if h.adviser else None,
+                'is_active': h.is_active,
+                'violations_count': len(year_violations),
+                'violations': year_violations,
+            })
+        
+        return Response({
+            'success': True,
+            'student': {
+                'id': student.id,
+                'name': student.user.get_full_name(),
+                'student_id': student.student_id,
+                'current_grade': student.grade_level,
+                'current_section': student.section,
+                'current_school_year': student.school_year,
+            },
+            'total_violations_all_time': all_violations.count(),
+            'violations_by_school_year': history_data,
+        })
+        
+    except Student.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Student not found'
+        }, status=404)
+    except Exception as e:
+        logger.error(f"❌ Error getting violation history: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)

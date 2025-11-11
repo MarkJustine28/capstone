@@ -1745,4 +1745,46 @@ Map<String, dynamic> _getMockSectionAnalytics(String schoolYear, String? semeste
     'sections': sections,
   };
 }
+
+Future<bool> sendGuidanceNotice(int reportId) async {
+  try {
+    print('📢 Sending guidance notice for report #$reportId');
+    
+    // ✅ FIX: Add /api/ prefix to the URL
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/send-guidance-notice/'),  // ✅ Changed from /counselor/ to /api/counselor/
+      headers: {
+        'Authorization': 'Token $_token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    print('Response status: ${response.statusCode}');
+    print('Response body: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data['success'] == true) {
+        print('✅ Guidance notice sent successfully');
+        print('📧 Notifications sent to:');
+        print('   - Reported student: ${data['notifications_sent']?['reported_student']}');
+        print('   - Reporter: ${data['notifications_sent']?['reporter']}');
+        print('   - Total notified: ${data['total_notified']}');
+        
+        notifyListeners();
+        return true;
+      }
+    }
+
+    print('❌ Failed to send guidance notice: ${response.statusCode}');
+    _error = 'Failed to send guidance notice';
+    notifyListeners();
+    return false;
+  } catch (e) {
+    print('❌ Error sending guidance notice: $e');
+    _error = e.toString();
+    notifyListeners();
+    return false;
+  }
+}
 }

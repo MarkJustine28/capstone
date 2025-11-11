@@ -540,6 +540,25 @@ class Notification(models.Model):
     def notification_type(self):
         return self.type
 
+class StudentSchoolYearHistory(models.Model):
+    """Track student section changes across school years"""
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='school_year_history')
+    school_year = models.CharField(max_length=20)  # e.g., "2024-2025"
+    grade_level = models.CharField(max_length=10)
+    section = models.CharField(max_length=50)
+    strand = models.CharField(max_length=50, blank=True, null=True)
+    adviser = models.ForeignKey(Teacher, on_delete=models.SET_NULL, null=True, blank=True, related_name='advised_students_history')
+    date_enrolled = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)  # Current school year enrollment
+    
+    class Meta:
+        db_table = 'student_school_year_history'
+        unique_together = ['student', 'school_year']
+        ordering = ['-school_year', 'grade_level', 'section']
+    
+    def __str__(self):
+        return f"{self.student.user.get_full_name()} - {self.school_year} ({self.grade_level} {self.section})"
+
 class StudentViolationRecord(models.Model):
     STATUS_CHOICES = [
         ('active', 'Active'),
@@ -568,6 +587,24 @@ class StudentViolationRecord(models.Model):
     
     recorded_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    school_year = models.CharField(max_length=20, default='2025-2026')
+
+    @classmethod
+    def get_total_violations_all_years(cls, student_id):
+        """Get total violations for a student across ALL school years"""
+        return cls.objects.filter(student_id=student_id).count()
+    
+    @classmethod
+    def get_violations_by_school_year(cls, student_id):
+        """Get violations grouped by school year"""
+        from django.db.models import Count
+        return cls.objects.filter(
+            student_id=student_id
+        ).values('school_year').annotate(
+            count=Count('id'),
+            first_incident=models.Min('incident_date'),
+            last_incident=models.Max('incident_date')
+        ).order_by('-school_year')
 
     def get_academic_context(self):
         """Get formatted academic context"""

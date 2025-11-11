@@ -13,6 +13,7 @@ class _StudentListPageState extends State<StudentListPage> {
   String _searchQuery = '';
   String _selectedGradeFilter = 'All';
   String _selectedStrandFilter = 'All';
+  bool _editMode = false; // ✅ NEW: Edit mode for updating student info
 
   @override
   void initState() {
@@ -31,6 +32,25 @@ class _StudentListPageState extends State<StudentListPage> {
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
         actions: [
+          // ✅ NEW: Toggle Edit Mode Button
+          IconButton(
+            icon: Icon(_editMode ? Icons.check : Icons.edit),
+            onPressed: () {
+              setState(() {
+                _editMode = !_editMode;
+              });
+              if (!_editMode) {
+                // Show save confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Changes will be saved automatically'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            tooltip: _editMode ? 'Done Editing' : 'Edit Student Info',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -88,6 +108,9 @@ class _StudentListPageState extends State<StudentListPage> {
               // Advising Class Info Header
               _buildAdvisingClassHeader(teacherProvider),
               
+              // ✅ NEW: Edit Mode Banner
+              if (_editMode) _buildEditModeBanner(),
+              
               // Search and Filter Section
               _buildSearchAndFilterSection(),
               
@@ -132,6 +155,30 @@ class _StudentListPageState extends State<StudentListPage> {
         icon: const Icon(Icons.add_circle),
         label: const Text('Report Violation'),
         backgroundColor: Colors.red.shade600,
+      ),
+    );
+  }
+
+  // ✅ NEW: Edit Mode Banner
+  Widget _buildEditModeBanner() {
+    return Container(
+      width: double.infinity,
+      color: Colors.orange.shade100,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      child: Row(
+        children: [
+          Icon(Icons.edit, color: Colors.orange.shade700, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Edit Mode: Update student sections and information for the current school year',
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -207,7 +254,7 @@ class _StudentListPageState extends State<StudentListPage> {
           
           const SizedBox(height: 12),
           
-          // Filter Row (if needed for multiple grades/strands)
+          // Filter Row
           Consumer<TeacherProvider>(
             builder: (context, teacherProvider, child) {
               final students = teacherProvider.advisingStudents;
@@ -225,7 +272,7 @@ class _StudentListPageState extends State<StudentListPage> {
                   .toList();
 
               if (grades.length <= 1 && strands.length <= 1) {
-                return const SizedBox(); // No need for filters
+                return const SizedBox();
               }
 
               return Row(
@@ -289,6 +336,10 @@ class _StudentListPageState extends State<StudentListPage> {
     final fullName = '${student['first_name'] ?? ''} ${student['last_name'] ?? ''}'.trim();
     final displayName = fullName.isNotEmpty ? fullName : student['username'] ?? 'Unknown';
     
+    // ✅ NEW: Get violation counts
+    final violationsCurrent = student['violations_current_year'] ?? 0;
+    final violationsAllTime = student['violations_all_time'] ?? 0;
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ExpansionTile(
@@ -308,77 +359,388 @@ class _StudentListPageState extends State<StudentListPage> {
           children: [
             Text('ID: ${student['student_id'] ?? 'N/A'}'),
             Text(_getStudentGradeInfo(student)),
+            // ✅ NEW: Show violation counts
+            if (violationsAllTime > 0)
+              Row(
+                children: [
+                  Icon(Icons.warning, size: 14, color: Colors.orange.shade700),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Violations: $violationsCurrent this year, $violationsAllTime all-time',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.orange.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.report, color: Colors.red),
-          onPressed: () {
-            Navigator.pushNamed(
-              context,
-              '/teacher/submit-report',
-              arguments: {'selected_student': student},
-            );
-          },
-          tooltip: 'Report Violation',
-        ),
+        trailing: _editMode
+            ? Icon(Icons.edit, color: Colors.orange.shade700)
+            : IconButton(
+                icon: const Icon(Icons.report, color: Colors.red),
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    '/teacher/submit-report',
+                    arguments: {'selected_student': student},
+                  );
+                },
+                tooltip: 'Report Violation',
+              ),
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Contact Information',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _buildInfoRow('Phone', student['contact_number'] ?? 'Not provided'),
-                _buildInfoRow('Guardian', student['guardian_name'] ?? 'Not provided'),
-                _buildInfoRow('Guardian Contact', student['guardian_contact'] ?? 'Not provided'),
-                
-                const SizedBox(height: 16),
-                
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pushNamed(
-                            context,
-                            '/teacher/submit-report',
-                            arguments: {'selected_student': student},
-                          );
-                        },
-                        icon: const Icon(Icons.report),
-                        label: const Text('Report Violation'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade600,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          _showStudentDetailsDialog(student);
-                        },
-                        icon: const Icon(Icons.info),
-                        label: const Text('View Details'),
-                      ),
-                    ),
-                  ],
-                ),
+                // ✅ NEW: Edit Mode or View Mode
+                if (_editMode)
+                  _buildEditStudentForm(student)
+                else
+                  _buildViewStudentInfo(student),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  // ✅ NEW: Edit Student Form
+  Widget _buildEditStudentForm(Map<String, dynamic> student) {
+    final gradeController = TextEditingController(text: student['grade_level']?.toString() ?? '');
+    final sectionController = TextEditingController(text: student['section']?.toString() ?? '');
+    final strandController = TextEditingController(text: student['strand']?.toString() ?? '');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '✏️ Edit Student Information',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 12),
+        
+        // Grade Level
+        TextField(
+          controller: gradeController,
+          decoration: const InputDecoration(
+            labelText: 'Grade Level',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.grade),
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 12),
+        
+        // Section
+        TextField(
+          controller: sectionController,
+          decoration: const InputDecoration(
+            labelText: 'Section',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.class_),
+          ),
+        ),
+        const SizedBox(height: 12),
+        
+        // Strand (for Grade 11-12)
+        if (['11', '12'].contains(student['grade_level']?.toString()))
+          TextField(
+            controller: strandController,
+            decoration: const InputDecoration(
+              labelText: 'Strand (e.g., ICT, ABM, HUMSS)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.school),
+            ),
+          ),
+        
+        const SizedBox(height: 16),
+        
+        // Save Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () async {
+              await _updateStudentInfo(
+                student['id'],
+                gradeController.text,
+                sectionController.text,
+                strandController.text,
+              );
+            },
+            icon: const Icon(Icons.save),
+            label: const Text('Save Changes'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ NEW: View Student Info (existing content)
+  Widget _buildViewStudentInfo(Map<String, dynamic> student) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Contact Information',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        _buildInfoRow('Phone', student['contact_number'] ?? 'Not provided'),
+        _buildInfoRow('Guardian', student['guardian_name'] ?? 'Not provided'),
+        _buildInfoRow('Guardian Contact', student['guardian_contact'] ?? 'Not provided'),
+        
+        const SizedBox(height: 16),
+        
+        // ✅ NEW: Violation History Button
+        if (student['violations_all_time'] != null && student['violations_all_time'] > 0)
+          OutlinedButton.icon(
+            onPressed: () => _showViolationHistoryDialog(student),
+            icon: Icon(Icons.history, color: Colors.orange.shade700),
+            label: Text(
+              'View Violation History (${student['violations_all_time']} total)',
+              style: TextStyle(color: Colors.orange.shade900),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: Colors.orange.shade700),
+            ),
+          ),
+        
+        const SizedBox(height: 12),
+        
+        // Action Buttons
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    '/teacher/submit-report',
+                    arguments: {'selected_student': student},
+                  );
+                },
+                icon: const Icon(Icons.report),
+                label: const Text('Report Violation'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _showStudentDetailsDialog(student);
+                },
+                icon: const Icon(Icons.info),
+                label: const Text('View Details'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ✅ NEW: Update Student Info Function
+  Future<void> _updateStudentInfo(
+    int studentId,
+    String gradeLevel,
+    String section,
+    String strand,
+  ) async {
+    final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
+    
+    final success = await teacherProvider.updateStudentInfo(
+      studentId: studentId,
+      gradeLevel: gradeLevel,
+      section: section,
+      strand: strand,
+    );
+    
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('✅ Student information updated successfully'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Refresh list
+        await teacherProvider.fetchAdvisingStudents();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to update: ${teacherProvider.error}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ✅ NEW: Show Violation History Dialog
+  void _showViolationHistoryDialog(Map<String, dynamic> student) async {
+    final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
+    
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    
+    // Fetch violation history
+    final history = await teacherProvider.fetchStudentViolationHistory(student['id']);
+    
+    if (!mounted) return;
+    Navigator.pop(context); // Close loading dialog
+    
+    if (history == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Failed to load violation history'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    // Show history dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.history, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Violation History\n${student['first_name']} ${student['last_name']}',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Summary
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Total Violations: ${history['total_violations_all_time']}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Current: Grade ${history['student']['current_grade']} ${history['student']['current_section']}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Violations by school year
+                ...((history['violations_by_school_year'] as List?) ?? []).map((yearData) {
+                  final schoolYear = yearData['school_year'];
+                  final violations = (yearData['violations'] as List?) ?? [];
+                  final count = yearData['violations_count'] ?? 0;
+                  
+                  if (count == 0) return const SizedBox();
+                  
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ExpansionTile(
+                      title: Text(
+                        'School Year $schoolYear',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        '$count violations - ${yearData['grade_level']} ${yearData['section']}',
+                      ),
+                      children: violations.map<Widget>((v) {
+                        return ListTile(
+                          leading: Icon(
+                            Icons.warning,
+                            color: _getSeverityColor(v['severity']),
+                          ),
+                          title: Text(v['violation_type'] ?? 'Unknown'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(v['description'] ?? ''),
+                              Text(
+                                'Date: ${_formatDate(v['incident_date'])}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getSeverityColor(String? severity) {
+    switch (severity?.toLowerCase()) {
+      case 'minor':
+        return Colors.yellow.shade700;
+      case 'major':
+        return Colors.orange.shade700;
+      case 'severe':
+        return Colors.red.shade700;
+      default:
+        return Colors.grey;
+    }
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -485,6 +847,11 @@ class _StudentListPageState extends State<StudentListPage> {
               _buildDialogInfoRow('Guardian Contact', student['guardian_contact'] ?? 'Not provided'),
               if (student['created_at'] != null)
                 _buildDialogInfoRow('Enrolled', _formatDate(student['created_at'])),
+              if (student['violations_all_time'] != null && student['violations_all_time'] > 0)
+                _buildDialogInfoRow(
+                  'Violations',
+                  '${student['violations_current_year']} this year, ${student['violations_all_time']} all-time',
+                ),
             ],
           ),
         ),
