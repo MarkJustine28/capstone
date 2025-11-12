@@ -1681,60 +1681,76 @@ def mark_report_reviewed(request):
 def counselor_teacher_reports(request):
     """Get all teacher-submitted reports for counselor review"""
     try:
-        # Get all reports submitted by teachers
-        reports = Report.objects.filter(
-            report_type='teacher_report'
-        ).select_related(
-            'student',
-            'reported_by',  # ✅ Fixed: Changed from 'reporter' to 'reported_by'
-            'violation_type'
+        # ✅ FIX: Use TeacherReport instead of Report
+        reports = TeacherReport.objects.select_related(
+            'reported_student__user',
+            'reporter_teacher__user',
+            'violation_type',
+            'assigned_counselor__user'
         ).order_by('-created_at')
         
         reports_data = []
         for report in reports:
             # Get student name
             student_name = 'Unknown Student'
-            if report.student:
-                student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+            student_info = None
+            if report.reported_student:
+                student_name = f"{report.reported_student.user.first_name} {report.reported_student.user.last_name}".strip()
                 if not student_name:
-                    student_name = report.student.user.username
-            elif hasattr(report, 'student_name') and report.student_name:
-                student_name = report.student_name
+                    student_name = report.reported_student.user.username
+                
+                student_info = {
+                    'id': report.reported_student.id,
+                    'name': student_name,
+                    'student_id': report.reported_student.student_id,
+                    'grade_level': report.reported_student.grade_level,
+                    'section': report.reported_student.section,
+                }
             
             # Get reporter info
             reporter_info = None
-            if report.reported_by:
+            if report.reporter_teacher:
                 reporter_info = {
-                    'id': report.reported_by.id,
-                    'username': report.reported_by.username,
-                    'first_name': report.reported_by.first_name,
-                    'last_name': report.reported_by.last_name,
+                    'id': report.reporter_teacher.user.id,
+                    'username': report.reporter_teacher.user.username,
+                    'first_name': report.reporter_teacher.user.first_name,
+                    'last_name': report.reporter_teacher.user.last_name,
+                    'full_name': report.reporter_teacher.user.get_full_name(),
                 }
             
             reports_data.append({
                 'id': report.id,
                 'title': report.title,
-                'content': report.content,
-                'description': report.description if hasattr(report, 'description') else None,
+                'content': report.description,
+                'description': report.description,
                 'status': report.status,
-                'report_type': report.report_type,
+                'verification_status': report.verification_status,
+                'report_type': 'teacher_report',
                 'incident_date': report.incident_date.isoformat() if report.incident_date else None,
                 'created_at': report.created_at.isoformat(),
                 'updated_at': report.updated_at.isoformat(),
-                'student_id': report.student.id if report.student else None,
+                'student_id': report.reported_student.id if report.reported_student else None,
                 'student_name': student_name,
+                'student': student_info,
+                'reported_student': student_info,
                 'reported_by': reporter_info,
+                'reporter': reporter_info,
+                'reporter_type': 'teacher',
                 'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
                 'violation_type_id': report.violation_type.id if report.violation_type else None,
                 'custom_violation': report.custom_violation,
-                'severity_assessment': report.severity_assessment if hasattr(report, 'severity_assessment') else None,
-                'is_reviewed': report.is_reviewed if hasattr(report, 'is_reviewed') else False,
-                'reviewed_at': report.reviewed_at.isoformat() if hasattr(report, 'reviewed_at') and report.reviewed_at else None,
-                'location': report.location if hasattr(report, 'location') else None,
-                'witnesses': report.witnesses if hasattr(report, 'witnesses') else None,
+                'severity_assessment': report.severity,
+                'severity_level': report.severity,
+                'is_reviewed': report.is_reviewed,
+                'reviewed_at': report.reviewed_at.isoformat() if report.reviewed_at else None,
+                'location': report.location,
+                'witnesses': report.witnesses,
+                'counselor_notes': report.counselor_notes,
+                'school_year': report.school_year,
+                'subject_involved': report.subject_involved if hasattr(report, 'subject_involved') else None,
             })
         
-        print(f"✅ Successfully fetched {len(reports_data)} teacher reports")
+        logger.info(f"✅ Successfully fetched {len(reports_data)} teacher reports")
         
         return Response({
             'success': True,
@@ -1743,7 +1759,7 @@ def counselor_teacher_reports(request):
         })
         
     except Exception as e:
-        print(f"❌ Error fetching teacher reports: {e}")
+        logger.error(f"❌ Error fetching teacher reports: {e}")
         import traceback
         traceback.print_exc()
         return Response({
@@ -1766,20 +1782,54 @@ def counselor_dashboard_analytics(request):
                 'error': 'Counselor profile not found'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Basic counts
-        total_students = Student.objects.count()
-        total_reports = Report.objects.count()
-        total_violations = StudentViolationRecord.objects.count()
+        # ✅ Get school year filter from query params
+        school_year = request.GET.get('school_year', None)
+        logger.info(f"📊 Fetching dashboard analytics for school year: {school_year or 'all'}")
         
-        # Report status breakdown
-        pending_reports = Report.objects.filter(status='pending').count()
-        under_review_reports = Report.objects.filter(status='under_review').count()
-        reviewed_reports = Report.objects.filter(status='reviewed').count()
-        resolved_reports = Report.objects.filter(status='resolved').count()
+        # Base queries
+        students_query = Student.objects.all()
+        violations_query = StudentViolationRecord.objects.all()
+        student_reports_query = StudentReport.objects.all()
+        teacher_reports_query = TeacherReport.objects.all()
+        
+        # ✅ Apply school year filter if provided
+        if school_year and school_year != 'all':
+            students_query = students_query.filter(school_year=school_year)
+            violations_query = violations_query.filter(student__school_year=school_year)
+            student_reports_query = student_reports_query.filter(school_year=school_year)
+            teacher_reports_query = teacher_reports_query.filter(school_year=school_year)
+            logger.info(f"🔍 Filtering by school year: {school_year}")
+        
+        # Basic counts
+        total_students = students_query.count()
+        
+        # ✅ Count both StudentReport and TeacherReport
+        student_reports_count = student_reports_query.count()
+        teacher_reports_count = teacher_reports_query.count()
+        total_reports = student_reports_count + teacher_reports_count
+        
+        total_violations = violations_query.count()
+        
+        # ✅ Report status breakdown for both types
+        pending_student_reports = student_reports_query.filter(status='pending').count()
+        pending_teacher_reports = teacher_reports_query.filter(status='pending').count()
+        pending_reports = pending_student_reports + pending_teacher_reports
+        
+        under_review_student = student_reports_query.filter(status='under_review').count()
+        under_review_teacher = teacher_reports_query.filter(status='under_review').count()
+        under_review_reports = under_review_student + under_review_teacher
+        
+        reviewed_student = student_reports_query.filter(status='reviewed').count()
+        reviewed_teacher = teacher_reports_query.filter(status='reviewed').count()
+        reviewed_reports = reviewed_student + reviewed_teacher
+        
+        resolved_student = student_reports_query.filter(status='resolved').count()
+        resolved_teacher = teacher_reports_query.filter(status='resolved').count()
+        resolved_reports = resolved_student + resolved_teacher
         
         # Violation analytics by type
         violation_type_counts = {}
-        violation_records = StudentViolationRecord.objects.select_related('violation_type').all()
+        violation_records = violations_query.select_related('violation_type').all()
         
         for record in violation_records:
             if record.violation_type:
@@ -1792,7 +1842,7 @@ def counselor_dashboard_analytics(request):
                     }
                 violation_type_counts[type_name]['count'] += 1
         
-        # Sort by count
+        # Sort by count and get top 5
         top_violations = sorted(
             violation_type_counts.items(),
             key=lambda x: x[1]['count'],
@@ -1801,12 +1851,12 @@ def counselor_dashboard_analytics(request):
         
         # Monthly trend (last 6 months)
         from datetime import datetime, timedelta
-        from django.db.models import Count
         from django.db.models.functions import TruncMonth
         
         six_months_ago = datetime.now() - timedelta(days=180)
         
-        monthly_reports = Report.objects.filter(
+        # ✅ Combine monthly trends from both report types
+        student_monthly = student_reports_query.filter(
             created_at__gte=six_months_ago
         ).annotate(
             month=TruncMonth('created_at')
@@ -1814,11 +1864,36 @@ def counselor_dashboard_analytics(request):
             count=Count('id')
         ).order_by('month')
         
+        teacher_monthly = teacher_reports_query.filter(
+            created_at__gte=six_months_ago
+        ).annotate(
+            month=TruncMonth('created_at')
+        ).values('month').annotate(
+            count=Count('id')
+        ).order_by('month')
+        
+        # Combine monthly data
+        monthly_data = {}
+        for item in student_monthly:
+            month_key = item['month'].strftime('%Y-%m')
+            if month_key not in monthly_data:
+                monthly_data[month_key] = {'month': item['month'], 'student_reports': 0, 'teacher_reports': 0}
+            monthly_data[month_key]['student_reports'] = item['count']
+        
+        for item in teacher_monthly:
+            month_key = item['month'].strftime('%Y-%m')
+            if month_key not in monthly_data:
+                monthly_data[month_key] = {'month': item['month'], 'student_reports': 0, 'teacher_reports': 0}
+            monthly_data[month_key]['teacher_reports'] = item['count']
+        
         monthly_trends = []
-        for item in monthly_reports:
+        for key in sorted(monthly_data.keys()):
+            data = monthly_data[key]
             monthly_trends.append({
-                'month': item['month'].strftime('%B %Y'),
-                'count': item['count']
+                'month': data['month'].strftime('%B %Y'),
+                'student_reports': data['student_reports'],
+                'teacher_reports': data['teacher_reports'],
+                'total': data['student_reports'] + data['teacher_reports']
             })
         
         # Status distribution for charts
@@ -1831,12 +1906,76 @@ def counselor_dashboard_analytics(request):
         
         # Recent activity (last 7 days)
         seven_days_ago = datetime.now() - timedelta(days=7)
-        recent_reports_count = Report.objects.filter(created_at__gte=seven_days_ago).count()
-        recent_violations_count = StudentViolationRecord.objects.filter(
+        recent_student_reports = student_reports_query.filter(created_at__gte=seven_days_ago).count()
+        recent_teacher_reports = teacher_reports_query.filter(created_at__gte=seven_days_ago).count()
+        recent_reports_count = recent_student_reports + recent_teacher_reports
+        recent_violations_count = violations_query.filter(
             incident_date__gte=seven_days_ago
         ).count()
         
+        # ✅ Severity breakdown
+        severity_breakdown = violations_query.values('violation_type__severity_level').annotate(
+            count=Count('id')
+        ).order_by('violation_type__severity_level')
+        
+        severity_data = {
+            'low': 0,
+            'medium': 0,
+            'high': 0,
+            'critical': 0
+        }
+        for item in severity_breakdown:
+            level = (item.get('violation_type__severity_level') or 'medium').lower()
+            severity_data[level] = item['count']
+        
+        # ✅ Grade-level breakdown
+        students_by_grade = students_query.values('grade_level').annotate(
+            count=Count('id')
+        ).order_by('grade_level')
+        
+        grade_distribution = []
+        for item in students_by_grade:
+            grade = item['grade_level'] or 'Unknown'
+            # Get violations for this grade
+            grade_violations = violations_query.filter(
+                student__grade_level=grade
+            ).count()
+            
+            grade_distribution.append({
+                'grade_level': grade,
+                'student_count': item['count'],
+                'violation_count': grade_violations
+            })
+        
+        # ✅ Students with most violations (top 10)
+        from django.db.models import Count as DBCount
+        top_violators = violations_query.values(
+            'student__id',
+            'student__student_id',
+            'student__user__first_name',
+            'student__user__last_name',
+            'student__grade_level',
+            'student__section'
+        ).annotate(
+            violation_count=DBCount('id')
+        ).order_by('-violation_count')[:10]
+        
+        top_violators_data = []
+        for item in top_violators:
+            full_name = f"{item['student__user__first_name']} {item['student__user__last_name']}".strip()
+            top_violators_data.append({
+                'student_id': item['student__student_id'],
+                'name': full_name or 'Unknown',
+                'grade_level': item['student__grade_level'],
+                'section': item['student__section'],
+                'violation_count': item['violation_count']
+            })
+        
         logger.info(f"✅ Dashboard analytics retrieved for counselor {counselor.user.username}")
+        logger.info(f"   Total Students: {total_students}")
+        logger.info(f"   Total Reports: {total_reports} (Student: {student_reports_count}, Teacher: {teacher_reports_count})")
+        logger.info(f"   Total Violations: {total_violations}")
+        logger.info(f"   Pending Reports: {pending_reports}")
         
         return Response({
             'success': True,
@@ -1844,6 +1983,8 @@ def counselor_dashboard_analytics(request):
                 'overview': {
                     'total_students': total_students,
                     'total_reports': total_reports,
+                    'student_reports': student_reports_count,
+                    'teacher_reports': teacher_reports_count,
                     'total_violations': total_violations,
                     'pending_reports': pending_reports,
                 },
@@ -1853,7 +1994,25 @@ def counselor_dashboard_analytics(request):
                     'reviewed': reviewed_reports,
                     'resolved': resolved_reports,
                 },
+                'report_breakdown': {
+                    'student_reports': {
+                        'total': student_reports_count,
+                        'pending': pending_student_reports,
+                        'under_review': under_review_student,
+                        'reviewed': reviewed_student,
+                        'resolved': resolved_student,
+                    },
+                    'teacher_reports': {
+                        'total': teacher_reports_count,
+                        'pending': pending_teacher_reports,
+                        'under_review': under_review_teacher,
+                        'reviewed': reviewed_teacher,
+                        'resolved': resolved_teacher,
+                    }
+                },
                 'status_distribution': status_distribution,
+                'severity_breakdown': severity_data,
+                'grade_distribution': grade_distribution,
                 'top_violations': [
                     {
                         'name': name,
@@ -1863,12 +2022,16 @@ def counselor_dashboard_analytics(request):
                     }
                     for name, data in top_violations
                 ],
+                'top_violators': top_violators_data,
                 'monthly_trends': monthly_trends,
                 'recent_activity': {
                     'reports_this_week': recent_reports_count,
+                    'student_reports_this_week': recent_student_reports,
+                    'teacher_reports_this_week': recent_teacher_reports,
                     'violations_this_week': recent_violations_count,
                 }
-            }
+            },
+            'filtered_by_school_year': school_year if school_year and school_year != 'all' else None,
         })
         
     except Exception as e:
@@ -1879,10 +2042,7 @@ def counselor_dashboard_analytics(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# Also add the counselor_update_teacher_report_status function if it's missing:
-
+        
 @csrf_exempt
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
@@ -2236,20 +2396,23 @@ def counselor_student_violations(request):
                 'message': 'Counselor profile not found'
             }, status=403)
 
-        # Get all student violation records with related data
+        # ✅ FIX: Update select_related to use new field names
         violations = StudentViolationRecord.objects.select_related(
             'student',
             'student__user',
             'violation_type',
             'counselor',
             'counselor__user',
-            'related_report'  # ✅ Add this to include related report
+            'related_student_report',  # ✅ Changed from 'related_report'
+            'related_teacher_report'   # ✅ Added teacher report
         ).all().order_by('-incident_date')
         
         violations_data = []
         for violation in violations:
             try:
-                # Build violation data with safe attribute access
+                # ✅ Get whichever report exists
+                related_report = violation.related_student_report or violation.related_teacher_report
+                
                 violation_data = {
                     'id': violation.id,
                     'student_id': violation.student.id if violation.student else None,
@@ -2280,13 +2443,14 @@ def counselor_student_violations(request):
                     'action_taken': violation.action_taken if hasattr(violation, 'action_taken') else '',
                     'recorded_at': violation.recorded_at.isoformat() if hasattr(violation, 'recorded_at') and violation.recorded_at else violation.incident_date.isoformat(),
                     
-                    # ✅ ADD THESE FIELDS
-                    'related_report_id': violation.related_report_id,
+                    # ✅ Update these fields
+                    'related_report_id': related_report.id if related_report else None,
                     'related_report': {
-                        'id': violation.related_report.id,
-                        'title': violation.related_report.title,
-                        'status': violation.related_report.status,
-                    } if violation.related_report else None,
+                        'id': related_report.id,
+                        'title': related_report.title,
+                        'status': related_report.status,
+                        'report_type': 'student_report' if violation.related_student_report else 'teacher_report',
+                    } if related_report else None,
                 }
                 
                 violations_data.append(violation_data)
@@ -2295,13 +2459,10 @@ def counselor_student_violations(request):
                 logger.warning(f"Error processing violation {violation.id}: {e}")
                 continue
 
-        logger.info(f"✅ Returning {len(violations_data)} student violations for counselor {counselor.user.username}")
+        logger.info(f"✅ Returning {len(violations_data)} student violations")
         
-        # Count tallied violations
         tallied_count = sum(1 for v in violations_data if v.get('related_report_id'))
-        logger.info(f"📊 Tallied violations (with related_report_id): {tallied_count}")
-        logger.info(f"📊 Direct violations (without related_report_id): {len(violations_data) - tallied_count}")
-
+        
         return JsonResponse({
             'success': True,
             'violations': violations_data,
@@ -4066,73 +4227,114 @@ def get_available_school_years(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def get_counselor_student_reports(request):
-    """Get all student reports with optional school year filter"""
+def counselor_student_reports(request):
+    """Get student reports for counselor review"""
     try:
-        counselor = Counselor.objects.filter(user=request.user).first()
-        if not counselor:
+        # Check if user has counselor permissions
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Counselor profile not found'
-            }, status=404)
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
         
-        # ✅ NEW: Get school year from query params
-        school_year = request.GET.get('school_year', None)
-        
-        # Base query
-        reports_query = StudentReport.objects.select_related(
-            'reported_by',
-            'reported_student__user'
-        ).all()
-        
-        # ✅ NEW: Filter by school year if provided
-        if school_year and school_year != 'all':
-            # Filter by student's school year
-            reports_query = reports_query.filter(
-                reported_student__school_year=school_year
-            )
-            logger.info(f"📅 Filtering reports by school year: {school_year}")
-        
-        reports = reports_query.order_by('-created_at')
+        # ✅ FIX: Use StudentReport instead of Report
+        reports = StudentReport.objects.select_related(
+            'reporter_student__user',
+            'reported_student__user', 
+            'violation_type',
+            'assigned_counselor__user'
+        ).order_by('-created_at')
         
         reports_data = []
         for report in reports:
-            reports_data.append({
-                'id': report.id,
-                'reported_student': {
-                    'id': report.reported_student.id,
-                    'name': report.reported_student.user.get_full_name(),
-                    'student_id': report.reported_student.student_id,
-                    'grade_level': report.reported_student.grade_level,
-                    'section': report.reported_student.section,
-                    'school_year': report.reported_student.school_year,  # ✅ Include school year
-                },
-                'reported_by': {
-                    'id': report.reported_by.id,
-                    'name': report.reported_by.get_full_name(),
-                    'username': report.reported_by.username,
-                },
-                'incident_type': report.incident_type,
-                'description': report.description,
-                'incident_date': report.incident_date.isoformat() if report.incident_date else None,
-                'status': report.status,
-                'created_at': report.created_at.isoformat(),
-            })
+            try:
+                # Get reporter information
+                reporter_info = None
+                if report.reporter_student:
+                    reporter_info = {
+                        'id': report.reporter_student.id,
+                        'name': f"{report.reporter_student.user.first_name} {report.reporter_student.user.last_name}".strip(),
+                        'username': report.reporter_student.user.username,
+                        'student_id': report.reporter_student.student_id,
+                        'grade_level': report.reporter_student.grade_level,
+                        'section': report.reporter_student.section,
+                    }
+                
+                # Get student being reported
+                reported_student_info = None
+                if report.reported_student:
+                    reported_student_info = {
+                        'id': report.reported_student.id,
+                        'name': f"{report.reported_student.user.first_name} {report.reported_student.user.last_name}".strip(),
+                        'student_id': report.reported_student.student_id,
+                        'grade_level': report.reported_student.grade_level,
+                        'section': report.reported_student.section,
+                        'strand': getattr(report.reported_student, 'strand', 'N/A'),
+                    }
+                
+                report_data = {
+                    'id': report.id,
+                    'title': report.title,
+                    'description': report.description,
+                    'content': report.description,
+                    'status': report.status,
+                    'verification_status': report.verification_status,
+                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                    'incident_location': report.location,
+                    'created_at': report.created_at.isoformat(),
+                    'reporter_type': 'Student',
+                    'report_type': 'student_report',
+                    
+                    # Student info
+                    'reported_student_id': report.reported_student.id if report.reported_student else None,
+                    'reported_student': reported_student_info,
+                    'student': reported_student_info,
+                    'student_name': reported_student_info['name'] if reported_student_info else 'Unknown',
+                    
+                    # Reporter info
+                    'reporter': reporter_info,
+                    'reported_by': reporter_info,
+                    
+                    # Violation details
+                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation or 'Other',
+                    'custom_violation': report.custom_violation,
+                    'severity_level': report.severity,
+                    'severity_assessment': report.severity,
+                    'witnesses': report.witnesses,
+                    'counselor_notes': report.counselor_notes,
+                    'school_year': report.school_year,
+                    
+                    # Counseling info
+                    'requires_counseling': report.requires_counseling,
+                    'counseling_completed': report.counseling_completed,
+                    'summons_sent': report.summons_sent_at is not None,
+                }
+                
+                reports_data.append(report_data)
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error processing report {report.id}: {e}")
+                continue
+        
+        logger.info(f"📋 Found {len(reports_data)} student reports")
         
         return Response({
             'success': True,
             'reports': reports_data,
-            'total': len(reports_data),
-            'filtered_by_school_year': school_year if school_year and school_year != 'all' else None,
+            'count': len(reports_data),
         })
         
     except Exception as e:
-        logger.error(f"❌ Error fetching counselor reports: {e}")
+        logger.error(f"❌ Error fetching counselor student reports: {str(e)}")
         import traceback
         traceback.print_exc()
         return Response({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'reports': [],
+            'count': 0
         }, status=500)
 
 @api_view(['GET'])
