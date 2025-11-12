@@ -7,6 +7,7 @@ class StudentProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _reports = [];
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _violationTypes = [];
+  Map<String, dynamic>? _studentInfo; // ✅ NEW: Student info including school year
   bool _isLoading = false;
   bool _isLoadingViolationTypes = false;
   String? _error;
@@ -20,11 +21,17 @@ class StudentProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get reports => _reports;
   List<Map<String, dynamic>> get notifications => _notifications;
   List<Map<String, dynamic>> get violationTypes => _violationTypes;
+  Map<String, dynamic>? get studentInfo => _studentInfo; // ✅ NEW
   bool get isLoading => _isLoading;
   bool get isLoadingReports => _isLoading;
   bool get isLoadingViolationTypesGetter => _isLoadingViolationTypes;
   String? get error => _error;
   String? get token => _token;
+  
+  // ✅ NEW: Get current school year from student info
+  String get currentSchoolYear => _studentInfo?['school_year'] ?? _calculateCurrentSchoolYear();
+  String get gradeLevel => _studentInfo?['grade_level'] ?? 'N/A';
+  String get section => _studentInfo?['section'] ?? 'N/A';
 
   // -----------------------------
   // Set token
@@ -34,8 +41,67 @@ class StudentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ✅ NEW: Calculate current school year based on date
+  String _calculateCurrentSchoolYear() {
+    final now = DateTime.now();
+    final year = now.year;
+    final month = now.month;
+    // School year starts in June (month 6)
+    if (month >= 6) {
+      return '$year-${year + 1}';
+    } else {
+      return '${year - 1}-$year';
+    }
+  }
+
+  // ✅ NEW: Fetch Student Profile Info
+  Future<void> fetchStudentInfo(String token) async {
+    if (serverIp == null) {
+      _error = "Server IP not configured";
+      notifyListeners();
+      return;
+    }
+
+    try {
+      final url = Uri.parse("$serverIp/api/student/profile/");
+      debugPrint("🌐 Fetching student profile from: $url");
+
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint("📩 Profile Status Code: ${response.statusCode}");
+      debugPrint("📩 Profile Response: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+          _studentInfo = decoded['student'];
+          debugPrint("✅ Student Info: $_studentInfo");
+          debugPrint("📅 School Year: ${_studentInfo?['school_year']}");
+          debugPrint("📚 Grade: ${_studentInfo?['grade_level']} - ${_studentInfo?['section']}");
+        } else {
+          _error = decoded['error'] ?? 'Failed to fetch profile';
+        }
+      } else {
+        _error = "HTTP ${response.statusCode}";
+      }
+    } catch (e) {
+      debugPrint("❌ Exception fetching student info: $e");
+      _error = "Network error: $e";
+    } finally {
+      notifyListeners();
+    }
+  }
+
   // -----------------------------
-  // Fetch Reports
+  // Fetch Reports (with school year context)
   // -----------------------------
   Future<void> fetchReports(String token) async {
     if (serverIp == null) {
@@ -71,6 +137,12 @@ class StudentProvider extends ChangeNotifier {
           if (decoded['reports'] is List) {
             _reports = List<Map<String, dynamic>>.from(decoded['reports']);
             debugPrint("✅ Successfully loaded ${_reports.length} reports");
+            
+            // ✅ Filter reports by current school year (optional)
+            if (_studentInfo != null && _studentInfo!['school_year'] != null) {
+              final currentYear = _studentInfo!['school_year'];
+              debugPrint("📅 Current school year: $currentYear");
+            }
           } else {
             _reports = [];
             debugPrint("❌ Reports field is not a List: ${decoded['reports']}");
@@ -267,54 +339,53 @@ class StudentProvider extends ChangeNotifier {
   // Fetch Violation Types
   // -----------------------------
   Future<void> fetchViolationTypes(String token) async {
-  if (serverIp == null) return;
+    if (serverIp == null) return;
 
-  _isLoadingViolationTypes = true;
-  notifyListeners();
+    _isLoadingViolationTypes = true;
+    notifyListeners();
 
-  try {
-    final url = Uri.parse("$serverIp/api/reports/violation-types/");
-    debugPrint("🌐 Fetching violation types from: $url");
+    try {
+      final url = Uri.parse("$serverIp/api/reports/violation-types/");
+      debugPrint("🌐 Fetching violation types from: $url");
 
-    final response = await http.get(
-      url,
-      headers: {
-        "Authorization": "Token $token",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-    ).timeout(const Duration(seconds: 10));
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Token $token",
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final decoded = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
 
-      if (decoded is List) {
-        _violationTypes = List<Map<String, dynamic>>.from(decoded);
+        if (decoded is List) {
+          _violationTypes = List<Map<String, dynamic>>.from(decoded);
 
-        // Optionally append "Others"
-        _violationTypes.add({
-          'id': null,
-          'name': 'Others',
-        });
+          // Optionally append "Others"
+          _violationTypes.add({
+            'id': null,
+            'name': 'Others',
+          });
 
-        debugPrint("✅ Loaded ${_violationTypes.length} violation types");
+          debugPrint("✅ Loaded ${_violationTypes.length} violation types");
+        } else {
+          debugPrint("⚠️ Unexpected response format: $decoded");
+          _violationTypes = [];
+        }
       } else {
-        debugPrint("⚠️ Unexpected response format: $decoded");
+        debugPrint("❌ HTTP ${response.statusCode}: ${response.body}");
         _violationTypes = [];
       }
-    } else {
-      debugPrint("❌ HTTP ${response.statusCode}: ${response.body}");
+    } catch (e) {
       _violationTypes = [];
+      debugPrint("❌ Exception fetching violation types: $e");
+    } finally {
+      _isLoadingViolationTypes = false;
+      notifyListeners();
     }
-  } catch (e) {
-    _violationTypes = [];
-    debugPrint("❌ Exception fetching violation types: $e");
-  } finally {
-    _isLoadingViolationTypes = false;
-    notifyListeners();
   }
-}
-
 
   // -----------------------------
   // Utilities
@@ -328,6 +399,7 @@ class StudentProvider extends ChangeNotifier {
     _reports = [];
     _notifications = [];
     _violationTypes = [];
+    _studentInfo = null; // ✅ NEW
     _error = null;
     _isLoading = false;
     _isLoadingViolationTypes = false;

@@ -83,7 +83,7 @@ class AppRoutes {
         return MaterialPageRoute(
             builder: (_) => const StudentNotificationsPage());
       case AppRoutes.settings:
-        return MaterialPageRoute(builder: (_) => const SettingsPage());
+        return MaterialPageRoute(builder: (_) => const StudentSettingsPage());
 
       // Teacher Dashboard - No parameters needed (uses AuthProvider)
       case teacherDashboard:

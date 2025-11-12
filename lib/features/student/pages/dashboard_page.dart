@@ -56,33 +56,34 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Ticker
   }
 
   Future<void> _loadStudentData() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final studentProvider = Provider.of<StudentProvider>(context, listen: false);
 
-    try {
-      if (authProvider.token != null) {
-        await Future.wait([
-          studentProvider.fetchReports(authProvider.token!),
-          studentProvider.fetchNotifications(authProvider.token!),
-        ]);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error loading data: $e"),
-            backgroundColor: Colors.red[400],
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-        _animationController.forward();
-      }
+  try {
+    if (authProvider.token != null) {
+      await Future.wait([
+        studentProvider.fetchStudentInfo(authProvider.token!), // ✅ ADD THIS
+        studentProvider.fetchReports(authProvider.token!),
+        studentProvider.fetchNotifications(authProvider.token!),
+      ]);
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error loading data: $e"),
+          backgroundColor: Colors.red[400],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => isLoading = false);
+      _animationController.forward();
     }
   }
+}
 
   Future<bool> _confirmLogout(BuildContext context) async {
     return await showDialog<bool>(
@@ -301,6 +302,11 @@ Widget build(BuildContext context) {
                             ),
                           ],
                         ),
+                      ),
+
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                        child: _buildSchoolYearCard(studentProvider),
                       ),
 
                       // Stats Cards
@@ -720,4 +726,94 @@ class _ActionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _buildSchoolYearCard(StudentProvider provider) {
+  final schoolYear = provider.currentSchoolYear;
+  final grade = provider.gradeLevel;
+  final section = provider.section;
+  final isCurrentYear = _isCurrentSchoolYear(schoolYear);
+
+  return Card(
+    elevation: 4,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: isCurrentYear
+              ? [const Color(0xFF4CAF50), const Color(0xFF2E7D32)]
+              : [Colors.orange.shade600, Colors.orange.shade400],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.school,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'School Year $schoolYear',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Grade $grade - $section',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isCurrentYear)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'CURRENT',
+                style: TextStyle(
+                  color: Color(0xFF2E7D32),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+bool _isCurrentSchoolYear(String schoolYear) {
+  if (schoolYear == 'N/A') return false;
+  final now = DateTime.now();
+  final year = now.year;
+  final month = now.month;
+  final currentSY = month >= 6 ? '$year-${year + 1}' : '${year - 1}-$year';
+  return schoolYear == currentSY;
 }
