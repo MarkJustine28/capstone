@@ -28,6 +28,7 @@ urlpatterns = [
     # ==========================================
     path('student/notifications/', views.student_notifications, name='student_notifications'),
     path('student/reports/', views.student_reports, name='student_reports'),
+    path('student/profile/', views.student_profile, name='student-profile'),
     
     # ==========================================
     # ✅ NEW: School Year Management
