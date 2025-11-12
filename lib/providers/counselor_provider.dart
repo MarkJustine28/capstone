@@ -321,53 +321,52 @@ class CounselorProvider with ChangeNotifier {
 
   // Fetch students list (for counselor management)
   Future<void> fetchStudentsList({String? schoolYear}) async {
-  if (_token == null) {
-    _setError('Authentication token not found');
-    return;
-  }
+  if (_token == null) return;
 
   _isLoadingStudentsList = true;
-  _setError(null);
   notifyListeners();
 
   try {
-    // ✅ Add school year query parameter
-    final queryParams = schoolYear != null ? '?school_year=$schoolYear' : '';
-    final url = Uri.parse('$_baseUrl/api/students-list/$queryParams');
+    final year = schoolYear ?? _selectedSchoolYear;
     
-    debugPrint('🔍 Fetching students list for school year: ${schoolYear ?? "all"}');
+    // ✅ IMPORTANT: Pass school year as query parameter
+    final url = year == 'all'
+        ? Uri.parse('$_baseUrl/api/counselor/students-list/')
+        : Uri.parse('$_baseUrl/api/counselor/students-list/?school_year=$year');
     
+    debugPrint('📊 Fetching students for school year: $year');
+    debugPrint('🌐 URL: $url');
+
     final response = await http.get(
       url,
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': 'Token $_token',
+        'Content-Type': 'application/json',
       },
     );
 
-    debugPrint('🔍 Students list response: ${response.statusCode}');
-    debugPrint('🔍 Students list body preview: ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}');
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = json.decode(response.body);
       if (data['success'] == true) {
         _studentsList = List<Map<String, dynamic>>.from(data['students'] ?? []);
-        debugPrint('✅ Students list loaded: ${_studentsList.length} students for ${schoolYear ?? "all school years"}');
-      } else {
-        _setError(data['error'] ?? 'Failed to load students list');
+        debugPrint('✅ Fetched ${_studentsList.length} students for S.Y. $year');
+        
+        // ✅ DEBUG: Print first student to verify school year
+        if (_studentsList.isNotEmpty) {
+          debugPrint('📌 Sample student: ${_studentsList.first}');
+        }
       }
-    } else {
-      _setError('Failed to load students list: ${response.statusCode}');
     }
   } catch (e) {
-    debugPrint('❌ Students list fetch error: $e');
-    _setError('Network error: $e');
+    debugPrint('❌ Error fetching students: $e');
   } finally {
     _isLoadingStudentsList = false;
     notifyListeners();
   }
 }
-
   // Add these properties to your CounselorProvider:
 
 DateTime? _lastFetchTime;

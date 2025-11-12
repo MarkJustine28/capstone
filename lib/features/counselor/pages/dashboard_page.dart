@@ -723,7 +723,43 @@ String _formatDate(String? dateStr) {
   Widget _buildQuickStatsGrid() {
   return Consumer<CounselorProvider>(
     builder: (context, provider, child) {
-      final isFiltered = provider.selectedSchoolYear != 'all';
+      final selectedSchoolYear = provider.selectedSchoolYear;
+      final isFiltered = selectedSchoolYear != 'all';
+      
+      // ✅ FIX: Filter data by school year
+      List<Map<String, dynamic>> filteredStudentReports;
+      List<Map<String, dynamic>> filteredTeacherReports;
+      List<Map<String, dynamic>> filteredViolations;
+      
+      if (selectedSchoolYear == 'all') {
+        filteredStudentReports = provider.counselorStudentReports;
+        filteredTeacherReports = provider.teacherReports;
+        filteredViolations = provider.studentViolations;
+      } else {
+        // Filter student reports by school year
+        filteredStudentReports = provider.counselorStudentReports.where((report) {
+          final reportSchoolYear = report['reported_student']?['school_year']?.toString() ?? '';
+          return reportSchoolYear == selectedSchoolYear;
+        }).toList();
+        
+        // Filter teacher reports by school year
+        filteredTeacherReports = provider.teacherReports.where((report) {
+          final reportSchoolYear = report['student']?['school_year']?.toString() ?? '';
+          return reportSchoolYear == selectedSchoolYear;
+        }).toList();
+        
+        // Filter violations by school year
+        filteredViolations = provider.studentViolations.where((violation) {
+          final violationSchoolYear = violation['school_year']?.toString() ?? 
+                                      violation['student']?['school_year']?.toString() ?? '';
+          return violationSchoolYear == selectedSchoolYear;
+        }).toList();
+      }
+      
+      // ✅ Count pending reports from filtered data
+      final pendingStudentReports = filteredStudentReports.where((r) => 
+        r['status']?.toString() == 'pending'
+      ).length;
       
       return Column(
         children: [
@@ -743,7 +779,7 @@ String _formatDate(String? dateStr) {
                   Icon(Icons.filter_list, size: 16, color: Colors.blue.shade700),
                   const SizedBox(width: 8),
                   Text(
-                    'Showing data for S.Y. ${provider.selectedSchoolYear}',
+                    'Showing data for S.Y. $selectedSchoolYear only',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.blue.shade700,
@@ -754,7 +790,7 @@ String _formatDate(String? dateStr) {
               ),
             ),
           
-          // Existing grid
+          // Stats Grid with filtered data
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -765,28 +801,28 @@ String _formatDate(String? dateStr) {
             children: [
               _buildStatCard(
                 "📊 Total Reports",
-                "${_studentReportsCount + _teacherReportsCount}",
+                "${filteredStudentReports.length + filteredTeacherReports.length}", // ✅ Use filtered data
                 "All submitted reports",
                 Colors.blue,
                 onTap: () {},
               ),
               _buildStatCard(
                 "👥 Student Reports", 
-                "$_studentReportsCount",
-                "${_reportStatusCounts['pending'] ?? 0} pending review",
+                "${filteredStudentReports.length}", // ✅ Use filtered data
+                "$pendingStudentReports pending review",
                 Colors.green,
                 onTap: () => setState(() => _currentTabIndex = 2),
               ),
               _buildStatCard(
                 "🏫 Teacher Reports",
-                "$_teacherReportsCount", 
+                "${filteredTeacherReports.length}", // ✅ Use filtered data
                 "From educators",
                 Colors.orange,
                 onTap: () => setState(() => _currentTabIndex = 3),
               ),
               _buildStatCard(
                 "📊 Total Tallied Reports",
-                "${Provider.of<CounselorProvider>(context, listen: false).studentViolations.length}",
+                "${filteredViolations.length}", // ✅ Use filtered data
                 "Manually tallied by counselor",
                 Colors.red,
                 onTap: () => setState(() => _currentTabIndex = 1),
@@ -938,8 +974,6 @@ Widget _buildStatCard(String title, String value, String subtitle, Color color, 
   Widget _buildManageStudentsTab() {
   return Column(
     children: [
-      // ✅ NEW: School Year Banner
-      const SchoolYearBanner(),
       
       // Existing content
       const Expanded(
@@ -955,8 +989,6 @@ Widget _buildStatCard(String title, String value, String subtitle, Color color, 
   Widget _buildStudentReportsContent() {
   return Column(
     children: [
-      // ✅ NEW: School Year Banner
-      const SchoolYearBanner(),
       
       // Existing content
       const Expanded(
@@ -971,8 +1003,6 @@ Widget _buildStatCard(String title, String value, String subtitle, Color color, 
   Widget _buildTeacherReportsContent() {
   return Column(
     children: [
-      // ✅ NEW: School Year Banner
-      const SchoolYearBanner(),
       
       // Existing content
       const Expanded(
@@ -988,7 +1018,6 @@ Widget _buildStatCard(String title, String value, String subtitle, Color color, 
   return Column(
     children: [
       // ✅ NEW: School Year Banner
-      const SchoolYearBanner(),
       
       // Existing analytics content
       Expanded(
