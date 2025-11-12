@@ -809,12 +809,6 @@ def student_notifications(request):
 def student_reports(request):
     """Handle student report submissions and retrieval"""
     
-@csrf_exempt
-@api_view(['POST', 'GET'])
-@permission_classes([IsAuthenticated])
-def student_reports(request):
-    """Handle student report submissions and retrieval"""
-    
     if request.method == 'POST':
         # Handle report submission
         try:
@@ -829,24 +823,26 @@ def student_reports(request):
                 }, status=400)
             
             # Extract data from request
-            title = request.data.get('title', '')
+            title = request.data.get('title', 'Incident Report')
             content = request.data.get('content', '')
+            description = request.data.get('description', content)  # Use content as description if not provided
             violation_type_id = request.data.get('violation_type_id')
             custom_violation = request.data.get('custom_violation')
             incident_date = request.data.get('incident_date')
             reported_student_name = request.data.get('reported_student_name', '')
-            report_type = request.data.get('report_type', 'peer_report')
+            severity = request.data.get('severity', 'medium')
+            location = request.data.get('location', '')
+            witnesses = request.data.get('witnesses', '')
             
             logger.info(f"📝 Report submission by: {student.user.username}")
             logger.info(f"📝 Student being reported: {reported_student_name}")
             logger.info(f"📝 Violation type ID: {violation_type_id}")
-            logger.info(f"📝 Report type: {report_type}")
             
             # Validate required fields
-            if not title or not content or not reported_student_name:
+            if not title or not description:
                 return Response({
                     'success': False,
-                    'error': 'Missing required fields: title, content, and reported_student_name'
+                    'error': 'Title and description are required'
                 }, status=400)
             
             # Get violation type if provided
@@ -870,102 +866,81 @@ def student_reports(request):
             else:
                 parsed_incident_date = timezone.now()
             
+            # Find reported student (if reporting another student)
             reported_student = None
-            try:
-                reported_student_name_clean = reported_student_name.strip()
-                logger.info(f"🔍 Searching for student: '{reported_student_name_clean}'")
-                
-                # Method 1: Try exact full name match (case-insensitive)
-                name_parts = reported_student_name_clean.split()
-                if len(name_parts) >= 2:
-                    first_name = name_parts[0]
-                    last_name = ' '.join(name_parts[1:])
+            if reported_student_name:
+                try:
+                    reported_student_name_clean = reported_student_name.strip()
+                    logger.info(f"🔍 Searching for student: '{reported_student_name_clean}'")
                     
-                    logger.info(f"🔍 Trying exact match: first_name='{first_name}', last_name='{last_name}'")
+                    # Try to find the student by name
+                    name_parts = reported_student_name_clean.split()
+                    if len(name_parts) >= 2:
+                        first_name = name_parts[0]
+                        last_name = ' '.join(name_parts[1:])
+                        
+                        reported_student = Student.objects.filter(
+                            user__first_name__iexact=first_name,
+                            user__last_name__iexact=last_name
+                        ).first()
+                        
+                        if reported_student:
+                            logger.info(f"✅ Found student: {reported_student.user.first_name} {reported_student.user.last_name}")
                     
-                    # Try exact match first
-                    reported_student = Student.objects.filter(
-                        user__first_name__iexact=first_name,
-                        user__last_name__iexact=last_name
-                    ).first()
-                    
-                    if reported_student:
-                        logger.info(f"✅ Found student (exact match): {reported_student.user.first_name} {reported_student.user.last_name}")
-                
-                # Method 2: Try contains match (partial matching)
-                if not reported_student and len(name_parts) >= 2:
-                    logger.info(f"🔍 Trying contains match...")
-                    reported_student = Student.objects.filter(
-                        user__first_name__icontains=first_name,
-                        user__last_name__icontains=last_name
-                    ).first()
-                    
-                    if reported_student:
-                        logger.info(f"✅ Found student (contains match): {reported_student.user.first_name} {reported_student.user.last_name}")
-                
-                # Method 3: Try searching by username or student_id
-                if not reported_student:
-                    logger.info(f"🔍 Trying username/student_id match...")
-                    reported_student = Student.objects.filter(
-                        models.Q(user__username__icontains=reported_student_name_clean) |
-                        models.Q(student_id__icontains=reported_student_name_clean)
-                    ).first()
-                    
-                    if reported_student:
-                        logger.info(f"✅ Found student (username/id match): {reported_student.user.username}")
-                
-                # Method 4: Try full name as single field search
-                if not reported_student:
-                    logger.info(f"🔍 Trying full name search in database...")
-                    for student in Student.objects.select_related('user').all():
-                        db_full_name = f"{student.user.first_name} {student.user.last_name}".strip().lower()
-                        if reported_student_name_clean.lower() == db_full_name:
-                            reported_student = student
-                            logger.info(f"✅ Found student (full name match): {student.user.first_name} {student.user.last_name}")
-                            break
-                
-                if not reported_student:
-                    logger.warning(f"⚠️ Could not find student: '{reported_student_name_clean}'")
-                    logger.info(f"📋 Available students in database:")
-                    for s in Student.objects.select_related('user').all()[:10]:
-                        logger.info(f"  - {s.user.first_name} {s.user.last_name} (username: {s.user.username})")
-                    
-            except Exception as e:
-                logger.error(f"❌ Error finding reported student: {e}")
-                import traceback
-                traceback.print_exc()
+                    if not reported_student:
+                        logger.warning(f"⚠️ Could not find student: '{reported_student_name_clean}'")
+                        # For self-report or if student not found, set reported_student to reporter
+                        reported_student = student
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error finding reported student: {e}")
+                    reported_student = student  # Default to self-report
+            else:
+                # No student name provided - this is a self-report
+                reported_student = student
 
-            # ✅ CREATE REPORT (with better error handling)
-            if not reported_student:
-                logger.error(f"❌ Cannot create report: Student '{reported_student_name}' not found in database")
-                return Response({
-                    'success': False,
-                    'error': f"Student '{reported_student_name}' not found in the system. Please check the spelling or contact the guidance office to register this student first."
-                }, status=400)
-
-            # CREATE REPORT
-            report = Report.objects.create(
+            # ✅ CREATE STUDENTREPORT (not Report)
+            report = StudentReport.objects.create(
                 title=title,
-                content=content,
-                student=reported_student,  # Now guaranteed to not be None
-                reported_by=request.user,
+                description=description,
+                reporter_student=student,  # ✅ Who is submitting the report
+                reported_student=reported_student,  # ✅ Who is being reported (can be same for self-report)
                 violation_type=violation_type,
                 custom_violation=custom_violation,
-                incident_date=parsed_incident_date,
-                report_type=report_type,
+                severity=severity,
                 status='pending',
-                location=f"Reported Student: {reported_student_name}",
+                verification_status='pending',
+                incident_date=parsed_incident_date,
+                school_year=student.school_year,  # ✅ Auto-set from student
+                location=location,
+                witnesses=witnesses,
+                requires_counseling=True,
             )
 
-            logger.info(f"✅ Report created with ID: {report.id}, Status: {report.status}")
-            logger.info(f"✅ Reported student: {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+            logger.info(f"✅ StudentReport created: #{report.id}")
+            logger.info(f"   Reporter: {student.student_id}")
+            logger.info(f"   Reported: {reported_student.student_id if reported_student else 'N/A'}")
+            logger.info(f"   School Year: {student.school_year}")
+            
+            # Create notification for counselors
+            counselors = Counselor.objects.all()
+            for counselor in counselors:
+                Notification.objects.create(
+                    user=counselor.user,
+                    title='New Student Report Submitted',
+                    message=f'Student {student.user.get_full_name() or student.user.username} submitted a report: {title}',
+                    type='report_submitted',
+                    related_student_report=report  # ✅ Use related_student_report
+                )
             
             # Prepare response data
             report_data = {
                 'id': report.id,
                 'title': report.title,
-                'content': report.content,
+                'description': report.description,
                 'status': report.status,
+                'verification_status': report.verification_status,
+                'school_year': report.school_year,
                 'created_at': report.created_at.isoformat(),
                 'incident_date': report.incident_date.isoformat() if report.incident_date else None,
                 'reporter': {
@@ -973,15 +948,13 @@ def student_reports(request):
                     'name': f"{student.user.first_name} {student.user.last_name}".strip(),
                     'username': request.user.username,
                 },
-                'reported_student_name': reported_student_name,
                 'reported_student': {
                     'id': reported_student.id,
                     'name': f"{reported_student.user.first_name} {reported_student.user.last_name}".strip(),
                     'student_id': reported_student.student_id,
                 } if reported_student else None,
                 'violation_type': violation_type.name if violation_type else custom_violation,
-                'custom_violation': custom_violation,
-                'report_type': report_type,
+                'is_self_report': report.is_self_report(),
             }
             
             return Response({
@@ -1000,27 +973,101 @@ def student_reports(request):
             }, status=500)
     
     elif request.method == 'GET':
-        # Handle fetching student's reports
+        # Handle fetching student's reports - ALREADY UPDATED IN PREVIOUS RESPONSE
         try:
-            student = Student.objects.get(user=request.user)
-            reports = Report.objects.filter(
-                reported_by=request.user
-            ).order_by('-created_at')
+            if not hasattr(request.user, 'student'):
+                logger.error(f"❌ User {request.user.username} is not a student")
+                return Response({
+                    'success': False,
+                    'error': 'Only students can view reports'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            student = request.user.student
+            
+            # Get reports where student is the reporter
+            student_reports_as_reporter = StudentReport.objects.filter(
+                reporter_student=student
+            ).select_related('violation_type', 'assigned_counselor', 'reported_student__user')
+            
+            # Get reports where student is reported
+            student_reports_as_reported = StudentReport.objects.filter(
+                reported_student=student
+            ).exclude(reporter_student=student).select_related('violation_type', 'assigned_counselor', 'reporter_student__user')
+            
+            teacher_reports = TeacherReport.objects.filter(
+                reported_student=student
+            ).select_related('violation_type', 'assigned_counselor', 'reporter_teacher__user')
             
             reports_data = []
-            for report in reports:
+            
+            # Add reports where this student is the reporter
+            for report in student_reports_as_reporter:
                 reports_data.append({
                     'id': report.id,
+                    'report_type': 'student_report',
                     'title': report.title,
-                    'content': report.content,
+                    'description': report.description,
+                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
+                    'severity': report.severity,
                     'status': report.status,
+                    'verification_status': report.verification_status,
+                    'school_year': report.school_year,
+                    'role_in_report': 'reporter',
+                    'reporter': student.user.get_full_name() or student.user.username,
+                    'reported_student': (
+                        report.reported_student.user.get_full_name() or report.reported_student.user.username
+                    ) if report.reported_student else 'Self-Report',
                     'created_at': report.created_at.isoformat(),
-                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
                 })
+            
+            # Add reports where this student is reported (by other students)
+            for report in student_reports_as_reported:
+                reports_data.append({
+                    'id': report.id,
+                    'report_type': 'student_report',
+                    'title': report.title,
+                    'description': report.description,
+                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
+                    'severity': report.severity,
+                    'status': report.status,
+                    'verification_status': report.verification_status,
+                    'school_year': report.school_year,
+                    'role_in_report': 'reported',
+                    'reporter': (
+                        report.reporter_student.user.get_full_name() or report.reporter_student.user.username
+                    ),
+                    'reported_student': student.user.get_full_name() or student.user.username,
+                    'created_at': report.created_at.isoformat(),
+                })
+            
+            # Add teacher reports
+            for report in teacher_reports:
+                reports_data.append({
+                    'id': report.id,
+                    'report_type': 'teacher_report',
+                    'title': report.title,
+                    'description': report.description,
+                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
+                    'severity': report.severity,
+                    'status': report.status,
+                    'verification_status': report.verification_status,
+                    'school_year': report.school_year,
+                    'role_in_report': 'reported',
+                    'reporter': (
+                        report.reporter_teacher.user.get_full_name() or report.reporter_teacher.user.username
+                    ),
+                    'reporter_type': 'teacher',
+                    'reported_student': student.user.get_full_name() or student.user.username,
+                    'created_at': report.created_at.isoformat(),
+                })
+            
+            # Sort by created_at descending
+            reports_data.sort(key=lambda x: x['created_at'], reverse=True)
             
             return Response({
                 'success': True,
-                'reports': reports_data
+                'reports': reports_data,
+                'total': len(reports_data),
             })
             
         except Exception as e:
