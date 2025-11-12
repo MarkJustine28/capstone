@@ -12,6 +12,25 @@ class StudentSettingsPage extends StatefulWidget {
 }
 
 class _StudentSettingsPageState extends State<StudentSettingsPage> {
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStudentInfo();
+  }
+
+  Future<void> _loadStudentInfo() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+
+    if (authProvider.token != null) {
+      setState(() => _isLoading = true);
+      await studentProvider.fetchStudentInfo(authProvider.token!);
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -36,30 +55,42 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
           ),
         ),
         foregroundColor: Colors.white,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // ✅ School Year Information Section
-          _buildSchoolYearSection(studentProvider),
-          const SizedBox(height: 16),
-
-          // Profile Section
-          _buildProfileSection(context, authProvider, studentProvider),
-          const SizedBox(height: 16),
-
-          // Account Section
-          _buildAccountSection(context, authProvider),
-          const SizedBox(height: 16),
-
-          // App Settings Section
-          _buildAppSection(context),
-          const SizedBox(height: 24),
-
-          // Logout Button
-          _buildLogoutButton(context, authProvider),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadStudentInfo,
+            tooltip: 'Refresh',
+          ),
         ],
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadStudentInfo,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // ✅ School Year Information Section
+                  _buildSchoolYearSection(studentProvider),
+                  const SizedBox(height: 16),
+
+                  // Profile Section
+                  _buildProfileSection(context, authProvider, studentProvider),
+                  const SizedBox(height: 16),
+
+                  // Account Section
+                  _buildAccountSection(context, authProvider),
+                  const SizedBox(height: 16),
+
+                  // App Settings Section
+                  _buildAppSection(context),
+                  const SizedBox(height: 24),
+
+                  // Logout Button
+                  _buildLogoutButton(context, authProvider),
+                ],
+              ),
+            ),
     );
   }
 
@@ -68,6 +99,7 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     final schoolYear = provider.currentSchoolYear;
     final grade = provider.gradeLevel;
     final section = provider.section;
+    final strand = provider.studentInfo?['strand'] as String?;
 
     return Card(
       elevation: 2,
@@ -103,6 +135,8 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             ),
           ),
           const Divider(height: 1),
+          
+          // School Year
           ListTile(
             leading: const Icon(Icons.school, color: Color(0xFF4CAF50)),
             title: const Text('School Year'),
@@ -127,15 +161,27 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
               ),
             ),
           ),
+          
+          // Grade Level
           ListTile(
             leading: const Icon(Icons.grade, color: Color(0xFF4CAF50)),
             title: const Text('Grade Level'),
-            subtitle: Text('Grade $grade'),
+            subtitle: Text(grade != 'N/A' ? 'Grade $grade' : 'Not Set'),
           ),
+          
+          // Strand (for Grade 11 & 12)
+          if (strand != null && strand.isNotEmpty && (grade == '11' || grade == '12'))
+            ListTile(
+              leading: const Icon(Icons.category, color: Color(0xFF4CAF50)),
+              title: const Text('Strand'),
+              subtitle: Text(strand),
+            ),
+          
+          // Section
           ListTile(
             leading: const Icon(Icons.group, color: Color(0xFF4CAF50)),
             title: const Text('Section'),
-            subtitle: Text(section),
+            subtitle: Text(section != 'N/A' ? section : 'Not Set'),
           ),
         ],
       ),
@@ -213,7 +259,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             subtitle: Text(authProvider.username ?? 'N/A'),
             trailing: const Icon(Icons.edit, size: 20),
             onTap: () {
-              // TODO: Navigate to edit profile page
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Profile editing coming soon!'),
@@ -222,8 +267,10 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
               );
             },
           ),
-          // ✅ FIX: Safely access student info with null checks
-          if (studentProvider.studentInfo != null) ...[
+          
+          // Student ID
+          if (studentProvider.studentInfo != null &&
+              studentProvider.studentInfo!['student_id'] != null)
             ListTile(
               leading: const Icon(Icons.badge, color: Colors.blue),
               title: const Text('Student ID'),
@@ -231,7 +278,35 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
                 studentProvider.studentInfo?['student_id']?.toString() ?? 'N/A',
               ),
             ),
-          ],
+          
+          // Contact Number
+          if (studentProvider.studentInfo?['contact_number'] != null &&
+              (studentProvider.studentInfo!['contact_number'] as String).isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.phone, color: Colors.blue),
+              title: const Text('Contact Number'),
+              subtitle: Text(studentProvider.studentInfo?['contact_number'] ?? 'N/A'),
+            ),
+          
+          // Guardian Info
+          if (studentProvider.studentInfo?['guardian_name'] != null &&
+              (studentProvider.studentInfo!['guardian_name'] as String).isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.family_restroom, color: Colors.blue),
+              title: const Text('Guardian'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(studentProvider.studentInfo?['guardian_name'] ?? 'N/A'),
+                  if (studentProvider.studentInfo?['guardian_contact'] != null &&
+                      (studentProvider.studentInfo!['guardian_contact'] as String).isNotEmpty)
+                    Text(
+                      'Contact: ${studentProvider.studentInfo?['guardian_contact']}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -283,7 +358,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             title: const Text('Change Password'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
-              // TODO: Navigate to change password page
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Password change coming soon!'),
