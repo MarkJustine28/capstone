@@ -2108,7 +2108,7 @@ def counselor_student_reports(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def counselor_students_list(request):
-    """Get students list for counselor"""
+    """Get students list for counselor with optional school year filter"""
     try:
         if not hasattr(request.user, 'counselor'):
             return Response({
@@ -2116,35 +2116,63 @@ def counselor_students_list(request):
                 'error': 'Access denied. Counselor role required.'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        students = Student.objects.select_related('user').all()
+        # ✅ NEW: Get school year from query params
+        school_year = request.GET.get('school_year', None)
+        
+        logger.info(f"📊 Fetching students list, school_year parameter: {school_year}")
+        
+        # ✅ Base query - all active students
+        students_query = Student.objects.filter(is_active=True).select_related('user')
+        
+        # ✅ Filter by school year if provided
+        if school_year and school_year != 'all':
+            students_query = students_query.filter(school_year=school_year)
+            logger.info(f"🔍 Filtering students by school year: {school_year}")
+        else:
+            logger.info(f"📋 Fetching all students (no school year filter)")
+        
+        students = students_query.order_by('grade_level', 'section', 'user__last_name')
         
         students_data = []
         for student in students:
             students_data.append({
                 'id': student.id,
+                'student_id': student.student_id,
                 'name': student.user.get_full_name() or student.user.username,
-                'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'first_name': student.user.first_name,
+                'last_name': student.user.last_name,
+                'email': student.user.email,
                 'grade_level': student.grade_level,
                 'section': student.section,
-                'username': student.user.username,
-                'email': student.user.email,
+                'strand': student.strand,
+                'school_year': student.school_year,  # ✅ IMPORTANT: Include school_year
+                'contact_number': student.contact_number,
+                'guardian_name': student.guardian_name,
+                'guardian_contact': student.guardian_contact,
+                'is_active': student.is_active,
             })
+        
+        logger.info(f"✅ Returning {len(students_data)} students")
+        
+        # ✅ DEBUG: Log first student if available
+        if students_data:
+            logger.info(f"📌 Sample student: {students_data[0]}")
         
         return Response({
             'success': True,
             'students': students_data,
-            'count': len(students_data)
+            'total': len(students_data),
+            'filtered_by_school_year': school_year if school_year and school_year != 'all' else None,
         })
         
     except Exception as e:
+        logger.error(f"❌ Error fetching students: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return Response({
             'success': False,
-            'error': str(e),
-            'students': [],
-            'count': 0
+            'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-# Update counselor_student_violations (around line 1470):
 
 @csrf_exempt
 @api_view(['GET'])
