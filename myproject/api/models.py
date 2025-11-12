@@ -212,8 +212,8 @@ class ViolationType(models.Model):
     class Meta:
         ordering = ['category', 'name']
 
-class Report(models.Model):
-    """Enhanced Report model with verification and counseling tracking"""
+class StudentReport(models.Model):
+    """Reports submitted by students (self-reporting incidents they experienced or witnessed)"""
     REPORT_STATUS_CHOICES = [
         ('pending', 'Pending Review'),
         ('under_review', 'Under Review'),
@@ -224,14 +224,6 @@ class Report(models.Model):
         ('resolved', 'Resolved'),
         ('escalated', 'Escalated'),
     ]
-
-    REPORT_TYPE_CHOICES = [
-        ('incident', 'Incident Report'),
-        ('self_report', 'Self Report'),
-        ('teacher_report', 'Teacher Report'),
-        ('counselor_note', 'Counselor Note'),
-        ('peer_report', 'Peer Report'),
-    ]
     
     VERIFICATION_CHOICES = [
         ('pending', 'Pending Verification'),
@@ -241,13 +233,10 @@ class Report(models.Model):
 
     # Basic Information
     title = models.CharField(max_length=200)
-    content = models.TextField()
-    description = models.TextField(blank=True, null=True)
+    description = models.TextField()
     status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
-    report_type = models.CharField(max_length=20, choices=REPORT_TYPE_CHOICES, default='incident')
-    reporter_type = models.CharField(max_length=50, blank=True, null=True)
     
-    # ✅ NEW: Verification status
+    # ✅ Verification status
     verification_status = models.CharField(
         max_length=20, 
         choices=VERIFICATION_CHOICES, 
@@ -255,10 +244,26 @@ class Report(models.Model):
         help_text="Status of case verification through counseling"
     )
     
-    # Related Users
-    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reports', null=True, blank=True)
-    student_name = models.CharField(max_length=255, blank=True, null=True)
-    reported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='submitted_reports')
+    # ✅ Reporter (the student who submitted the report)
+    reporter_student = models.ForeignKey(
+        Student, 
+        on_delete=models.CASCADE, 
+        related_name='submitted_reports',
+        help_text="Student who submitted this report"
+    )
+    
+    # ✅ Reported student (if reporting another student's violation)
+    # Can be null if reporting their own incident
+    reported_student = models.ForeignKey(
+        Student, 
+        on_delete=models.CASCADE, 
+        related_name='received_reports',
+        null=True,
+        blank=True,
+        help_text="Student being reported (leave blank if self-reporting)"
+    )
+    
+    # Assigned counselor
     assigned_counselor = models.ForeignKey(Counselor, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Violation Details
@@ -271,43 +276,50 @@ class Report(models.Model):
         ('critical', 'Critical'),
     ], default='medium')
     
-    # ✅ NEW: Counseling session fields
-    requires_counseling = models.BooleanField(
-        default=True,
-        help_text="Can be toggled by counselor for minor cases"
-    )
+    # ✅ Counseling session fields
+    requires_counseling = models.BooleanField(default=True)
     counseling_date = models.DateTimeField(null=True, blank=True)
     counseling_notes = models.TextField(blank=True)
     counseling_completed = models.BooleanField(default=False)
     
-    # ✅ NEW: Summons tracking
+    # ✅ Summons tracking - only for students involved
     summons_sent_at = models.DateTimeField(null=True, blank=True)
-    summons_sent_to_reporter = models.BooleanField(default=False)
-    summons_sent_to_student = models.BooleanField(default=False)
+    summons_sent_to_reporter = models.BooleanField(
+        default=False,
+        help_text="Summons sent to the student who reported"
+    )
+    summons_sent_to_reported = models.BooleanField(
+        default=False,
+        help_text="Summons sent to the student being reported"
+    )
     
-    # ✅ NEW: Verification details
+    # ✅ Verification details
     verified_by = models.ForeignKey(
         User, 
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True, 
-        related_name='verified_reports',
-        help_text="Counselor who verified the case"
+        related_name='verified_student_reports'
     )
     verified_at = models.DateTimeField(null=True, blank=True)
-    verification_notes = models.TextField(
-        blank=True,
-        help_text="Counselor's notes after verification session"
-    )
-
-    # ✅ NEW: Counselor's follow-up notes
-    counselor_notes = models.TextField(blank=True, null=True, help_text="Notes from counselor about this report")
+    verification_notes = models.TextField(blank=True)
+    
+    # Counselor's notes
+    counselor_notes = models.TextField(blank=True, null=True)
     
     # Timestamps
     incident_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    
+    # ✅ School year tracking
+    school_year = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True,
+        help_text="School year when report was submitted (e.g., 2024-2025)"
+    )
     
     # Context Information
     location = models.CharField(max_length=200, blank=True, null=True)
@@ -319,55 +331,163 @@ class Report(models.Model):
     # Review tracking
     is_reviewed = models.BooleanField(default=False)
     reviewed_at = models.DateTimeField(null=True, blank=True)
-    
-    # Academic context for SHS students
-    subject_involved = models.CharField(max_length=100, blank=True, null=True,
-                                       help_text="Subject/course related to the incident")
-    academic_impact = models.TextField(blank=True, null=True,
-                                      help_text="Impact on academic performance")
 
-    def is_critical_case(self):
-        """Check if this is a critical severity case"""
-        return self.severity == 'critical'
-    
-    def should_require_counseling(self):
-        """Determine if counseling is required based on severity"""
-        # Critical cases always require counseling unless counselor explicitly skips
-        if self.severity == 'critical':
-            return True
-        # High severity cases require counseling
-        if self.severity == 'high':
-            return True
-        # Medium cases - counselor can decide
-        if self.severity == 'medium':
-            return self.requires_counseling
-        # Low cases - optional
-        return False
+    def is_self_report(self):
+        """Check if this is a self-report"""
+        return self.reported_student is None or self.reporter_student == self.reported_student
 
     def get_violation_name(self):
-        """Get the violation name (either from type or custom)"""
+        """Get the violation name"""
         if self.violation_type:
             return self.violation_type.name
         return self.custom_violation or self.title
 
-    def get_days_open(self):
-        """Calculate how many days the report has been open"""
-        from django.utils import timezone
-        if self.resolved_at:
-            return (self.resolved_at - self.created_at).days
-        return (timezone.now() - self.created_at).days
-
-    def get_student_grade_info(self):
-        """Get formatted student grade and strand info"""
-        if self.student:
-            return self.student.get_full_grade_section()
-        return "N/A"
-
     def __str__(self):
-        student_display = self.student_name if self.student_name else (self.student.user.username if self.student else "Unknown")
-        return f"{self.get_violation_name()} - {student_display}"
+        if self.is_self_report():
+            return f"Self-Report: {self.get_violation_name()} by {self.reporter_student.user.username}"
+        return f"{self.get_violation_name()} - {self.reporter_student.user.username} reported {self.reported_student.user.username}"
 
     class Meta:
+        db_table = 'student_reports'
+        ordering = ['-created_at']
+
+
+class TeacherReport(models.Model):
+    """Reports submitted by teachers about student violations"""
+    REPORT_STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('under_review', 'Under Review'),
+        ('under_investigation', 'Under Investigation'),
+        ('summons_sent', 'Summons Sent - Awaiting Counseling'),
+        ('verified', 'Verified - Case Confirmed'),
+        ('dismissed', 'Dismissed - Case Not Verified'),
+        ('resolved', 'Resolved'),
+        ('escalated', 'Escalated'),
+    ]
+    
+    VERIFICATION_CHOICES = [
+        ('pending', 'Pending Verification'),
+        ('verified', 'Verified'),
+        ('dismissed', 'Not Verified/Dismissed'),
+    ]
+
+    # Basic Information
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
+    
+    # ✅ Verification status
+    verification_status = models.CharField(
+        max_length=20, 
+        choices=VERIFICATION_CHOICES, 
+        default='pending'
+    )
+    
+    # ✅ Reporter (the teacher who submitted the report)
+    reporter_teacher = models.ForeignKey(
+        Teacher, 
+        on_delete=models.CASCADE, 
+        related_name='submitted_reports',
+        help_text="Teacher who submitted this report"
+    )
+    
+    # ✅ Reported student
+    reported_student = models.ForeignKey(
+        Student, 
+        on_delete=models.CASCADE, 
+        related_name='teacher_reports',
+        help_text="Student being reported by teacher"
+    )
+    
+    # Assigned counselor
+    assigned_counselor = models.ForeignKey(Counselor, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    # Violation Details
+    violation_type = models.ForeignKey(ViolationType, on_delete=models.SET_NULL, null=True, blank=True)
+    custom_violation = models.CharField(max_length=200, blank=True, null=True)
+    severity = models.CharField(max_length=20, choices=[
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ], default='medium')
+    
+    # ✅ Counseling session fields
+    requires_counseling = models.BooleanField(default=True)
+    counseling_date = models.DateTimeField(null=True, blank=True)
+    counseling_notes = models.TextField(blank=True)
+    counseling_completed = models.BooleanField(default=False)
+    
+    # ✅ Summons tracking - only for reported student
+    # (Teacher is not summoned, only the student)
+    summons_sent_at = models.DateTimeField(null=True, blank=True)
+    summons_sent_to_student = models.BooleanField(
+        default=False,
+        help_text="Summons sent to the reported student"
+    )
+    teacher_notified = models.BooleanField(
+        default=False,
+        help_text="Teacher notified about counseling session"
+    )
+    
+    # ✅ Verification details
+    verified_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='verified_teacher_reports'
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_notes = models.TextField(blank=True)
+    
+    # Counselor's notes
+    counselor_notes = models.TextField(blank=True, null=True)
+    
+    # Timestamps
+    incident_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    
+    # ✅ School year tracking
+    school_year = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True,
+        help_text="School year when report was submitted"
+    )
+    
+    # Context Information
+    location = models.CharField(max_length=200, blank=True, null=True)
+    witnesses = models.TextField(blank=True, null=True)
+    follow_up_required = models.BooleanField(default=False)
+    parent_notified = models.BooleanField(default=False)
+    disciplinary_action = models.TextField(blank=True, null=True)
+    
+    # Academic context
+    subject_involved = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True,
+        help_text="Subject/course where incident occurred"
+    )
+    
+    # Review tracking
+    is_reviewed = models.BooleanField(default=False)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def get_violation_name(self):
+        """Get the violation name"""
+        if self.violation_type:
+            return self.violation_type.name
+        return self.custom_violation or self.title
+
+    def __str__(self):
+        return f"{self.get_violation_name()} - {self.reporter_teacher.user.username} reported {self.reported_student.user.username}"
+
+    class Meta:
+        db_table = 'teacher_reports'
         ordering = ['-created_at']
 
 
@@ -382,27 +502,61 @@ class CounselingSession(models.Model):
         ('rescheduled', 'Rescheduled'),
     ]
     
-    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='counseling_sessions')
+    # ✅ Generic relation to either StudentReport or TeacherReport
+    student_report = models.ForeignKey(
+        StudentReport, 
+        on_delete=models.CASCADE, 
+        related_name='counseling_sessions',
+        null=True,
+        blank=True
+    )
+    teacher_report = models.ForeignKey(
+        TeacherReport, 
+        on_delete=models.CASCADE, 
+        related_name='counseling_sessions',
+        null=True,
+        blank=True
+    )
+    
     counselor = models.ForeignKey(Counselor, on_delete=models.CASCADE)
-    student = models.ForeignKey(Student, on_delete=models.CASCADE)
-    reporter = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='counseling_as_reporter')
+    
+    # ✅ Students involved (can be 1 or 2)
+    reporter_student = models.ForeignKey(
+        Student, 
+        on_delete=models.CASCADE,
+        related_name='counseling_as_reporter',
+        null=True,
+        blank=True,
+        help_text="Student who reported (if student report)"
+    )
+    reported_student = models.ForeignKey(
+        Student, 
+        on_delete=models.CASCADE,
+        related_name='counseling_as_reported',
+        null=True,
+        blank=True,
+        help_text="Student being counseled/reported"
+    )
     
     scheduled_date = models.DateTimeField()
     actual_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
     
     # Attendance tracking
-    student_attended = models.BooleanField(default=False)
-    reporter_attended = models.BooleanField(default=False)
-    
-    # Session notes and outcome
-    session_notes = models.TextField(blank=True, help_text="Detailed notes from the counseling session")
-    case_verified = models.BooleanField(
+    reporter_attended = models.BooleanField(
         default=False,
-        help_text="True if case is confirmed, False if dismissed"
+        help_text="Did the reporter student attend?"
+    )
+    reported_attended = models.BooleanField(
+        default=False,
+        help_text="Did the reported student attend?"
     )
     
-    # Notifications sent
+    # Session notes and outcome
+    session_notes = models.TextField(blank=True)
+    case_verified = models.BooleanField(default=False)
+    
+    # Notifications
     summons_sent = models.BooleanField(default=False)
     reminder_sent = models.BooleanField(default=False)
     
@@ -414,58 +568,47 @@ class CounselingSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    def get_report(self):
+        """Get the associated report"""
+        return self.student_report or self.teacher_report
+    
+    def is_student_report(self):
+        """Check if this is for a student report"""
+        return self.student_report is not None
+    
     class Meta:
         ordering = ['-scheduled_date']
         verbose_name = 'Counseling Session'
         verbose_name_plural = 'Counseling Sessions'
     
     def __str__(self):
-        status_icon = {
-            'scheduled': '📅',
-            'completed': '✅',
-            'cancelled': '❌',
-            'no_show': '⚠️',
-            'rescheduled': '🔄'
-        }.get(self.status, '📋')
-        
-        return f"{status_icon} {self.report.title} - {self.scheduled_date.strftime('%Y-%m-%d %H:%M')}"
+        report = self.get_report()
+        report_type = "Student Report" if self.is_student_report() else "Teacher Report"
+        return f"{report_type}: {report.title} - {self.scheduled_date.strftime('%Y-%m-%d %H:%M')}"
 
 class ViolationHistory(models.Model):
     """Track violation patterns for individual students"""
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='violation_history')
-    report = models.OneToOneField(Report, on_delete=models.CASCADE)
+    
+    # ✅ Can be linked to either type of report
+    student_report = models.OneToOneField(StudentReport, on_delete=models.CASCADE, null=True, blank=True)
+    teacher_report = models.OneToOneField(TeacherReport, on_delete=models.CASCADE, null=True, blank=True)
+    
     violation_count = models.IntegerField(default=1)
     is_repeat_offense = models.BooleanField(default=False)
     previous_violation_date = models.DateTimeField(null=True, blank=True)
     
-    # NEW: Track violations across different academic levels
     violations_in_current_grade = models.IntegerField(default=1)
-    violations_in_strand = models.IntegerField(default=0,
-                                             help_text="For SHS students - violations within the same strand")
+    violations_in_strand = models.IntegerField(default=0)
     
     created_at = models.DateTimeField(auto_now_add=True)
-
-    def update_violation_counts(self):
-        """Update violation counts for this student"""
-        # Count violations in current grade
-        current_grade_violations = ViolationHistory.objects.filter(
-            student=self.student,
-            report__student__grade_level=self.student.grade_level
-        ).count()
-        self.violations_in_current_grade = current_grade_violations
-        
-        # Count violations in current strand (for SHS students)
-        if self.student.strand:
-            strand_violations = ViolationHistory.objects.filter(
-                student=self.student,
-                report__student__strand=self.student.strand
-            ).count()
-            self.violations_in_strand = strand_violations
-        
-        self.save()
+    
+    def get_report(self):
+        """Get the associated report"""
+        return self.student_report or self.teacher_report
 
     class Meta:
-        unique_together = ['student', 'report']
+        db_table = 'violation_history'
 
 class CounselorAction(models.Model):
     """Track counselor actions and interventions"""
@@ -485,35 +628,58 @@ class CounselorAction(models.Model):
         ('behavioral_contract', 'Behavioral Contract'),
     ]
 
-    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='counselor_actions')
+    # ✅ Can be linked to either type of report
+    student_report = models.ForeignKey(
+        StudentReport, 
+        on_delete=models.CASCADE, 
+        related_name='counselor_actions',
+        null=True,
+        blank=True
+    )
+    teacher_report = models.ForeignKey(
+        TeacherReport, 
+        on_delete=models.CASCADE, 
+        related_name='counselor_actions',
+        null=True,
+        blank=True
+    )
+    
     counselor = models.ForeignKey(Counselor, on_delete=models.CASCADE)
     action_type = models.CharField(max_length=50, choices=ACTION_CHOICES)
     description = models.TextField()
     scheduled_date = models.DateTimeField(null=True, blank=True)
     completed_date = models.DateTimeField(null=True, blank=True)
     is_completed = models.BooleanField(default=False)
-    effectiveness_rating = models.IntegerField(null=True, blank=True, 
-                                             help_text="Rate effectiveness 1-5")
+    effectiveness_rating = models.IntegerField(null=True, blank=True)
     
-    # NEW: Additional context for SHS students
     involves_academic_performance = models.BooleanField(default=False)
     involves_career_guidance = models.BooleanField(default=False)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    def get_report(self):
+        """Get the associated report"""
+        return self.student_report or self.teacher_report
 
     def __str__(self):
-        return f"{self.action_type} for {self.report.student.user.username}"
+        report = self.get_report()
+        if report:
+            student = report.reported_student if hasattr(report, 'reported_student') else report.reporter_student
+            return f"{self.action_type} for {student.user.username}"
+        return f"{self.action_type}"
+    
+    class Meta:
+        db_table = 'counselor_actions'
 
 class Notification(models.Model):
     NOTIFICATION_TYPES = [
         ('system_alert', 'System Alert'),
         ('report_submitted', 'Report Submitted'),
         ('report_updated', 'Report Updated'),
+        ('summons', 'Counseling Summons'),
         ('reminder', 'Reminder'),
         ('announcement', 'Announcement'),
-        ('grade_promotion', 'Grade Promotion'),
-        ('strand_change', 'Strand Change'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
@@ -522,7 +688,22 @@ class Notification(models.Model):
     type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES, default='system_alert')
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
-    related_report = models.ForeignKey(Report, on_delete=models.CASCADE, null=True, blank=True)
+    
+    # ✅ Can be related to either report type
+    related_student_report = models.ForeignKey(
+        StudentReport, 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        related_name='notifications'
+    )
+    related_teacher_report = models.ForeignKey(
+        TeacherReport, 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        related_name='notifications'
+    )
     
     class Meta:
         ordering = ['-created_at']
@@ -530,15 +711,6 @@ class Notification(models.Model):
     
     def __str__(self):
         return f"{self.title} - {self.user.username}"
-    
-    # Backward compatibility properties
-    @property
-    def recipient(self):
-        return self.user
-    
-    @property
-    def notification_type(self):
-        return self.type
 
 class StudentSchoolYearHistory(models.Model):
     """Track student section changes across school years"""
@@ -570,7 +742,20 @@ class StudentViolationRecord(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='violation_records')
     violation_type = models.ForeignKey(ViolationType, on_delete=models.CASCADE)
     counselor = models.ForeignKey(Counselor, on_delete=models.CASCADE)
-    related_report = models.ForeignKey('Report', on_delete=models.CASCADE, blank=True, null=True)
+    related_student_report = models.ForeignKey(
+        StudentReport, 
+        on_delete=models.CASCADE, 
+        blank=True, 
+        null=True,
+        related_name='violation_records'
+    )
+    related_teacher_report = models.ForeignKey(
+        TeacherReport, 
+        on_delete=models.CASCADE, 
+        blank=True, 
+        null=True,
+        related_name='violation_records'
+    )
     
     incident_date = models.DateTimeField()
     description = models.TextField()

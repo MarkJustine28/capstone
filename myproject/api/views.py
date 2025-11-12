@@ -20,7 +20,7 @@ from django.db import models
 from datetime import datetime
 
 # Import your models (adjust these imports based on your actual models)
-from .models import Student, Teacher, Counselor, Report, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory
+from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory
 
 # Set up logging
 logger = logging.getLogger(__name__)

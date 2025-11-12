@@ -5,7 +5,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 from django.db.models import Count, Q
 from .models import (
-    Student, Teacher, Counselor, Report, ViolationType, 
+    Student, Teacher, Counselor, StudentReport, TeacherReport, ViolationType, 
     ViolationHistory, Notification
 )
 
@@ -23,7 +23,7 @@ class StudentInline(admin.StackedInline):
     verbose_name_plural = 'Student Profile'
     fk_name = 'user'
     extra = 0
-    fields = ['student_id', 'grade_level', 'section', 'strand', 'guardian_name', 'guardian_contact', 'contact_number']
+    fields = ['student_id', 'grade_level', 'section', 'strand', 'school_year', 'guardian_name', 'guardian_contact', 'contact_number']
 
 
 class TeacherInline(admin.StackedInline):
@@ -95,8 +95,8 @@ class CustomUserAdmin(BaseUserAdmin):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['student_id', 'full_name', 'grade_level', 'section', 'violation_count']
-    list_filter = ['grade_level', 'section']
+    list_display = ['student_id', 'full_name', 'grade_level', 'section', 'school_year', 'report_count']
+    list_filter = ['grade_level', 'section', 'school_year', 'strand']
     search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
     ordering = ['student_id']
     
@@ -105,14 +105,15 @@ class StudentAdmin(admin.ModelAdmin):
         return full if full else obj.user.username
     full_name.short_description = 'Full Name'
     
-    def violation_count(self, obj):
-        try:
-            tally = obj.violation_tally
-            count = tally.total_violations
-            return f"{count} (L:{tally.low_severity_count} M:{tally.medium_severity_count} H:{tally.high_severity_count} C:{tally.critical_severity_count})"
-        except:
-            return "0"
-    violation_count.short_description = 'Violations'
+    def report_count(self, obj):
+        # Count both student reports (as reporter and reported) and teacher reports
+        student_reports = StudentReport.objects.filter(
+            Q(reporter_student=obj) | Q(reported_student=obj)
+        ).count()
+        teacher_reports = TeacherReport.objects.filter(reported_student=obj).count()
+        total = student_reports + teacher_reports
+        return f"{total} (S:{student_reports}, T:{teacher_reports})"
+    report_count.short_description = 'Reports'
 
 
 # ============= TEACHER ADMIN =============
@@ -268,44 +269,171 @@ class CounselorAdmin(admin.ModelAdmin):
     full_name.short_description = 'Full Name'
     
     def reports_handled(self, obj):
-        count = Report.objects.filter(assigned_counselor=obj).count()
-        return count
+        student_reports = StudentReport.objects.filter(assigned_counselor=obj).count()
+        teacher_reports = TeacherReport.objects.filter(assigned_counselor=obj).count()
+        return f"{student_reports + teacher_reports} (S:{student_reports}, T:{teacher_reports})"
     reports_handled.short_description = 'Reports Handled'
 
 
-# ============= REPORT ADMIN =============
+# ============= STUDENT REPORT ADMIN =============
 
-@admin.register(Report)
-class ReportAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'student_name_display', 'reporter', 'report_type', 'status', 'created_at']
-    list_filter = ['report_type', 'status', 'created_at']
-    search_fields = ['title', 'content', 'student__user__first_name', 'student__user__last_name', 'student_name']
+@admin.register(StudentReport)
+class StudentReportAdmin(admin.ModelAdmin):
+    list_display = ['id', 'title', 'get_reporter', 'get_reported', 'status', 'verification_status', 'school_year', 'created_at']
+    list_filter = ['status', 'verification_status', 'severity', 'school_year', 'requires_counseling', 'created_at']
+    search_fields = ['title', 'description', 'reporter_student__user__first_name', 'reporter_student__user__last_name',
+                    'reported_student__user__first_name', 'reported_student__user__last_name']
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
-    actions = ['mark_as_reviewed', 'mark_as_resolved']
-    readonly_fields = ['created_at', 'updated_at']
+    actions = ['mark_as_reviewed', 'mark_as_resolved', 'send_summons']
+    readonly_fields = ['created_at', 'updated_at', 'summons_sent_at', 'verified_at', 'resolved_at']
     
-    def student_name_display(self, obj):
-        if obj.student:
-            return obj.student.user.get_full_name() or obj.student.user.username
-        return obj.student_name or 'N/A'
-    student_name_display.short_description = 'Student'
+    fieldsets = (
+        ('Report Information', {
+            'fields': ('title', 'description', 'status', 'verification_status')
+        }),
+        ('Students Involved', {
+            'fields': ('reporter_student', 'reported_student')
+        }),
+        ('Violation Details', {
+            'fields': ('violation_type', 'custom_violation', 'severity', 'school_year')
+        }),
+        ('Counseling', {
+            'fields': ('assigned_counselor', 'requires_counseling', 'counseling_date', 
+                      'counseling_notes', 'counseling_completed')
+        }),
+        ('Summons & Verification', {
+            'fields': ('summons_sent_at', 'summons_sent_to_reporter', 'summons_sent_to_reported',
+                      'verified_by', 'verified_at', 'verification_notes')
+        }),
+        ('Additional Details', {
+            'fields': ('location', 'witnesses', 'incident_date', 'counselor_notes',
+                      'follow_up_required', 'parent_notified', 'disciplinary_action'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at', 'resolved_at'),
+            'classes': ('collapse',)
+        }),
+    )
     
-    def reporter(self, obj):
-        if obj.reported_by:
-            return f"{obj.reported_by.get_full_name() or obj.reported_by.username}"
-        return 'Unknown'
-    reporter.short_description = 'Reported By'
+    def get_reporter(self, obj):
+        if obj.reporter_student:
+            return obj.reporter_student.user.get_full_name() or obj.reporter_student.user.username
+        return 'N/A'
+    get_reporter.short_description = 'Reporter'
+    
+    def get_reported(self, obj):
+        if obj.reported_student:
+            return obj.reported_student.user.get_full_name() or obj.reported_student.user.username
+        return 'Self-Report'
+    get_reported.short_description = 'Reported Student'
     
     def mark_as_reviewed(self, request, queryset):
-        updated = queryset.update(status='reviewed', is_reviewed=True)
+        updated = queryset.update(status='under_review', is_reviewed=True)
         self.message_user(request, f'{updated} report(s) marked as reviewed.')
     mark_as_reviewed.short_description = "Mark as Reviewed"
     
     def mark_as_resolved(self, request, queryset):
-        updated = queryset.update(status='resolved')
+        from django.utils import timezone
+        updated = queryset.update(status='resolved', resolved_at=timezone.now())
         self.message_user(request, f'{updated} report(s) marked as resolved.')
     mark_as_resolved.short_description = "Mark as Resolved"
+    
+    def send_summons(self, request, queryset):
+        from django.utils import timezone
+        updated = 0
+        for report in queryset:
+            if not report.summons_sent_at:
+                report.summons_sent_at = timezone.now()
+                report.summons_sent_to_reporter = True
+                if report.reported_student:
+                    report.summons_sent_to_reported = True
+                report.status = 'summons_sent'
+                report.save()
+                updated += 1
+        self.message_user(request, f'{updated} summons sent.')
+    send_summons.short_description = "Send Summons"
+
+
+# ============= TEACHER REPORT ADMIN =============
+
+@admin.register(TeacherReport)
+class TeacherReportAdmin(admin.ModelAdmin):
+    list_display = ['id', 'title', 'get_teacher', 'get_student', 'status', 'verification_status', 'school_year', 'created_at']
+    list_filter = ['status', 'verification_status', 'severity', 'school_year', 'requires_counseling', 'created_at']
+    search_fields = ['title', 'description', 'reporter_teacher__user__first_name', 'reporter_teacher__user__last_name',
+                    'reported_student__user__first_name', 'reported_student__user__last_name']
+    date_hierarchy = 'created_at'
+    ordering = ['-created_at']
+    actions = ['mark_as_reviewed', 'mark_as_resolved', 'send_summons_to_student']
+    readonly_fields = ['created_at', 'updated_at', 'summons_sent_at', 'verified_at', 'resolved_at']
+    
+    fieldsets = (
+        ('Report Information', {
+            'fields': ('title', 'description', 'status', 'verification_status')
+        }),
+        ('Reporter & Student', {
+            'fields': ('reporter_teacher', 'reported_student', 'subject_involved')
+        }),
+        ('Violation Details', {
+            'fields': ('violation_type', 'custom_violation', 'severity', 'school_year')
+        }),
+        ('Counseling', {
+            'fields': ('assigned_counselor', 'requires_counseling', 'counseling_date',
+                      'counseling_notes', 'counseling_completed')
+        }),
+        ('Notifications', {
+            'fields': ('summons_sent_at', 'summons_sent_to_student', 'teacher_notified',
+                      'verified_by', 'verified_at', 'verification_notes')
+        }),
+        ('Additional Details', {
+            'fields': ('location', 'witnesses', 'incident_date', 'counselor_notes',
+                      'follow_up_required', 'parent_notified', 'disciplinary_action'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at', 'resolved_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_teacher(self, obj):
+        if obj.reporter_teacher:
+            return obj.reporter_teacher.user.get_full_name() or obj.reporter_teacher.user.username
+        return 'N/A'
+    get_teacher.short_description = 'Reporting Teacher'
+    
+    def get_student(self, obj):
+        if obj.reported_student:
+            return obj.reported_student.user.get_full_name() or obj.reported_student.user.username
+        return 'N/A'
+    get_student.short_description = 'Student'
+    
+    def mark_as_reviewed(self, request, queryset):
+        updated = queryset.update(status='under_review', is_reviewed=True)
+        self.message_user(request, f'{updated} report(s) marked as reviewed.')
+    mark_as_reviewed.short_description = "Mark as Reviewed"
+    
+    def mark_as_resolved(self, request, queryset):
+        from django.utils import timezone
+        updated = queryset.update(status='resolved', resolved_at=timezone.now())
+        self.message_user(request, f'{updated} report(s) marked as resolved.')
+    mark_as_resolved.short_description = "Mark as Resolved"
+    
+    def send_summons_to_student(self, request, queryset):
+        from django.utils import timezone
+        updated = 0
+        for report in queryset:
+            if not report.summons_sent_at:
+                report.summons_sent_at = timezone.now()
+                report.summons_sent_to_student = True
+                report.teacher_notified = True
+                report.status = 'summons_sent'
+                report.save()
+                updated += 1
+        self.message_user(request, f'{updated} summons sent to students.')
+    send_summons_to_student.short_description = "Send Summons to Student"
 
 
 # ============= VIOLATION TYPE ADMIN =============
@@ -333,9 +461,9 @@ class ViolationTypeAdmin(admin.ModelAdmin):
 
 @admin.register(ViolationHistory)
 class ViolationHistoryAdmin(admin.ModelAdmin):
-    list_display = ['id', 'student_name_display', 'violation_type_name', 'severity', 'recorded_by_name', 'created_at']
+    list_display = ['id', 'student_name_display', 'get_report_type', 'created_at']
     list_filter = ['created_at']
-    search_fields = ['student__user__first_name', 'student__user__last_name', 'student__student_id', 'notes']
+    search_fields = ['student__user__first_name', 'student__user__last_name', 'student__student_id']
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
     readonly_fields = ['created_at']
@@ -344,17 +472,13 @@ class ViolationHistoryAdmin(admin.ModelAdmin):
         return obj.student.user.get_full_name() or obj.student.user.username
     student_name_display.short_description = 'Student'
     
-    def violation_type_name(self, obj):
-        return obj.violation_type.name if obj.violation_type else 'N/A'
-    violation_type_name.short_description = 'Violation Type'
-    
-    def recorded_by_name(self, obj):
-        return f"{obj.recorded_by.get_full_name() or obj.recorded_by.username}"
-    recorded_by_name.short_description = 'Recorded By'
-    
-    def severity(self, obj):
-        return obj.violation_type.severity_level.upper() if obj.violation_type else 'MEDIUM'
-    severity.short_description = 'Severity'
+    def get_report_type(self, obj):
+        if obj.student_report:
+            return f'Student Report #{obj.student_report.id}'
+        elif obj.teacher_report:
+            return f'Teacher Report #{obj.teacher_report.id}'
+        return 'N/A'
+    get_report_type.short_description = 'Related Report'
 
 
 # ============= NOTIFICATION ADMIN =============
