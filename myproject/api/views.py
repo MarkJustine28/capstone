@@ -4421,3 +4421,51 @@ def get_promotion_preview(request):
             'success': False,
             'error': str(e)
         }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_profile(request):
+    """Get student profile information"""
+    try:
+        if not hasattr(request.user, 'student'):
+            return Response({
+                'success': False,
+                'error': 'Not a student account'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        student = request.user.student
+        
+        profile_data = {
+            'id': student.id,
+            'student_id': student.student_id,
+            'user_id': request.user.id,
+            'username': request.user.username,
+            'email': request.user.email,
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'grade_level': student.grade_level,  # ✅ Make sure this is included
+            'section': student.section,           # ✅ Make sure this is included
+            'strand': student.strand if student.strand else '',  # ✅ Add strand
+            'school_year': student.school_year,
+            'contact_number': student.contact_number if student.contact_number else '',
+            'guardian_name': student.guardian_name if student.guardian_name else '',
+            'guardian_contact': student.guardian_contact if student.guardian_contact else '',
+            'is_active': student.is_active,
+        }
+        
+        logger.info(f"✅ Student profile retrieved: {student.student_id} - Grade {student.grade_level} {student.section}")
+        logger.info(f"📊 Profile data: {profile_data}")
+        
+        return Response({
+            'success': True,
+            'student': profile_data
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching student profile: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
