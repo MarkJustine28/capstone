@@ -108,4 +108,8 @@ urlpatterns = [
     # Counseling Notifications
     path('send-counseling-notification/', views.send_counseling_notification, name='send_counseling_notification'),
     path('send-bulk-notifications/', views.send_bulk_notifications, name='send_bulk_notifications'),
+
+    path('counselor/promotion-preview/', views.get_promotion_preview, name='promotion_preview'),
+    path('counselor/promote-students/', views.promote_students, name='promote_students'),
+    path('counselor/bulk-promote-grade/', views.bulk_promote_grade, name='bulk_promote_grade'),
 ]

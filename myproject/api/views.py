@@ -4137,3 +4137,259 @@ def get_counselor_dashboard_stats(request):
             'success': False,
             'error': str(e)
         }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def promote_students(request):
+    """
+    Promote students to next grade level and school year
+    Counselor can choose which students to promote or retain
+    """
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can promote students'
+            }, status=403)
+        
+        # Get promotion data
+        student_promotions = request.data.get('promotions', [])
+        new_school_year = request.data.get('new_school_year')
+        
+        if not new_school_year:
+            return Response({
+                'success': False,
+                'error': 'New school year is required'
+            }, status=400)
+        
+        promoted_students = []
+        retained_students = []
+        graduated_students = []
+        errors = []
+        
+        for promotion in student_promotions:
+            student_id = promotion.get('student_id')
+            action = promotion.get('action')  # 'promote', 'retain', 'graduate'
+            new_grade = promotion.get('new_grade')
+            new_section = promotion.get('new_section')
+            
+            try:
+                student = Student.objects.get(id=student_id)
+                
+                # Archive current data to history
+                StudentSchoolYearHistory.objects.create(
+                    student=student,
+                    school_year=student.school_year,
+                    grade_level=student.grade_level,
+                    section=student.section,
+                )
+                
+                if action == 'promote':
+                    # Promote to next grade
+                    old_grade = student.grade_level
+                    student.grade_level = new_grade
+                    student.section = new_section
+                    student.school_year = new_school_year
+                    student.save()
+                    
+                    promoted_students.append({
+                        'id': student.id,
+                        'name': student.user.get_full_name(),
+                        'old_grade': old_grade,
+                        'new_grade': new_grade,
+                        'new_section': new_section,
+                    })
+                    
+                    logger.info(f"✅ Promoted: {student.user.get_full_name()} from Grade {old_grade} to Grade {new_grade}")
+                    
+                elif action == 'retain':
+                    # Keep same grade, update school year
+                    student.school_year = new_school_year
+                    if new_section:
+                        student.section = new_section
+                    student.save()
+                    
+                    retained_students.append({
+                        'id': student.id,
+                        'name': student.user.get_full_name(),
+                        'grade_level': student.grade_level,
+                        'new_section': new_section,
+                    })
+                    
+                    logger.info(f"🔄 Retained: {student.user.get_full_name()} in Grade {student.grade_level}")
+                    
+                elif action == 'graduate':
+                    # Mark as graduated
+                    student.school_year = f"{new_school_year} - GRADUATED"
+                    student.is_active = False
+                    student.save()
+                    
+                    graduated_students.append({
+                        'id': student.id,
+                        'name': student.user.get_full_name(),
+                    })
+                    
+                    logger.info(f"🎓 Graduated: {student.user.get_full_name()}")
+                
+            except Student.DoesNotExist:
+                errors.append(f"Student with ID {student_id} not found")
+            except Exception as e:
+                errors.append(f"Error processing student {student_id}: {str(e)}")
+        
+        return Response({
+            'success': True,
+            'promoted': promoted_students,
+            'retained': retained_students,
+            'graduated': graduated_students,
+            'errors': errors,
+            'total_processed': len(promoted_students) + len(retained_students) + len(graduated_students),
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error promoting students: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def bulk_promote_grade(request):
+    """
+    Bulk promote all students in a specific grade level
+    """
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can promote students'
+            }, status=403)
+        
+        current_grade = request.data.get('current_grade')
+        current_school_year = request.data.get('current_school_year')
+        new_school_year = request.data.get('new_school_year')
+        exclude_student_ids = request.data.get('exclude_students', [])  # Students to retain
+        
+        # Get students to promote
+        students_to_promote = Student.objects.filter(
+            grade_level=current_grade,
+            school_year=current_school_year,
+            is_active=True
+        ).exclude(id__in=exclude_student_ids)
+        
+        promoted_count = 0
+        next_grade = str(int(current_grade) + 1) if current_grade.isdigit() and int(current_grade) < 12 else current_grade
+        
+        for student in students_to_promote:
+            # Archive to history
+            StudentSchoolYearHistory.objects.create(
+                student=student,
+                school_year=student.school_year,
+                grade_level=student.grade_level,
+                section=student.section,
+            )
+            
+            # Promote
+            if int(current_grade) < 12:
+                student.grade_level = next_grade
+                student.school_year = new_school_year
+                student.save()
+                promoted_count += 1
+            elif int(current_grade) == 12:
+                # Graduate
+                student.school_year = f"{new_school_year} - GRADUATED"
+                student.is_active = False
+                student.save()
+                promoted_count += 1
+        
+        return Response({
+            'success': True,
+            'promoted_count': promoted_count,
+            'message': f'Successfully promoted {promoted_count} students from Grade {current_grade}'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in bulk promotion: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_promotion_preview(request):
+    """
+    Get preview of students eligible for promotion
+    Shows current grade distribution and suggested promotions
+    """
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can view promotion preview'
+            }, status=403)
+        
+        current_school_year = request.GET.get('school_year')
+        
+        if not current_school_year:
+            return Response({
+                'success': False,
+                'error': 'School year is required'
+            }, status=400)
+        
+        # Get students by grade level
+        students_by_grade = {}
+        
+        for grade in range(7, 13):  # Grades 7-12
+            grade_str = str(grade)
+            students = Student.objects.filter(
+                grade_level=grade_str,
+                school_year=current_school_year,
+                is_active=True
+            ).select_related('user')
+            
+            students_data = []
+            for student in students:
+                # Get violation count for this year
+                violation_count = StudentViolationRecord.objects.filter(
+                    student=student,
+                    school_year=current_school_year
+                ).count()
+                
+                # Suggest action based on violations
+                suggested_action = 'promote'
+                if violation_count >= 10:  # High violations
+                    suggested_action = 'review'  # Needs manual review
+                elif grade == 12:
+                    suggested_action = 'graduate'
+                
+                students_data.append({
+                    'id': student.id,
+                    'student_id': student.student_id,
+                    'name': student.user.get_full_name(),
+                    'current_grade': grade_str,
+                    'current_section': student.section,
+                    'violation_count': violation_count,
+                    'suggested_action': suggested_action,
+                    'next_grade': str(grade + 1) if grade < 12 else 'Graduate',
+                })
+            
+            students_by_grade[grade_str] = students_data
+        
+        return Response({
+            'success': True,
+            'current_school_year': current_school_year,
+            'students_by_grade': students_by_grade,
+            'total_students': sum(len(s) for s in students_by_grade.values()),
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting promotion preview: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
