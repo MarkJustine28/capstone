@@ -2312,30 +2312,7 @@ def counselor_student_reports(request):
             'count': 0
         }, status=500)
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def counselor_students_list(request):
-    """
-    Get list of all students with optional filtering
-    Used by counselors to view student records
-    """
-    try:
-        # Verify user is a counselor
-        if not hasattr(request.user, 'counselor_profile'):
-            return Response({
-                'success': False,
-                'error': 'Only counselors can access this endpoint'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Get school year parameter (optional)
-        school_year = request.GET.get('school_year', None)
-        
-        logger.info(f"📊 Fetching students list, school_year parameter: {school_year}")
-        
-        # ✅ FIX: Remove is_active filter (field doesn't exist in Student model)
-        # Base query - get all students with their user data
-        students_query = Student.objects.select_related('user').order_by(
-            'grade_level', 'section', 'user__last_name', 'user__first_name'
+  'grade_level', 'section', 'user__last_name', 'user__first_name'
         )
         
         # Filter by school year if provided
@@ -2347,7 +2324,7 @@ def counselor_students_list(request):
         students_data = []
         for student in students_query:
             # Get violation count for this student
-            violation_count = ViolationHistory.objects.filter(
+            violation_count = StudentViolationRecord.objects.filter(
                 student=student,
                 school_year=student.school_year
             ).count()
@@ -2389,7 +2366,7 @@ def counselor_students_list(request):
             'success': False,
             'error': f'Failed to fetch students: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
 @csrf_exempt
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
