@@ -211,110 +211,166 @@ String _getErrorMessage(dynamic error) {
 Widget build(BuildContext context) {
   return Consumer<CounselorProvider>(
     builder: (context, provider, child) {
-      // Use the correct data source
-      final reports = provider.counselorStudentReports.isNotEmpty 
+      // ✅ FIX: Apply school year filtering to reports
+      final allReports = provider.counselorStudentReports.isNotEmpty 
           ? provider.counselorStudentReports 
           : provider.studentReports;
+      
+      // ✅ Filter reports by selected school year
+      final reports = provider.selectedSchoolYear == 'all'
+          ? allReports
+          : allReports.where((report) {
+              // Try multiple fields to get school year
+              final reportSchoolYear = report['school_year']?.toString() ?? 
+                                      report['reported_student']?['school_year']?.toString() ?? 
+                                      report['student']?['school_year']?.toString() ?? '';
+              
+              debugPrint('🔍 Report #${report['id']}: school_year="$reportSchoolYear", filter="${provider.selectedSchoolYear}"');
+              
+              return reportSchoolYear == provider.selectedSchoolYear;
+            }).toList();
+      
       final isLoading = provider.isLoadingCounselorStudentReports || provider.isLoading;
 
+      debugPrint('📊 Student Reports Page:');
+      debugPrint('   - Total reports: ${allReports.length}');
+      debugPrint('   - Filtered reports: ${reports.length}');
+      debugPrint('   - Selected S.Y.: ${provider.selectedSchoolYear}');
+
       return Scaffold(
-          // Use AppBar instead of custom container for proper system padding
-          appBar: AppBar(
-            automaticallyImplyLeading: false, // Hide back button since we're in a tab
-            backgroundColor: Colors.blue.shade700,
-            foregroundColor: Colors.white,
-            elevation: 4,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Student Reports',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '${reports.length} reports • S.Y. ${provider.selectedSchoolYear}', // ✅ Show school year
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              // Filter Button
-              IconButton(
-                icon: const Icon(Icons.filter_list, color: Colors.white),
-                onPressed: () => _showFilterDialog(),
-                tooltip: 'Filter Reports',
-              ),
-              // Refresh Button
-              IconButton(
-                icon: isLoading 
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Icon(Icons.refresh, color: Colors.white),
-                onPressed: isLoading ? null : () => _fetchReports(),
-                tooltip: 'Refresh',
-              ),
-              // Export Button
-              IconButton(
-                icon: const Icon(Icons.download, color: Colors.white),
-                onPressed: () => _exportReports(),
-                tooltip: 'Export Reports',
-              ),
-              const SizedBox(width: 8), // Add some padding from the edge
-            ],
-          ),
-          body: Column(
+        // Use AppBar instead of custom container for proper system padding
+        appBar: AppBar(
+          automaticallyImplyLeading: false, // Hide back button since we're in a tab
+          backgroundColor: Colors.blue.shade700,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ✅ NEW: School Year Banner
-              const SchoolYearBanner(),
-              
-              // Main content
-              Expanded(
-                child: isLoading && reports.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text("Loading student reports..."),
-                          ],
-                        ),
-                      )
-                    : reports.isEmpty
-                        ? _buildEmptyState(provider.selectedSchoolYear) // ✅ Pass school year
-                        : RefreshIndicator(
-                            onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
-                            child: ListView.builder(
-                              padding: const EdgeInsets.all(8),
-                              itemCount: reports.length,
-                              itemBuilder: (context, index) {
-                                final report = reports[index];
-                                final isLoading = _loadingReports.contains(index);
-                                
-                                return _buildReportCard(report, index, isLoading);
-                              },
-                            ),
-                          ),
+              const Text(
+                'Student Reports',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                '${reports.length} reports • S.Y. ${provider.selectedSchoolYear}', // ✅ Show filtered count
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
-        );
-      },
-    );
-  }
+          actions: [
+            // Filter Button
+            IconButton(
+              icon: const Icon(Icons.filter_list, color: Colors.white),
+              onPressed: () => _showFilterDialog(),
+              tooltip: 'Filter Reports',
+            ),
+            // Refresh Button
+            IconButton(
+              icon: isLoading 
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.refresh, color: Colors.white),
+              onPressed: isLoading ? null : () => _fetchReports(),
+              tooltip: 'Refresh',
+            ),
+            // Export Button
+            IconButton(
+              icon: const Icon(Icons.download, color: Colors.white),
+              onPressed: () => _exportReports(),
+              tooltip: 'Export Reports',
+            ),
+            const SizedBox(width: 8), // Add some padding from the edge
+          ],
+        ),
+        body: Column(
+          children: [
+            // ✅ School Year Banner
+            const SchoolYearBanner(),
+            
+            // ✅ Show filter info if not viewing all years
+            if (provider.selectedSchoolYear != 'all')
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Colors.blue.shade50,
+                child: Row(
+                  children: [
+                    Icon(Icons.filter_list, size: 16, color: Colors.blue.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Showing reports for S.Y. ${provider.selectedSchoolYear} only (${reports.length} of ${allReports.length} total)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        provider.setSelectedSchoolYear('all');
+                        _fetchReports();
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: const Size(0, 0),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('Show All', style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                ),
+              ),
+            
+            // Main content
+            Expanded(
+              child: isLoading && reports.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 16),
+                          Text("Loading student reports..."),
+                        ],
+                      ),
+                    )
+                  : reports.isEmpty
+                      ? _buildEmptyState(provider.selectedSchoolYear, allReports.length) // ✅ Pass total count
+                      : RefreshIndicator(
+                          onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: reports.length,
+                            itemBuilder: (context, index) {
+                              final report = reports[index];
+                              final isLoading = _loadingReports.contains(index);
+                              
+                              return _buildReportCard(report, index, isLoading);
+                            },
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   void _showFilterDialog() {
     showDialog(
@@ -351,39 +407,55 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildEmptyState(String schoolYear) { // ✅ Add schoolYear parameter
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text(
-            "No Student Reports",
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
+  Widget _buildEmptyState(String schoolYear, int totalReports) {
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade400),
+        const SizedBox(height: 16),
+        Text(
+          "No Student Reports",
+          style: TextStyle(
+            fontSize: 18,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          schoolYear == 'all'
+              ? 'No reports available across all years'
+              : 'No reports found for S.Y. $schoolYear\n($totalReports reports in other years)',
+          style: TextStyle(color: Colors.grey.shade500),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        if (schoolYear != 'all')
+          ElevatedButton.icon(
+            onPressed: () {
+              // Show all reports
+              final provider = Provider.of<CounselorProvider>(context, listen: false);
+              provider.setSelectedSchoolYear('all');
+              _fetchReports();
+            },
+            icon: const Icon(Icons.clear_all),
+            label: const Text('Show All Years'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            schoolYear == 'all'
-                ? 'No reports available across all years'
-                : 'No reports found for S.Y. $schoolYear', // ✅ Show school year context
-            style: TextStyle(color: Colors.grey.shade500),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
+          )
+        else
           ElevatedButton.icon(
             onPressed: () => _fetchReports(),
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh'),
           ),
-        ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
   Widget _buildReportCard(Map<String, dynamic> report, int index, bool isLoading) {
   final status = report["status"]?.toString().toLowerCase() ?? 'pending';

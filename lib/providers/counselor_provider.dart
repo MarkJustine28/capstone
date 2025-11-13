@@ -181,6 +181,13 @@ class CounselorProvider with ChangeNotifier {
     }
   }
 
+
+void setSelectedSchoolYear(String schoolYear) {
+  _selectedSchoolYear = schoolYear;
+  debugPrint('📅 Selected school year filter changed to: $schoolYear');
+  notifyListeners();
+}
+
   // ✅ NEW: Set school year and refresh all data
   Future<bool> setSchoolYear(String schoolYear) async {
   try {
@@ -200,6 +207,33 @@ class CounselorProvider with ChangeNotifier {
       fetchProfile(),  // ✅ FIXED: Changed from fetchCounselorProfile() to fetchProfile()
       fetchStudentsList(schoolYear: schoolYear),  // ✅ ADDED: Pass school year parameter
       // Add other fetch methods as needed
+    ]);
+    
+    debugPrint('✅ All data refreshed for school year: $schoolYear');
+    return true;
+  } catch (e) {
+    debugPrint('❌ Error setting school year: $e');
+    return false;
+  }
+}
+
+Future<bool> setSchoolYear(String schoolYear) async {
+  try {
+    _selectedSchoolYear = schoolYear;
+    
+    // Save to SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_school_year', schoolYear);
+    
+    debugPrint('📅 School year changed to: $schoolYear (with refresh)');
+    notifyListeners();
+    
+    // Refresh all data with new school year filter
+    await Future.wait([
+      fetchCounselorStudentReports(forceRefresh: true),
+      fetchStudentViolations(forceRefresh: true),
+      fetchProfile(),
+      fetchStudentsList(schoolYear: schoolYear),
     ]);
     
     debugPrint('✅ All data refreshed for school year: $schoolYear');
