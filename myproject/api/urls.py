@@ -87,6 +87,7 @@ urlpatterns = [
     path('counselor/violation-types/', counselor_violation_types, name='counselor_violation_types'),
     path('counselor/violation-analytics/', counselor_violation_analytics, name='counselor_violation_analytics'),
     path('counselor/tally-records/', tally_records, name='tally_records'),
+    path('counselor/available-school-years/', views.counselor_available_school_years, name='counselor_available_school_years'),
     
     # General/shared endpoints
     path('students/', get_students_list, name='get_students_list'),

@@ -4781,3 +4781,39 @@ def update_system_settings(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_available_school_years(request):
+    """
+    Get list of available school years from student records
+    Used by counselors to filter data by school year
+    """
+    try:
+        # Verify user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can access this endpoint'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get distinct school years from students
+        school_years = Student.objects.values_list('school_year', flat=True).distinct().order_by('-school_year')
+        
+        # Convert to list and filter out None values
+        school_years_list = [sy for sy in school_years if sy]
+        
+        logger.info(f"📅 Available school years: {school_years_list}")
+        
+        return Response({
+            'success': True,
+            'school_years': school_years_list,
+            'count': len(school_years_list)
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching school years: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to fetch school years: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
