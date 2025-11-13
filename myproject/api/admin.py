@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.db.models import Count, Q
 from .models import (
     Student, Teacher, Counselor, StudentReport, TeacherReport, ViolationType, 
-    ViolationHistory, Notification
+    ViolationHistory, Notification, SystemSettings
 )
 
 # Customize admin site
@@ -507,3 +507,29 @@ class NotificationAdmin(admin.ModelAdmin):
 # Unregister default User admin and register custom one
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
+
+@admin.register(SystemSettings)
+class SystemSettingsAdmin(admin.ModelAdmin):
+    list_display = ['current_school_year', 'is_system_active', 'school_year_start_date', 'school_year_end_date', 'last_updated']
+    readonly_fields = ['last_updated', 'updated_by']
+    
+    fieldsets = (
+        ('School Year Management', {
+            'fields': ('current_school_year', 'school_year_start_date', 'school_year_end_date')
+        }),
+        ('System Status', {
+            'fields': ('is_system_active', 'system_message')
+        }),
+        ('Metadata', {
+            'fields': ('last_updated', 'updated_by'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        # Only allow one settings instance
+        return not SystemSettings.objects.exists()
+    
+    def has_delete_permission(self, request, obj=None):
+        # Prevent deletion
+        return False

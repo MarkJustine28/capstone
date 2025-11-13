@@ -955,3 +955,87 @@ class StrandChangeHistory(models.Model):
     def __str__(self):
         student_name = self.student.user.get_full_name() or self.student.user.username
         return f"{student_name}: {self.previous_strand} → {self.new_strand}"
+
+class SystemSettings(models.Model):
+    """System-wide settings controlled by admin"""
+    
+    # School Year Management
+    current_school_year = models.CharField(
+        max_length=20,
+        default='2024-2025',
+        help_text='Current active school year (e.g., 2024-2025)'
+    )
+    school_year_start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Official start date of current school year'
+    )
+    school_year_end_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Official end date of current school year'
+    )
+    
+    # System Status
+    is_system_active = models.BooleanField(
+        default=True,
+        help_text='Set to False to freeze system during breaks'
+    )
+    system_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Message to display when system is frozen'
+    )
+    
+    # Metadata
+    last_updated = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='system_settings_updates'
+    )
+    
+    class Meta:
+        verbose_name = 'System Setting'
+        verbose_name_plural = 'System Settings'
+    
+    def __str__(self):
+        status = "ACTIVE" if self.is_system_active else "FROZEN"
+        return f"System Settings - S.Y. {self.current_school_year} ({status})"
+    
+    @classmethod
+    def get_current_settings(cls):
+        """Get or create system settings singleton"""
+        settings, created = cls.objects.get_or_create(id=1)
+        if created:
+            # Auto-detect current school year on first run
+            settings.current_school_year = cls.auto_detect_school_year()
+            settings.save()
+        return settings
+    
+    @staticmethod
+    def auto_detect_school_year():
+        """
+        Auto-detect school year based on DepEd calendar logic:
+        - School year starts in June/July
+        - If current month >= June, use current_year-next_year
+        - If current month < June, use previous_year-current_year
+        """
+        now = timezone.now()
+        current_year = now.year
+        
+        # DepEd school year typically starts in June
+        if now.month >= 6:  # June onwards = new school year starts
+            return f"{current_year}-{current_year + 1}"
+        else:  # Jan-May = still in previous school year
+            return f"{current_year - 1}-{current_year}"
+    
+    def save(self, *args, **kwargs):
+        # Ensure only one settings record exists
+        self.pk = 1
+        super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        # Prevent deletion
+        pass

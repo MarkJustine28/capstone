@@ -6,7 +6,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -20,7 +20,7 @@ from django.db import models
 from datetime import datetime
 
 # Import your models (adjust these imports based on your actual models)
-from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory
+from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -4822,6 +4822,86 @@ def student_profile(request):
         logger.error(f"❌ Error fetching student profile: {e}")
         import traceback
         traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])  # Available to all users
+def get_system_settings(request):
+    """Get current system settings including active school year"""
+    try:
+        settings = SystemSettings.get_current_settings()
+        
+        return Response({
+            'success': True,
+            'settings': {
+                'current_school_year': settings.current_school_year,
+                'school_year_start_date': settings.school_year_start_date.isoformat() if settings.school_year_start_date else None,
+                'school_year_end_date': settings.school_year_end_date.isoformat() if settings.school_year_end_date else None,
+                'is_system_active': settings.is_system_active,
+                'system_message': settings.system_message,
+                'last_updated': settings.last_updated.isoformat(),
+            }
+        })
+    except Exception as e:
+        logger.error(f"❌ Error fetching system settings: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_system_settings(request):
+    """Update system settings (Admin only)"""
+    try:
+        # Check if user is admin
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({
+                'success': False,
+                'error': 'Only administrators can update system settings'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        settings = SystemSettings.get_current_settings()
+        
+        # Update fields
+        if 'current_school_year' in request.data:
+            settings.current_school_year = request.data['current_school_year']
+        
+        if 'school_year_start_date' in request.data:
+            settings.school_year_start_date = request.data['school_year_start_date']
+        
+        if 'school_year_end_date' in request.data:
+            settings.school_year_end_date = request.data['school_year_end_date']
+        
+        if 'is_system_active' in request.data:
+            settings.is_system_active = request.data['is_system_active']
+        
+        if 'system_message' in request.data:
+            settings.system_message = request.data['system_message']
+        
+        settings.updated_by = request.user
+        settings.save()
+        
+        logger.info(f"✅ System settings updated by {request.user.username}")
+        logger.info(f"   Current S.Y.: {settings.current_school_year}")
+        logger.info(f"   System Active: {settings.is_system_active}")
+        
+        return Response({
+            'success': True,
+            'message': 'System settings updated successfully',
+            'settings': {
+                'current_school_year': settings.current_school_year,
+                'is_system_active': settings.is_system_active,
+                'system_message': settings.system_message,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating system settings: {e}")
         return Response({
             'success': False,
             'error': str(e)
