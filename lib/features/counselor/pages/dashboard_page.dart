@@ -71,37 +71,43 @@ Future<void> _fetchDashboardData() async {
       return;
     }
 
-    // Fetch comprehensive analytics
-    final analytics = await counselorProvider.fetchDashboardAnalytics();
-    
+    debugPrint("📊 Starting dashboard data fetch...");
+
+    // ✅ FIX 1: Fetch ALL data first (not just analytics)
+    await Future.wait([
+      counselorProvider.fetchStudentReports(),      // Fetch student reports
+      counselorProvider.fetchTeacherReports(),      // Fetch teacher reports
+      counselorProvider.fetchStudentViolations(),   // Fetch violations
+      counselorProvider.fetchDashboardAnalytics(),  // Fetch analytics
+    ]);
+
+    debugPrint("✅ All data fetched successfully");
+    debugPrint("   - Student Reports: ${counselorProvider.counselorStudentReports.length}");
+    debugPrint("   - Teacher Reports: ${counselorProvider.teacherReports.length}");
+    debugPrint("   - Violations: ${counselorProvider.studentViolations.length}");
+
     if (mounted) {
       setState(() {
-        // Update local state with analytics data
-        _studentReportsCount = analytics['status_distribution']['total_student_reports'] ?? 0;
-        _teacherReportsCount = analytics['status_distribution']['total_teacher_reports'] ?? 0;
+        // ✅ FIX 2: Update local state with fetched data
+        _studentReports = counselorProvider.counselorStudentReports;
+        _teacherReports = counselorProvider.teacherReports;
         
-        _reportStatusCounts = {
-          'pending': analytics['status_distribution']['pending'] ?? 0,
-          'reviewed': analytics['status_distribution']['reviewed'] ?? 0,
-          'total': analytics['total_reports'] ?? 0,
-        };
+        _studentReportsCount = _studentReports.length;
+        _teacherReportsCount = _teacherReports.length;
         
-        _violationTypeCounts = Map<String, int>.from(analytics['violations_by_type'] ?? {});
-        
-        // Process monthly trends (you can enhance this based on your needs)
-        _monthlyReportTrends = {
-          DateTime.now().toString().substring(0, 7): analytics['total_reports'] ?? 0,
-        };
+        // ✅ FIX 3: Process analytics from ACTUAL data (not API analytics)
+        _processAllAnalytics();
         
         _isLoading = false;
       });
       
-      debugPrint("📊 Dashboard analytics loaded:");
-      debugPrint("  - Total Reports: ${analytics['total_reports']}");
+      debugPrint("📊 Dashboard state updated:");
+      debugPrint("  - Total Reports: ${_studentReportsCount + _teacherReportsCount}");
       debugPrint("  - Student Reports: $_studentReportsCount");
       debugPrint("  - Teacher Reports: $_teacherReportsCount");
-      debugPrint("  - Pending: ${_reportStatusCounts['pending']}");
+      debugPrint("  - Pending: ${_reportStatusCounts['pending'] ?? 0}");
       debugPrint("  - Violations: ${counselorProvider.studentViolations.length}");
+      debugPrint("  - Violation Types: ${_violationTypeCounts.length}");
     }
   } catch (e) {
     debugPrint("❌ Error fetching dashboard data: $e");
@@ -726,29 +732,38 @@ String _formatDate(String? dateStr) {
       final selectedSchoolYear = provider.selectedSchoolYear;
       final isFiltered = selectedSchoolYear != 'all';
       
-      // ✅ FIX: Filter data by school year
+      // ✅ Add debug logging
+      debugPrint("📊 Building Quick Stats Grid:");
+      debugPrint("   - Selected SY: $selectedSchoolYear");
+      debugPrint("   - Student Reports Count: $_studentReportsCount");
+      debugPrint("   - Teacher Reports Count: $_teacherReportsCount");
+      debugPrint("   - Provider Student Reports: ${provider.counselorStudentReports.length}");
+      debugPrint("   - Provider Teacher Reports: ${provider.teacherReports.length}");
+      debugPrint("   - Provider Violations: ${provider.studentViolations.length}");
+      
+      // Filter data by school year
       List<Map<String, dynamic>> filteredStudentReports;
       List<Map<String, dynamic>> filteredTeacherReports;
       List<Map<String, dynamic>> filteredViolations;
       
       if (selectedSchoolYear == 'all') {
-        filteredStudentReports = provider.counselorStudentReports;
-        filteredTeacherReports = provider.teacherReports;
+        filteredStudentReports = _studentReports;
+        filteredTeacherReports = _teacherReports;
         filteredViolations = provider.studentViolations;
       } else {
-        // Filter student reports by school year
-        filteredStudentReports = provider.counselorStudentReports.where((report) {
-          final reportSchoolYear = report['reported_student']?['school_year']?.toString() ?? '';
+        // Filter by school year
+        filteredStudentReports = _studentReports.where((report) {
+          final reportSchoolYear = report['school_year']?.toString() ?? 
+                                  report['reported_student']?['school_year']?.toString() ?? '';
           return reportSchoolYear == selectedSchoolYear;
         }).toList();
         
-        // Filter teacher reports by school year
-        filteredTeacherReports = provider.teacherReports.where((report) {
-          final reportSchoolYear = report['student']?['school_year']?.toString() ?? '';
+        filteredTeacherReports = _teacherReports.where((report) {
+          final reportSchoolYear = report['school_year']?.toString() ?? 
+                                  report['student']?['school_year']?.toString() ?? '';
           return reportSchoolYear == selectedSchoolYear;
         }).toList();
         
-        // Filter violations by school year
         filteredViolations = provider.studentViolations.where((violation) {
           final violationSchoolYear = violation['school_year']?.toString() ?? 
                                       violation['student']?['school_year']?.toString() ?? '';
@@ -756,10 +771,15 @@ String _formatDate(String? dateStr) {
         }).toList();
       }
       
-      // ✅ Count pending reports from filtered data
       final pendingStudentReports = filteredStudentReports.where((r) => 
         r['status']?.toString() == 'pending'
       ).length;
+      
+      debugPrint("📊 Filtered Results:");
+      debugPrint("   - Filtered Student Reports: ${filteredStudentReports.length}");
+      debugPrint("   - Filtered Teacher Reports: ${filteredTeacherReports.length}");
+      debugPrint("   - Filtered Violations: ${filteredViolations.length}");
+      debugPrint("   - Pending Student Reports: $pendingStudentReports");
       
       return Column(
         children: [
@@ -790,7 +810,7 @@ String _formatDate(String? dateStr) {
               ),
             ),
           
-          // Stats Grid with filtered data
+          // Stats Grid
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -801,28 +821,28 @@ String _formatDate(String? dateStr) {
             children: [
               _buildStatCard(
                 "📊 Total Reports",
-                "${filteredStudentReports.length + filteredTeacherReports.length}", // ✅ Use filtered data
+                "${filteredStudentReports.length + filteredTeacherReports.length}",
                 "All submitted reports",
                 Colors.blue,
                 onTap: () {},
               ),
               _buildStatCard(
                 "👥 Student Reports", 
-                "${filteredStudentReports.length}", // ✅ Use filtered data
+                "${filteredStudentReports.length}",
                 "$pendingStudentReports pending review",
                 Colors.green,
                 onTap: () => setState(() => _currentTabIndex = 2),
               ),
               _buildStatCard(
                 "🏫 Teacher Reports",
-                "${filteredTeacherReports.length}", // ✅ Use filtered data
+                "${filteredTeacherReports.length}",
                 "From educators",
                 Colors.orange,
                 onTap: () => setState(() => _currentTabIndex = 3),
               ),
               _buildStatCard(
                 "📊 Total Tallied Reports",
-                "${filteredViolations.length}", // ✅ Use filtered data
+                "${filteredViolations.length}",
                 "Manually tallied by counselor",
                 Colors.red,
                 onTap: () => setState(() => _currentTabIndex = 1),
@@ -1955,22 +1975,47 @@ void _showStudentViolationDetails(BuildContext context, Map<String, dynamic> stu
 void _processAllAnalytics() {
   final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
   
-  // Safe analytics processing with null checks
-  final pendingStudentReports = _studentReports.where((r) => r['status'] == 'pending').length;
-  final pendingTeacherReports = _teacherReports.where((r) => r['status'] == 'pending').length;
-  final resolvedStudentReports = _studentReports.where((r) => r['status'] == 'resolved').length;
-  final resolvedTeacherReports = _teacherReports.where((r) => r['status'] == 'resolved').length;
+  debugPrint("🔄 Processing analytics from fetched data...");
+  
+  // ✅ Process report status counts from ACTUAL reports
+  final pendingStudentReports = _studentReports.where((r) => 
+    r['status']?.toString() == 'pending'
+  ).length;
+  
+  final pendingTeacherReports = _teacherReports.where((r) => 
+    r['status']?.toString() == 'pending'
+  ).length;
+  
+  final reviewedStudentReports = _studentReports.where((r) => 
+    r['status']?.toString() == 'reviewed' || r['status']?.toString() == 'under_review'
+  ).length;
+  
+  final reviewedTeacherReports = _teacherReports.where((r) => 
+    r['status']?.toString() == 'reviewed' || r['status']?.toString() == 'under_review'
+  ).length;
+  
+  final resolvedStudentReports = _studentReports.where((r) => 
+    r['status']?.toString() == 'resolved'
+  ).length;
+  
+  final resolvedTeacherReports = _teacherReports.where((r) => 
+    r['status']?.toString() == 'resolved'
+  ).length;
   
   _reportStatusCounts = {
     'pending': pendingStudentReports + pendingTeacherReports,
+    'reviewed': reviewedStudentReports + reviewedTeacherReports,
     'resolved': resolvedStudentReports + resolvedTeacherReports,
+    'total': _studentReports.length + _teacherReports.length,
   };
   
-  // Process violation types from actual violations data
+  debugPrint("📊 Status counts: $_reportStatusCounts");
+  
+  // ✅ Process violation types from ACTUAL violations
   _violationTypeCounts = {};
   
-  // Get violations from provider
   final violations = counselorProvider.studentViolations;
+  debugPrint("📋 Processing ${violations.length} violations...");
   
   for (final violation in violations) {
     String violationType = 'Other'; // Default fallback
@@ -1994,29 +2039,39 @@ void _processAllAnalytics() {
     _violationTypeCounts[violationType] = (_violationTypeCounts[violationType] ?? 0) + 1;
   }
   
-  // If no violations found, add some default entries to prevent empty state
-  if (_violationTypeCounts.isEmpty) {
-    _violationTypeCounts = {
-      'No violations recorded': 0,
-    };
+  debugPrint("📊 Violation types: $_violationTypeCounts");
+  
+  // ✅ Process monthly trends from ACTUAL reports
+  _monthlyReportTrends = {};
+  
+  // Combine all reports for trend analysis
+  final allReports = [..._studentReports, ..._teacherReports];
+  
+  for (final report in allReports) {
+    try {
+      final createdAt = report['created_at']?.toString() ?? '';
+      if (createdAt.isNotEmpty) {
+        // Extract YYYY-MM format
+        final monthKey = createdAt.substring(0, 7); // "2025-11"
+        _monthlyReportTrends[monthKey] = (_monthlyReportTrends[monthKey] ?? 0) + 1;
+      }
+    } catch (e) {
+      debugPrint("⚠️ Error parsing date for report: $e");
+    }
   }
   
-  // Simple monthly trends
-  _monthlyReportTrends = {
-    '2024-10': _studentReports.length + _teacherReports.length,
-  };
+  debugPrint("📊 Monthly trends: $_monthlyReportTrends");
   
-  // Process risk analysis
+  // ✅ Process risk analysis
   _processPrescriptiveAnalytics();
   
-  // Debug output
-  debugPrint("📊 Analytics processed:");
+  debugPrint("✅ Analytics processing complete:");
   debugPrint("  - Status counts: $_reportStatusCounts");
-  debugPrint("  - Violation types: $_violationTypeCounts");
-  debugPrint("  - Monthly trends: $_monthlyReportTrends");
+  debugPrint("  - Violation types: ${_violationTypeCounts.length} types");
+  debugPrint("  - Monthly trends: ${_monthlyReportTrends.length} months");
+  debugPrint("  - Risk analysis: ${_riskAnalysis.length} risks");
+  debugPrint("  - Recommendations: ${_recommendations.length} items");
 }
-
-// Add these missing methods for fetching reports:
 
 /// Fetch student reports from the server
 Future<void> _fetchStudentReports() async {

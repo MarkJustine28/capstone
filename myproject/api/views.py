@@ -2042,7 +2042,7 @@ def counselor_dashboard_analytics(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
 @csrf_exempt
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
@@ -3720,95 +3720,202 @@ def update_students_school_year(request):
             'error': str(e)
         }, status=500)
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def send_guidance_notice(request, report_id):
-    """
-    Send guidance notice to student and notify both reporter and reported student
-    """
+    """Send guidance notice/summons to students involved in a report"""
     try:
-        # Get the report
-        report = Report.objects.select_related(
-            'reported_by',
-            'student__user',
-            'assigned_counselor__user'
-        ).get(id=report_id)
-        
-        # Get the counselor
-        counselor = Counselor.objects.filter(user=request.user).first()
-        if not counselor:
+        # Verify counselor authentication
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Only counselors can send guidance notices'
-            }, status=403)
+                'message': 'Only counselors can send guidance notices'
+            }, status=status.HTTP_403_FORBIDDEN)
         
-        # Update report status to 'summoned'
-        old_status = report.status
-        report.status = 'summoned'
-        report.assigned_counselor = counselor
-        report.save()
+        # ✅ Determine report type from request body
+        report_type = request.data.get('report_type', 'student_report')  # Default to student_report
         
-        print(f"✅ Report #{report_id} status changed: {old_status} → summoned")
+        logger.info(f"📢 Sending guidance notice for {report_type} #{report_id}")
         
+        # ✅ Get the report based on type
+        report = None
+        report_model_name = ""
+        
+        if report_type == 'student_report':
+            try:
+                report = StudentReport.objects.select_related(
+                    'reporter_student__user',
+                    'reported_student__user',
+                    'violation_type',
+                    'assigned_counselor__user'
+                ).get(id=report_id)
+                report_model_name = "StudentReport"
+            except StudentReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'message': f'Student report with ID {report_id} not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        elif report_type == 'teacher_report':
+            try:
+                report = TeacherReport.objects.select_related(
+                    'reporter_teacher__user',
+                    'reported_student__user',
+                    'violation_type',
+                    'assigned_counselor__user'
+                ).get(id=report_id)
+                report_model_name = "TeacherReport"
+            except TeacherReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'message': f'Teacher report with ID {report_id} not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        else:
+            return Response({
+                'success': False,
+                'message': f'Invalid report type: {report_type}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get notice details from request
+        notice_message = request.data.get('message', '')
+        scheduled_date_str = request.data.get('scheduled_date', '')
+        
+        if not notice_message:
+            return Response({
+                'success': False,
+                'message': 'Notice message is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Parse scheduled date
+        scheduled_date = None
+        if scheduled_date_str:
+            try:
+                from datetime import datetime
+                scheduled_date = datetime.fromisoformat(scheduled_date_str.replace('Z', '+00:00'))
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse scheduled date: {e}")
+                scheduled_date = timezone.now()
+        else:
+            scheduled_date = timezone.now()
+        
+        logger.info(f"📨 Notice message: {notice_message[:50]}...")
+        logger.info(f"📅 Scheduled date: {scheduled_date}")
+        
+        # ✅ Send notifications based on report type
         notifications_sent = []
         
-        # 1. Notify the REPORTED STUDENT (the one who needs to go to guidance office)
-        if report.student and report.student.user:
-            # ✅ Create notification with ONLY the basic fields
-            notification = Notification.objects.create(
-                user=report.student.user,
-                title='📢 Guidance Office Summon',
-                message=f'You are summoned to the guidance office regarding: "{report.title}". '
-                       f'Please report to the guidance office as soon as possible for a counseling session. '
-                       f'Reported by: {report.reported_by.get_full_name() if report.reported_by else "System"}',
-                is_read=False,
-            )
-            notifications_sent.append(report.student.user.username)
-            print(f'📢 Notified reported student: {report.student.user.username} (Notification ID: {notification.id})')
-        
-        # 2. Notify the REPORTER (the one who reported the incident)
-        if report.reported_by:
-            reporter_message = (
-                f'Your report "{report.title}" has been reviewed and validated. '
-                f'The student {report.student.user.get_full_name() if report.student else "involved"} '
-                f'has been summoned to the guidance office for counseling. '
-                f'Thank you for your report. You may be contacted if additional information is needed.'
-            )
+        if report_type == 'student_report':
+            # Send to reporter (if exists and not self-report)
+            if report.reporter_student and report.reporter_student != report.reported_student:
+                notification = Notification.objects.create(
+                    user=report.reporter_student.user,
+                    title='Guidance Office Notice',
+                    message=notice_message,
+                    type='summons',
+                    related_student_report=report
+                )
+                notifications_sent.append({
+                    'recipient': 'reporter',
+                    'user': report.reporter_student.user.username,
+                    'name': report.reporter_student.user.get_full_name()
+                })
+                logger.info(f"✅ Notification sent to reporter: {report.reporter_student.user.username}")
             
-            notification = Notification.objects.create(
-                user=report.reported_by,
-                title='📋 Report Update: Student Summoned',
-                message=reporter_message,
-                is_read=False,
-            )
-            notifications_sent.append(report.reported_by.username)
-            print(f'📋 Notified reporter: {report.reported_by.username} (Notification ID: {notification.id})')
+            # Send to reported student
+            if report.reported_student:
+                notification = Notification.objects.create(
+                    user=report.reported_student.user,
+                    title='Guidance Office Notice',
+                    message=notice_message,
+                    type='summons',
+                    related_student_report=report
+                )
+                notifications_sent.append({
+                    'recipient': 'reported_student',
+                    'user': report.reported_student.user.username,
+                    'name': report.reported_student.user.get_full_name()
+                })
+                logger.info(f"✅ Notification sent to reported student: {report.reported_student.user.username}")
+            
+            # Update report status
+            report.summons_sent_at = timezone.now()
+            report.summons_sent_to_reporter = True
+            report.summons_sent_to_reported = True
+            
+        elif report_type == 'teacher_report':
+            # Send notification to reported student
+            if report.reported_student:
+                notification = Notification.objects.create(
+                    user=report.reported_student.user,
+                    title='Guidance Office Notice',
+                    message=notice_message,
+                    type='summons',
+                    related_teacher_report=report
+                )
+                notifications_sent.append({
+                    'recipient': 'reported_student',
+                    'user': report.reported_student.user.username,
+                    'name': report.reported_student.user.get_full_name()
+                })
+                logger.info(f"✅ Notification sent to reported student: {report.reported_student.user.username}")
+            
+            # Optionally send to teacher (FYI)
+            if report.reporter_teacher:
+                notification = Notification.objects.create(
+                    user=report.reporter_teacher.user,
+                    title='Guidance Notice Sent',
+                    message=f'A guidance notice has been sent regarding your report: {report.title}',
+                    type='system_alert',
+                    related_teacher_report=report
+                )
+                notifications_sent.append({
+                    'recipient': 'teacher',
+                    'user': report.reporter_teacher.user.username,
+                    'name': report.reporter_teacher.user.get_full_name()
+                })
+                logger.info(f"✅ FYI notification sent to teacher: {report.reporter_teacher.user.username}")
+            
+            # Update report status
+            report.summons_sent_at = timezone.now()
+            report.summons_sent_to_student = True
+            report.teacher_notified = True
+        
+        # Update report status if still pending
+        if report.status == 'pending':
+            report.status = 'summons_sent'
+        
+        report.save()
+        
+        logger.info(f"✅ Guidance notice sent successfully for {report_model_name} #{report_id}")
+        logger.info(f"   Notifications sent to {len(notifications_sent)} recipient(s)")
         
         return Response({
             'success': True,
-            'message': 'Guidance notice sent successfully',
-            'notifications_sent': {
-                'reported_student': report.student.user.username if report.student else None,
-                'reporter': report.reported_by.username if report.reported_by else None,
-            },
+            'message': f'Guidance notice sent successfully to {len(notifications_sent)} recipient(s)',
             'report_id': report.id,
-            'status': report.status,
-            'total_notified': len(notifications_sent),
-        })
+            'report_type': report_type,
+            'notifications_sent': notifications_sent,
+            'scheduled_date': scheduled_date.isoformat(),
+            'report': {
+                'id': report.id,
+                'title': report.title,
+                'status': report.status,
+                'summons_sent_at': report.summons_sent_at.isoformat() if report.summons_sent_at else None,
+            }
+        }, status=status.HTTP_200_OK)
         
-    except Report.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Report not found'
-        }, status=404)
     except Exception as e:
-        print(f"❌ Error sending guidance notice: {e}")
+        logger.error(f"❌ Error sending guidance notice: {str(e)}")
         import traceback
         traceback.print_exc()
         return Response({
             'success': False,
-            'error': str(e)
-        }, status=500)
+            'message': f'Failed to send guidance notice: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

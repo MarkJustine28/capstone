@@ -778,70 +778,74 @@ List<Map<String, dynamic>> getCombinedRecentReports({int limit = 10}) {
     }
   }
 
-  Future<bool> updateReportStatus(int reportId, String status, {String? notes}) async {
+  Future<bool> updateReportStatus(
+  int reportId, 
+  String status, {
+  String? notes,
+  String reportType = 'student_report', // ✅ ADD: with default value
+}) async {
   try {
-    print('🔄 Updating report $reportId status to: $status');
+    debugPrint('🔄 Updating report #$reportId to status: $status (type: $reportType)');
     
-    // ✅ FIX: Use the correct endpoint from urls.py
-    final response = await http.post(
-      Uri.parse('$_baseUrl/api/reports/$reportId/update-status/'),
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/update-status/'),
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': 'Token $_token',
+        'Content-Type': 'application/json',
       },
-      body: json.encode({
+      body: jsonEncode({
         'status': status,
-        if (notes != null) 'counselor_notes': notes,
+        'notes': notes,
+        'report_type': reportType, // ✅ Include report type in request
       }),
-    ).timeout(const Duration(seconds: 10));
+    );
 
-    print('📡 Update report status response: ${response.statusCode}');
-    print('📡 Response body: ${response.body}');
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
     if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+      final data = jsonDecode(response.body);
       
       if (data['success'] == true) {
-        print('✅ Report status updated successfully');
+        debugPrint('✅ Report status updated successfully');
         
         // Update local state
-        final reportIndex = _studentReports.indexWhere((r) => r['id'] == reportId);
-        if (reportIndex != -1) {
-          _studentReports[reportIndex]['status'] = status;
-          if (notes != null) {
-            _studentReports[reportIndex]['counselor_notes'] = notes;
+        if (reportType == 'student_report') {
+          final reportIndex = _studentReports.indexWhere((r) => r['id'] == reportId);
+          if (reportIndex != -1) {
+            _studentReports[reportIndex]['status'] = status;
+            if (notes != null) {
+              _studentReports[reportIndex]['counselor_notes'] = notes;
+            }
           }
-        }
-        
-        // Also update counselorStudentReports if it exists there
-        final counselorReportIndex = _counselorStudentReports.indexWhere((r) => r['id'] == reportId);
-        if (counselorReportIndex != -1) {
-          _counselorStudentReports[counselorReportIndex]['status'] = status;
-          if (notes != null) {
-            _counselorStudentReports[counselorReportIndex]['counselor_notes'] = notes;
+          
+          final counselorReportIndex = _counselorStudentReports.indexWhere((r) => r['id'] == reportId);
+          if (counselorReportIndex != -1) {
+            _counselorStudentReports[counselorReportIndex]['status'] = status;
+            if (notes != null) {
+              _counselorStudentReports[counselorReportIndex]['counselor_notes'] = notes;
+            }
+          }
+        } else if (reportType == 'teacher_report') {
+          final reportIndex = _teacherReports.indexWhere((r) => r['id'] == reportId);
+          if (reportIndex != -1) {
+            _teacherReports[reportIndex]['status'] = status;
+            if (notes != null) {
+              _teacherReports[reportIndex]['counselor_notes'] = notes;
+            }
           }
         }
         
         notifyListeners();
         return true;
-      } else {
-        _error = data['message'] ?? data['error'] ?? 'Failed to update report status';
-        print('❌ API returned success=false: $_error');
-        notifyListeners();
-        return false;
       }
-    } else {
-      final errorData = json.decode(response.body);
-      _error = errorData['error'] ?? errorData['message'] ?? 'Server error: ${response.statusCode}';
-      print('❌ Failed to update report status: $_error');
-      print('❌ Response body: ${response.body}');
-      notifyListeners();
-      return false;
     }
+    
+    debugPrint('❌ Failed to update report status: ${response.statusCode}');
+    return false;
+    
   } catch (e) {
-    _error = 'Error updating report status: $e';
-    print('❌ Error updating report status: $e');
-    notifyListeners();
+    debugPrint('❌ Error updating report status: $e');
     return false;
   }
 }
@@ -1588,8 +1592,10 @@ Future<List<Map<String, dynamic>>> fetchTallyRecords() async {
     return false;
   }
 }
+
 Future<bool> sendCounselingSummons({
   required int reportId,
+  required String reportType, // ✅ ADD: 'student_report' or 'teacher_report'
   String? scheduledDate,
   String? message,
 }) async {
@@ -1599,15 +1605,16 @@ Future<bool> sendCounselingSummons({
   }
 
   try {
-    debugPrint('📨 Sending counseling summons for report $reportId');
+    debugPrint('📨 Sending counseling summons for report $reportId (type: $reportType)');
 
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/reports/$reportId/send-summons/'),
+      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/send-summons/'),
       headers: {
         'Authorization': 'Token $_token',
         'Content-Type': 'application/json',
       },
       body: json.encode({
+        'report_type': reportType, // ✅ Include report type
         if (scheduledDate != null) 'scheduled_date': scheduledDate,
         if (message != null) 'message': message,
       }),
@@ -1639,42 +1646,45 @@ Future<bool> sendCounselingSummons({
 Future<bool> markReportAsInvalid({
   required int reportId,
   required String reason,
+  String reportType = 'student_report', // ✅ ADD: with default value
 }) async {
-  if (_token == null) {
-    debugPrint('❌ No token available');
-    return false;
-  }
-
   try {
-    debugPrint('❌ Marking report $reportId as invalid');
-
+    debugPrint('❌ Marking report #$reportId as invalid (type: $reportType)');
+    debugPrint('Reason: $reason');
+    
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/reports/$reportId/mark-invalid/'),
+      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/mark-invalid/'),
       headers: {
         'Authorization': 'Token $_token',
         'Content-Type': 'application/json',
       },
-      body: json.encode({
+      body: jsonEncode({
         'reason': reason,
+        'report_type': reportType, // ✅ Include report type
       }),
     );
 
-    debugPrint('📡 Response status: ${response.statusCode}');
-    debugPrint('📡 Response body: ${response.body}');
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
     if (response.statusCode == 200) {
-      final responseData = json.decode(response.body);
-      if (responseData['success'] == true) {
+      final data = jsonDecode(response.body);
+      
+      if (data['success'] == true) {
         debugPrint('✅ Report marked as invalid successfully');
+        
         // Refresh reports
         await fetchStudentReports();
         await fetchTeacherReports();
+        
+        notifyListeners();
         return true;
       }
     }
-
-    debugPrint('❌ Failed to mark report as invalid: ${response.body}');
+    
+    debugPrint('❌ Failed to mark report as invalid: ${response.statusCode}');
     return false;
+    
   } catch (e) {
     debugPrint('❌ Error marking report as invalid: $e');
     return false;
@@ -1841,44 +1851,51 @@ Map<String, dynamic> _getMockSectionAnalytics(String schoolYear, String? semeste
   };
 }
 
-Future<bool> sendGuidanceNotice(int reportId) async {
+Future<bool> sendGuidanceNotice({
+  required int reportId,
+  required String reportType,  // ✅ ADD: 'student_report' or 'teacher_report'
+  required String message,
+  DateTime? scheduledDate,
+}) async {
   try {
-    print('📢 Sending guidance notice for report #$reportId');
+    debugPrint('📢 Sending guidance notice for report #$reportId (type: $reportType)');
     
-    // ✅ FIX: Add /api/ prefix to the URL
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/send-guidance-notice/'),  // ✅ Changed from /counselor/ to /api/counselor/
+      Uri.parse('$_baseUrl/api/counselor/reports/$reportId/send-guidance-notice/'),
       headers: {
         'Authorization': 'Token $_token',
         'Content-Type': 'application/json',
       },
+      body: jsonEncode({
+        'report_type': reportType,  // ✅ Include report type
+        'message': message,
+        'scheduled_date': scheduledDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      }),
     );
 
-    print('Response status: ${response.statusCode}');
-    print('Response body: ${response.body}');
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
     if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+      final data = jsonDecode(response.body);
+      
       if (data['success'] == true) {
-        print('✅ Guidance notice sent successfully');
-        print('📧 Notifications sent to:');
-        print('   - Reported student: ${data['notifications_sent']?['reported_student']}');
-        print('   - Reporter: ${data['notifications_sent']?['reporter']}');
-        print('   - Total notified: ${data['total_notified']}');
+        debugPrint('✅ Guidance notice sent successfully');
+        
+        // Refresh the reports to get updated status
+        await fetchStudentReports();
+        await fetchTeacherReports();
         
         notifyListeners();
         return true;
       }
     }
-
-    print('❌ Failed to send guidance notice: ${response.statusCode}');
-    _error = 'Failed to send guidance notice';
-    notifyListeners();
+    
+    debugPrint('❌ Failed to send guidance notice: ${response.statusCode}');
     return false;
+    
   } catch (e) {
-    print('❌ Error sending guidance notice: $e');
-    _error = e.toString();
-    notifyListeners();
+    debugPrint('❌ Error sending guidance notice: $e');
     return false;
   }
 }

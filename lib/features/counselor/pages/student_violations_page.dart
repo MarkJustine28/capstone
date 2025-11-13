@@ -1936,50 +1936,50 @@ Widget build(BuildContext context) {
 
                                             // Action Buttons
                                             Row(
-                                              children: [
-                                                // Mark as Reviewed (Valid Report)
-                                                Expanded(
-                                                  child: ElevatedButton.icon(
-                                                    onPressed: () {
-                                                      Navigator.of(context).pop();
-                                                      _showMarkAsReviewedDialog(context, report);
-                                                    },
-                                                    icon: const Icon(Icons.check_circle, size: 16),
-                                                    label: const Text(
-                                                      'Valid Report\n(Mark Reviewed)',
-                                                      textAlign: TextAlign.center,
-                                                      style: TextStyle(fontSize: 10),
-                                                    ),
-                                                    style: ElevatedButton.styleFrom(
-                                                      backgroundColor: Colors.green,
-                                                      foregroundColor: Colors.white,
-                                                      padding: const EdgeInsets.symmetric(vertical: 12),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                // Mark as Invalid (False Report)
-                                                Expanded(
-                                                  child: ElevatedButton.icon(
-                                                    onPressed: () {
-                                                      Navigator.of(context).pop();
-                                                      _showMarkAsInvalidDialog(context, report);
-                                                    },
-                                                    icon: const Icon(Icons.cancel, size: 16),
-                                                    label: const Text(
-                                                      'False Report\n(Mark Invalid)',
-                                                      textAlign: TextAlign.center,
-                                                      style: TextStyle(fontSize: 10),
-                                                    ),
-                                                    style: ElevatedButton.styleFrom(
-                                                      backgroundColor: Colors.red,
-                                                      foregroundColor: Colors.white,
-                                                      padding: const EdgeInsets.symmetric(vertical: 12),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
+  children: [
+    // Mark as Reviewed (Valid Report)
+    Expanded(
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.of(context).pop();
+          _showMarkAsReviewedDialog(context, report);
+        },
+        icon: const Icon(Icons.check_circle, size: 16),
+        label: const Text(
+          'Valid Report\n(Mark Reviewed)',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
+    ),
+    const SizedBox(width: 8),
+    // Mark as Invalid (False Report)
+    Expanded(
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.of(context).pop();
+          _showMarkAsInvalidDialog(context, report);
+        },
+        icon: const Icon(Icons.cancel, size: 16),
+        label: const Text(
+          'False Report\n(Mark Invalid)',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.red,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
+    ),
+  ],
+),
                                           ],
                                         ),
                                       ),
@@ -2219,77 +2219,81 @@ Widget build(BuildContext context) {
           child: const Text('Cancel'),
         ),
         ElevatedButton.icon(
-          onPressed: () async {
-            if (notesController.text.trim().isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Please add counseling notes'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-              return;
-            }
-
-            final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-            
-            final success = await counselorProvider.updateReportStatus(
-              report['id'],
-              'reviewed',
-              notes: notesController.text.trim(),
-            );
-
-            if (success && context.mounted) {
-              notesController.dispose();
-              Navigator.of(context).pop();
-              
-              await counselorProvider.fetchStudentReports();
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.white),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              '✅ Report Marked as REVIEWED',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              'Violation by $reportedStudentName is now ready for tallying',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 5),
-                ),
-              );
-            } else if (context.mounted) {
-              notesController.dispose();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('❌ Failed to mark report as reviewed'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-          icon: const Icon(Icons.check),
-          label: const Text('Confirm Reviewed'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          ),
+  onPressed: () async {
+    if (notesController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add counseling notes'),
+          backgroundColor: Colors.orange,
         ),
+      );
+      return;
+    }
+
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    
+    // ✅ FIX: Use updateReportStatus with report_type parameter
+    final reportType = report['report_type']?.toString() ?? 'student_report';
+    
+    final success = await counselorProvider.updateReportStatus(
+      report['id'],
+      'reviewed',
+      notes: notesController.text.trim(),
+      reportType: reportType, // ✅ Pass the report type
+    );
+
+    if (success && context.mounted) {
+      notesController.dispose();
+      Navigator.of(context).pop();
+      
+      await counselorProvider.fetchStudentReports();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '✅ Report Marked as REVIEWED',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Violation by $reportedStudentName is now ready for tallying',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } else if (context.mounted) {
+      notesController.dispose();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Failed to mark report as reviewed'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  },
+  icon: const Icon(Icons.check),
+  label: const Text('Confirm Reviewed'),
+  style: ElevatedButton.styleFrom(
+    backgroundColor: Colors.green,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+  ),
+),
       ],
     ),
   );

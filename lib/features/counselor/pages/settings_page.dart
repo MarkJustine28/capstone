@@ -603,56 +603,56 @@ class _CounselorSettingsPageState extends State<CounselorSettingsPage> {
   }
 
   Widget _buildProfileCard() {
-    return Consumer<CounselorProvider>(
-      builder: (context, counselorProvider, child) {
-        final profile = counselorProvider.counselorProfile;
-        
-        return Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.blue.shade700,
-                  child: Text(
-                    _getInitials(profile),
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _getFullName(profile),
+  return Consumer<CounselorProvider>(
+    builder: (context, counselorProvider, child) {
+      final profile = counselorProvider.counselorProfile;
+      
+      return Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: Colors.blue.shade700,
+                child: Text(
+                  _getInitials(profile),
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 32,
                     fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
-                Text(
-                  profile?['email'] ?? 'No email',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _getFullName(profile),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-                const SizedBox(height: 16),
-                const Divider(),
-                const SizedBox(height: 8),
-                _buildProfileRow('Employee ID', profile?['employee_id'] ?? 'N/A'),
-                _buildProfileRow('Department', profile?['department'] ?? 'Guidance'),
-                _buildProfileRow('Role', 'Guidance Counselor'),
-              ],
-            ),
+              ),
+              Text(
+                profile?['username'] ?? 'No username',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              // ✅ REMOVED: Department field
+              _buildProfileRow('Role', 'Guidance Counselor'),
+              _buildProfileRow('User ID', profile?['user_id']?.toString() ?? 'N/A'),
+            ],
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildProfileRow(String label, String value) {
     return Padding(

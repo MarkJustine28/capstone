@@ -700,8 +700,18 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   });
 
   try {
-    // ✅ NEW: Send guidance notice to BOTH reporter and reported student
-    final success = await counselorProvider.sendGuidanceNotice(report['id']);
+    // ✅ FIX: Get report type and pass it to sendGuidanceNotice
+    final reportType = report['report_type']?.toString() ?? 'student_report';
+    
+    debugPrint('📢 Sending guidance notice for report #${report['id']} (type: $reportType)');
+    
+    // ✅ NEW: Send guidance notice to BOTH reporter and reported student with report type
+    final success = await counselorProvider.sendGuidanceNotice(
+      reportId: report['id'],
+      reportType: reportType, // ✅ Pass the report type
+      message: 'You are summoned to the guidance office regarding an incident report. Please report as soon as possible.',
+      scheduledDate: DateTime.now(),
+    );
     
     if (mounted) {
       if (success) {
@@ -724,7 +734,7 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
-                        "✓ ${report['reported_student_name'] ?? 'Student'} notified to report to guidance office\n"
+                        "✓ ${report['reported_student_name'] ?? report['student_name'] ?? 'Student'} notified to report to guidance office\n"
                         "✓ ${report['reported_by']?['name'] ?? 'Reporter'} notified that student was summoned",
                         style: const TextStyle(fontSize: 11, color: Colors.white),
                       ),
@@ -736,11 +746,9 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: 'View List',
+              label: 'OK',
               textColor: Colors.white,
-              onPressed: () {
-                // Navigate to Students Management -> Send Guidance Notice tab
-              },
+              onPressed: () {},
             ),
           ),
         );
@@ -754,6 +762,7 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
       }
     }
   } catch (e) {
+    debugPrint('❌ Error sending guidance notice: $e');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1022,6 +1031,26 @@ Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic>
             ),
             maxLines: 3,
           ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This report will be marked as invalid and will not count towards violations.',
+                    style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
       actions: [
@@ -1036,14 +1065,26 @@ Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic>
           onPressed: () {
             if (reasonController.text.trim().isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please provide a reason')),
+                const SnackBar(
+                  content: Text('Please provide a reason'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+            if (reasonController.text.trim().length < 20) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please provide more details (at least 20 characters)'),
+                  backgroundColor: Colors.orange,
+                ),
               );
               return;
             }
             Navigator.of(context).pop(true);
           },
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+          child: const Text('Confirm Invalid', style: TextStyle(color: Colors.white)),
         ),
       ],
     ),
@@ -1052,17 +1093,50 @@ Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic>
   if (confirmed == true && mounted) {
     final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
     
+    // ✅ FIX: Get and pass report type
+    final reportType = report['report_type']?.toString() ?? 'student_report';
+    
     final success = await counselorProvider.markReportAsInvalid(
       reportId: report['id'],
       reason: reasonController.text.trim(),
+      reportType: reportType, // ✅ Pass the report type
     );
     
     if (success && mounted) {
       await counselorProvider.fetchCounselorStudentReports(forceRefresh: true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Report marked as invalid'),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '✅ Report Marked as Invalid',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      '${report['reported_student_name'] ?? report['student_name'] ?? 'Student'} has been cleared',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Failed to mark report as invalid'),
+          backgroundColor: Colors.red,
         ),
       );
     }
@@ -1192,10 +1266,14 @@ Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic>
   });
 
   try {
+    // ✅ FIX: Get and pass report type
+    final reportType = report['report_type']?.toString() ?? 'student_report';
+    
     // ✅ Update report status to 'invalid' instead of just marking as reviewed
     final success = await counselorProvider.updateReportStatus(
       report['id'],
       'invalid', // Mark as invalid/dismissed
+      reportType: reportType, // ✅ Pass the report type
     );
     
     if (mounted) {

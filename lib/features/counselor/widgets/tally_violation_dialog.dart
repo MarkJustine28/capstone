@@ -73,143 +73,151 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
   }
 
   Future<void> _sendGuidanceNotice() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSending = true);
+  setState(() => _isSending = true);
 
-    try {
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+  try {
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    
+    // ✅ FIX: Get report type from report data
+    final reportType = widget.report['report_type']?.toString() ?? 'student_report';
+    
+    final success = await counselorProvider.sendCounselingSummons(
+      reportId: widget.report['id'],
+      reportType: reportType, // ✅ Pass report type
+      scheduledDate: _selectedDate?.toIso8601String(),
+      message: _messageController.text.trim(),
+    );
+
+    if (success && mounted) {
+      Navigator.of(context).pop();
+      widget.onViolationTallied();
       
-      final success = await counselorProvider.sendCounselingSummons(
-        reportId: widget.report['id'],
-        scheduledDate: _selectedDate?.toIso8601String(),
-        message: _messageController.text.trim(),
-      );
+      final studentName = widget.report['reported_student_name']?.toString() ?? 
+                         widget.report['student']?['name']?.toString() ?? 
+                         widget.report['student_name']?.toString() ??
+                         'the student';
 
-      if (success && mounted) {
-        Navigator.of(context).pop();
-        widget.onViolationTallied();
-        
-        final studentName = widget.report['reported_student_name']?.toString() ?? 
-                           widget.report['student']?['name']?.toString() ?? 
-                           widget.report['student_name']?.toString() ??
-                           'the student';
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.notifications_active, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '📢 Guidance Notice Sent!',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      Text(
-                        '$studentName has been notified to report to the guidance office.',
-                        style: const TextStyle(fontSize: 12, color: Colors.white),
-                      ),
-                    ],
-                  ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.notifications_active, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '📢 Guidance Notice Sent!',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      '$studentName has been notified to report to the guidance office.',
+                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'OK',
-              textColor: Colors.white,
-              onPressed: () {},
-            ),
+              ),
+            ],
           ),
-        );
-      } else {
-        throw Exception('Failed to send guidance notice');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Error: $e'),
-            backgroundColor: Colors.red,
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
           ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
+        ),
+      );
+    } else {
+      throw Exception('Failed to send guidance notice');
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isSending = false);
     }
   }
+}
 
   Future<void> _markAsInvalid() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSending = true);
+  setState(() => _isSending = true);
 
-    try {
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+  try {
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    
+    // ✅ FIX: Get report type from report data
+    final reportType = widget.report['report_type']?.toString() ?? 'student_report';
+    
+    final success = await counselorProvider.markReportAsInvalid(
+      reportId: widget.report['id'],
+      reason: _invalidReasonController.text.trim(),
+      reportType: reportType, // ✅ Pass report type
+    );
+
+    if (success && mounted) {
+      Navigator.of(context).pop();
+      widget.onViolationTallied();
       
-      final success = await counselorProvider.markReportAsInvalid(
-        reportId: widget.report['id'],
-        reason: _invalidReasonController.text.trim(),
-      );
-
-      if (success && mounted) {
-        Navigator.of(context).pop();
-        widget.onViolationTallied();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.cancel, color: Colors.white),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '✅ Report Marked as Invalid',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      Text(
-                        'Notifications sent to student and reporter',
-                        style: TextStyle(fontSize: 12, color: Colors.white),
-                      ),
-                    ],
-                  ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.cancel, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '✅ Report Marked as Invalid',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      'Notifications sent to student and reporter',
+                      style: TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 4),
+              ),
+            ],
           ),
-        );
-      } else {
-        throw Exception('Failed to mark report as invalid');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } else {
+      throw Exception('Failed to mark report as invalid');
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isSending = false);
     }
   }
+}
 
   void _proceedToTally() {
     Navigator.of(context).pop();
@@ -915,124 +923,129 @@ class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
   }
 
   Future<void> _tallyViolation() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isTallying = true);
+  setState(() => _isTallying = true);
 
-    try {
-      final studentId = widget.report['reported_student_id']?.toString() ??
-          widget.report['student']?['id']?.toString() ??
-          widget.report['student_id']?.toString();
+  try {
+    final studentId = widget.report['reported_student_id']?.toString() ??
+        widget.report['student']?['id']?.toString() ??
+        widget.report['student_id']?.toString();
 
-      if (studentId == null) {
-        throw Exception('Student ID not found in report');
-      }
+    if (studentId == null) {
+      throw Exception('Student ID not found in report');
+    }
 
-      if (_selectedViolationType == null) {
-        throw Exception('Please select a violation type');
-      }
+    if (_selectedViolationType == null) {
+      throw Exception('Please select a violation type');
+    }
 
-      final violationData = {
-        'student_id': studentId,
-        'violation_type_id': _selectedViolationType!['id'],
-        'incident_date': _incidentDate.toIso8601String(),
-        'description': 'Report Title: ${widget.report['title'] ?? 'N/A'}\n\n'
-                      'Reported by: ${widget.report['reported_by']?['name'] ?? 'Unknown'}\n\n'
-                      'Original Report:\n${widget.report['content'] ?? widget.report['description'] ?? 'No description available'}\n\n'
-                      'Counseling Notes:\n${_counselorNotesController.text.trim()}',
-        'location': widget.report['location'] ?? '',
-        'severity_override': _severity,
-        'related_report_id': widget.report['id'],
-        'status': 'active',
-        'counselor_notes': _counselorNotesController.text.trim(),
-      };
+    final violationData = {
+      'student_id': studentId,
+      'violation_type_id': _selectedViolationType!['id'],
+      'incident_date': _incidentDate.toIso8601String(),
+      'description': 'Report Title: ${widget.report['title'] ?? 'N/A'}\n\n'
+                    'Reported by: ${widget.report['reported_by']?['name'] ?? 'Unknown'}\n\n'
+                    'Original Report:\n${widget.report['content'] ?? widget.report['description'] ?? 'No description available'}\n\n'
+                    'Counseling Notes:\n${_counselorNotesController.text.trim()}',
+      'location': widget.report['location'] ?? '',
+      'severity_override': _severity,
+      'related_report_id': widget.report['id'],
+      'status': 'active',
+      'counselor_notes': _counselorNotesController.text.trim(),
+    };
 
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+    
+    final success = await counselorProvider.recordViolation(violationData);
+
+    if (success && mounted) {
+      // ✅ FIX: Get report type and pass to updateReportStatus
+      final reportType = widget.report['report_type']?.toString() ?? 'student_report';
       
-      final success = await counselorProvider.recordViolation(violationData);
-
-      if (success && mounted) {
-        // Mark report as resolved
-        await counselorProvider.updateReportStatus(
-          widget.report['id'],
-          'resolved',
-        );
-        
-        // Refresh all data
-        await Future.wait([
-          counselorProvider.fetchStudentsList(),
-          counselorProvider.fetchStudentViolations(),
-          counselorProvider.fetchCounselorStudentReports(forceRefresh: true),
-        ]);
-        
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onViolationTallied();
-          
-          final studentName = widget.report['reported_student_name']?.toString() ?? 
-                             widget.report['student']?['name']?.toString() ?? 
-                             widget.report['student_name']?.toString() ??
-                             'student';
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          '✅ Violation Tallied Successfully',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
-                        Text(
-                          'Notifications sent to $studentName and the reporter',
-                          style: const TextStyle(fontSize: 12, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 5),
-              action: SnackBarAction(
-                label: 'View',
-                textColor: Colors.white,
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const StudentViolationsPage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
-        }
-      } else {
-        throw Exception('Failed to tally violation');
-      }
-    } catch (e) {
+      // Mark report as resolved
+      await counselorProvider.updateReportStatus(
+        widget.report['id'],
+        'resolved',
+        reportType: reportType, // ✅ Pass report type
+      );
+      
+      // Refresh all data
+      await Future.wait([
+        counselorProvider.fetchStudentsList(),
+        counselorProvider.fetchStudentViolations(),
+        counselorProvider.fetchCounselorStudentReports(forceRefresh: true),
+        counselorProvider.fetchTeacherReports(), // ✅ Also refresh teacher reports
+      ]);
+      
       if (mounted) {
+        Navigator.of(context).pop();
+        widget.onViolationTallied();
+        
+        final studentName = widget.report['reported_student_name']?.toString() ?? 
+                           widget.report['student']?['name']?.toString() ?? 
+                           widget.report['student_name']?.toString() ??
+                           'student';
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Error: $e'),
-            backgroundColor: Colors.red,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        '✅ Violation Tallied Successfully',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      Text(
+                        'Notifications sent to $studentName and the reporter',
+                        style: const TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'View',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const StudentViolationsPage(),
+                  ),
+                );
+              },
+            ),
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isTallying = false);
-      }
+    } else {
+      throw Exception('Failed to tally violation');
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isTallying = false);
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
