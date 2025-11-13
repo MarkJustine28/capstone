@@ -53,8 +53,8 @@ from .views import (
     bulk_promote_grade,
     get_promotion_preview,
     student_profile,
-    get_system_settings,  # ✅ Add this
-    update_system_settings,  # ✅ Add this
+    get_system_settings,
+    update_system_settings,
 )
 
 urlpatterns = [
@@ -89,6 +89,11 @@ urlpatterns = [
     path('counselor/tally-records/', tally_records, name='tally_records'),
     path('counselor/available-school-years/', views.counselor_available_school_years, name='counselor_available_school_years'),
     
+    # ✅ ADD THESE COUNSELOR REPORT MANAGEMENT ROUTES:
+    path('counselor/send-guidance-notice/<int:report_id>/', send_guidance_notice, name='counselor_send_guidance_notice'),
+    path('counselor/update-report-status/<int:report_id>/', update_report_status, name='counselor_update_report_status'),
+    path('counselor/mark-report-invalid/<int:report_id>/', mark_report_invalid, name='counselor_mark_report_invalid'),
+    
     # General/shared endpoints
     path('students/', get_students_list, name='get_students_list'),
     path('students/add/', add_student, name='add_student'),
@@ -101,7 +106,7 @@ urlpatterns = [
     path('violation-types/', violation_types, name='violation_types'),
     path('get-violation-types/', get_violation_types, name='get_violation_types'),
     
-    # Report management
+    # Report management (general - kept for backwards compatibility)
     path('reports/<int:report_id>/update-status/', update_report_status, name='update_report_status'),
     path('reports/<int:report_id>/mark-reviewed/', mark_report_reviewed, name='mark_report_reviewed'),
     path('reports/<int:report_id>/mark-invalid/', mark_report_invalid, name='mark_report_invalid'),
