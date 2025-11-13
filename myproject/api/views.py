@@ -2181,138 +2181,27 @@ def counselor_dashboard(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def counselor_student_reports(request):
-    """Get student reports for counselor review"""
+def counselor_students_list(request):
+    """
+    Get list of all students with optional filtering
+    Used by counselors to view student records
+    """
     try:
-        # Check if user has counselor permissions
-        try:
-            counselor = Counselor.objects.get(user=request.user)
-        except Counselor.DoesNotExist:
+        # Verify user is a counselor
+        if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Access denied. Counselor role required.'
+                'error': 'Only counselors can access this endpoint'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Get all reports submitted by students
-        reports = Report.objects.filter(
-            report_type__in=['peer_report', 'self_report', 'incident']
-        ).select_related(
-            'reported_by', 
-            'violation_type', 
-            'student',
-            'student__user'
-        ).order_by('-created_at')
+        # Get school year parameter (optional)
+        school_year = request.GET.get('school_year', None)
         
-        reports_data = []
-        for report in reports:
-            try:
-                # Get reporter information
-                reported_by_info = None
-                if report.reported_by:
-                    try:
-                        reporter_student = Student.objects.get(user=report.reported_by)
-                        reported_by_info = {
-                            'id': report.reported_by.id,
-                            'name': f"{report.reported_by.first_name} {report.reported_by.last_name}".strip(),
-                            'username': report.reported_by.username,
-                            'student_id': reporter_student.student_id,
-                            'grade_level': reporter_student.grade_level,
-                            'section': reporter_student.section,
-                        }
-                    except Student.DoesNotExist:
-                        reported_by_info = {
-                            'id': report.reported_by.id,
-                            'name': f"{report.reported_by.first_name} {report.reported_by.last_name}".strip(),
-                            'username': report.reported_by.username,
-                        }
-                
-                # Get student being reported (THIS IS WHO SHOULD GET THE VIOLATION)
-                reported_student_info = None
-                if report.student:
-                    reported_student_info = {
-                        'id': report.student.id,
-                        'name': f"{report.student.user.first_name} {report.student.user.last_name}".strip(),
-                        'student_id': report.student.student_id,
-                        'grade_level': report.student.grade_level,
-                        'section': report.student.section,
-                        'strand': getattr(report.student, 'strand', 'N/A'),
-                    }
-                
-                # Extract reported student name from location field if not found
-                reported_student_name = 'Unknown Student'
-                if reported_student_info:
-                    reported_student_name = reported_student_info['name']
-                elif hasattr(report, 'location') and report.location and 'Reported Student:' in report.location:
-                    reported_student_name = report.location.replace('Reported Student:', '').strip()
-                
-                # ✅ FIX: Safely check for evidence_files attribute
-                evidence_url = None
-                if hasattr(report, 'evidence_files') and report.evidence_files:
-                    try:
-                        evidence_url = report.evidence_files.url
-                    except:
-                        evidence_url = None
-                
-                report_data = {
-                    'id': report.id,
-                    'title': report.title,
-                    'description': getattr(report, 'content', ''),
-                    'content': getattr(report, 'content', ''),
-                    'status': report.status,
-                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
-                    'incident_location': getattr(report, 'location', ''),
-                    'created_at': report.created_at.isoformat(),
-                    'reporter_type': 'Student',
-                    
-                    # CRITICAL: Add both field names for compatibility
-                    'reported_student_id': report.student.id if report.student else None,
-                    'reported_student': reported_student_info,
-                    'student': reported_student_info,
-                    'student_name': reported_student_name,
-                    
-                    # Reporter info
-                    'reporter': reported_by_info,
-                    'reported_by': reported_by_info,
-                    
-                    # Violation details
-                    'violation_type': report.violation_type.name if report.violation_type else getattr(report, 'custom_violation', 'Other'),
-                    'custom_violation': getattr(report, 'custom_violation', ''),
-                    'report_type': report.report_type,
-                    'severity_level': getattr(report, 'severity_assessment', 'Medium'),
-                    'severity_assessment': getattr(report, 'severity_assessment', 'Medium'),
-                    'witnesses': getattr(report, 'witnesses', ''),
-                    'evidence_files': evidence_url,  # ✅ Safe access
-                    'counselor_notes': getattr(report, 'counselor_notes', ''),
-                }
-
-                logger.info(f"📤 Report #{report.id}: violation_type='{report.violation_type.name if report.violation_type else 'None'}', violation_type_id={report.violation_type.id if report.violation_type else 'None'}")
-                
-                reports_data.append(report_data)
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Error processing report {report.id}: {e}")
-                continue
+        logger.info(f"📊 Fetching students list, school_year parameter: {school_year}")
         
-        logger.info(f"📋 Found {len(reports_data)} student reports for counselor {counselor.user.username}")
-        
-        return Response({
-            'success': True,
-            'reports': reports_data,
-            'count': len(reports_data),
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error fetching counselor student reports: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return Response({
-            'success': False,
-            'error': str(e),
-            'reports': [],
-            'count': 0
-        }, status=500)
-
-  'grade_level', 'section', 'user__last_name', 'user__first_name'
+        # Base query - get all students with their user data
+        students_query = Student.objects.select_related('user').order_by(
+            'grade_level', 'section', 'user__last_name', 'user__first_name'
         )
         
         # Filter by school year if provided
@@ -2366,7 +2255,7 @@ def counselor_student_reports(request):
             'success': False,
             'error': f'Failed to fetch students: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
 @csrf_exempt
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
