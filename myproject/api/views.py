@@ -2315,70 +2315,79 @@ def counselor_student_reports(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def counselor_students_list(request):
-    """Get students list for counselor with optional school year filter"""
+    """
+    Get list of all students with optional filtering
+    Used by counselors to view student records
+    """
     try:
-        if not hasattr(request.user, 'counselor'):
+        # Verify user is a counselor
+        if not hasattr(request.user, 'counselor_profile'):
             return Response({
                 'success': False,
-                'error': 'Access denied. Counselor role required.'
+                'error': 'Only counselors can access this endpoint'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # ✅ NEW: Get school year from query params
+        # Get school year parameter (optional)
         school_year = request.GET.get('school_year', None)
         
         logger.info(f"📊 Fetching students list, school_year parameter: {school_year}")
         
-        # ✅ Base query - all active students
-        students_query = Student.objects.filter(is_active=True).select_related('user')
+        # ✅ FIX: Remove is_active filter (field doesn't exist in Student model)
+        # Base query - get all students with their user data
+        students_query = Student.objects.select_related('user').order_by(
+            'grade_level', 'section', 'user__last_name', 'user__first_name'
+        )
         
-        # ✅ Filter by school year if provided
-        if school_year and school_year != 'all':
+        # Filter by school year if provided
+        if school_year:
             students_query = students_query.filter(school_year=school_year)
-            logger.info(f"🔍 Filtering students by school year: {school_year}")
-        else:
-            logger.info(f"📋 Fetching all students (no school year filter)")
+            logger.info(f"🔍 Filtering by school year: {school_year}")
         
-        students = students_query.order_by('grade_level', 'section', 'user__last_name')
-        
+        # Serialize student data
         students_data = []
-        for student in students:
-            students_data.append({
+        for student in students_query:
+            # Get violation count for this student
+            violation_count = ViolationHistory.objects.filter(
+                student=student,
+                school_year=student.school_year
+            ).count()
+            
+            student_data = {
                 'id': student.id,
                 'student_id': student.student_id,
-                'name': student.user.get_full_name() or student.user.username,
+                'user_id': student.user.id,
+                'username': student.user.username,
+                'email': student.user.email,
                 'first_name': student.user.first_name,
                 'last_name': student.user.last_name,
-                'email': student.user.email,
+                'full_name': f"{student.user.first_name} {student.user.last_name}".strip(),
                 'grade_level': student.grade_level,
+                'strand': student.strand or '',
                 'section': student.section,
-                'strand': student.strand,
-                'school_year': student.school_year,  # ✅ IMPORTANT: Include school_year
-                'contact_number': student.contact_number,
-                'guardian_name': student.guardian_name,
-                'guardian_contact': student.guardian_contact,
-                'is_active': student.is_active,
-            })
+                'school_year': student.school_year,
+                'guardian_name': student.guardian_name or '',
+                'guardian_contact': student.guardian_contact or '',
+                'contact_number': student.contact_number or '',
+                'violation_count': violation_count,
+                'created_at': student.created_at.isoformat() if student.created_at else None,
+            }
+            students_data.append(student_data)
         
-        logger.info(f"✅ Returning {len(students_data)} students")
-        
-        # ✅ DEBUG: Log first student if available
-        if students_data:
-            logger.info(f"📌 Sample student: {students_data[0]}")
+        logger.info(f"✅ Successfully fetched {len(students_data)} students")
         
         return Response({
             'success': True,
             'students': students_data,
-            'total': len(students_data),
-            'filtered_by_school_year': school_year if school_year and school_year != 'all' else None,
-        })
+            'total_count': len(students_data),
+            'filtered_by_school_year': school_year
+        }, status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"❌ Error fetching students: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return Response({
             'success': False,
-            'error': str(e)
+            'error': f'Failed to fetch students: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @csrf_exempt
