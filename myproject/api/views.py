@@ -3434,12 +3434,12 @@ def update_report_status(request, report_id):
         
         logger.info(f"🔄 Updating {report_type} #{report_id} status")
         
-        # ✅ FIX: Remove '__user' from select_related
+        # Get the correct report based on type
         if report_type == 'teacher_report':
             try:
                 report = TeacherReport.objects.select_related(
-                    'reported_by',          # ✅ Just get the Teacher
-                    'student',              # ✅ Just get the Student
+                    'reported_by',
+                    'student',
                 ).get(id=report_id)
             except TeacherReport.DoesNotExist:
                 return Response({
@@ -3449,12 +3449,11 @@ def update_report_status(request, report_id):
         else:
             # student_report, peer_report, or self_report
             try:
-                # ✅ FIX: Remove '__user' from all select_related paths
                 report = StudentReport.objects.select_related(
-                    'reporter_student',        # ✅ Just get the Student (reporter)
-                    'reported_student',        # ✅ Just get the Student (reported)
-                    'assigned_counselor',      # ✅ Just get the Counselor
-                    'verified_by',             # ✅ Just get the Counselor (verifier)
+                    'reporter_student',
+                    'reported_student',
+                    'assigned_counselor',
+                    'verified_by',
                 ).get(id=report_id)
             except StudentReport.DoesNotExist:
                 return Response({
@@ -3513,7 +3512,7 @@ def update_report_status(request, report_id):
         
         # Update timestamps based on status
         if new_status == 'verified':
-            report.verified_by = counselor
+            report.verified_by = request.user  # ✅ FIX: Assign User instance, not Counselor
             if hasattr(report, 'verified_at'):
                 report.verified_at = timezone.now()
         elif new_status == 'resolved':
