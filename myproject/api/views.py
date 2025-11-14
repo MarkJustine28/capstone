@@ -3434,12 +3434,12 @@ def update_report_status(request, report_id):
         
         logger.info(f"🔄 Updating {report_type} #{report_id} status")
         
-        # ✅ FIX: Use correct field names from the model
+        # ✅ FIX: Remove '__user' from select_related
         if report_type == 'teacher_report':
             try:
                 report = TeacherReport.objects.select_related(
-                    'reported_by__user',
-                    'student__user',
+                    'reported_by',          # ✅ Just get the Teacher
+                    'student',              # ✅ Just get the Student
                 ).get(id=report_id)
             except TeacherReport.DoesNotExist:
                 return Response({
@@ -3449,12 +3449,12 @@ def update_report_status(request, report_id):
         else:
             # student_report, peer_report, or self_report
             try:
-                # ✅ FIX: Only select_related fields that exist in StudentReport model
+                # ✅ FIX: Remove '__user' from all select_related paths
                 report = StudentReport.objects.select_related(
-                    'reporter_student__user',      # ✅ Correct field name
-                    'reported_student__user',      # ✅ Correct field name
-                    'assigned_counselor__user',    # ✅ Correct field name
-                    'verified_by__user',           # ✅ Correct field name
+                    'reporter_student',        # ✅ Just get the Student (reporter)
+                    'reported_student',        # ✅ Just get the Student (reported)
+                    'assigned_counselor',      # ✅ Just get the Counselor
+                    'verified_by',             # ✅ Just get the Counselor (verifier)
                 ).get(id=report_id)
             except StudentReport.DoesNotExist:
                 return Response({
@@ -3483,7 +3483,7 @@ def update_report_status(request, report_id):
         
         old_status = report.status
         
-        # Validate status transition based on model choices (from models.py line 216)
+        # Validate status transition based on model choices
         valid_statuses = [
             'pending', 'under_review', 'under_investigation', 
             'summons_sent', 'verified', 'dismissed', 
@@ -3514,10 +3514,11 @@ def update_report_status(request, report_id):
         # Update timestamps based on status
         if new_status == 'verified':
             report.verified_by = counselor
-            # Note: If there's a verified_at field, add: report.verified_at = timezone.now()
+            if hasattr(report, 'verified_at'):
+                report.verified_at = timezone.now()
         elif new_status == 'resolved':
-            # Note: If there's a resolved_at field, add: report.resolved_at = timezone.now()
-            pass
+            if hasattr(report, 'resolved_at'):
+                report.resolved_at = timezone.now()
         
         report.save()
         
@@ -3529,11 +3530,10 @@ def update_report_status(request, report_id):
             reporter = report.reported_by
         else:
             reported_student = report.reported_student
-            # ✅ FIX: Get reporter from correct field
-            reporter = report.reporter_student if hasattr(report, 'reporter_student') else None
+            reporter = report.reporter_student
         
         # Notify reported student
-        if reported_student and reported_student.user:
+        if reported_student and hasattr(reported_student, 'user') and reported_student.user:
             if new_status == 'verified':
                 message = f'The report "{report.title}" has been validated after counseling. It will be tallied as a violation.'
             elif new_status == 'dismissed':
