@@ -3423,133 +3423,170 @@ def mark_report_invalid(request, report_id):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def update_report_status(request, report_id):
     """Update report status with notifications"""
     try:
-        report = Report.objects.select_related(
-            'reported_by_user',
-            'reported_student__user',
-            'handled_by_counselor__user'
-        ).get(id=report_id)
+        # Get report type from request
+        report_type = request.data.get('report_type', 'student_report')
         
-        new_status = request.data.get('status')
-        notes = request.data.get('notes', '')
+        logger.info(f"🔄 Updating {report_type} #{report_id} status")
         
-        # Get counselor
-        counselor = Counselor.objects.filter(user=request.user).first()
-        if not counselor:
+        # ✅ FIX: Get the correct report based on type
+        if report_type == 'teacher_report':
+            try:
+                report = TeacherReport.objects.select_related(
+                    'reporter_teacher__user',
+                    'reported_student__user',
+                    'assigned_counselor__user'
+                ).get(id=report_id)
+            except TeacherReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Teacher report not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+        else:
+            # student_report, peer_report, or self_report
+            try:
+                report = StudentReport.objects.select_related(
+                    'reported_student__user',
+                    'reporter_student__user',
+                    'reporter_teacher__user',
+                    'reporter_counselor__user',
+                    'assigned_counselor__user'
+                ).get(id=report_id)
+            except StudentReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Student report not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Verify user is a counselor
+        if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
                 'error': 'Only counselors can update report status'
-            }, status=403)
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        counselor = request.user.counselor
+        
+        # Get new status and notes
+        new_status = request.data.get('status')
+        notes = request.data.get('notes', '')
+        
+        if not new_status:
+            return Response({
+                'success': False,
+                'error': 'Status is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         old_status = report.status
+        
+        # Validate status transition based on model choices (from models.py line 216)
+        valid_statuses = [
+            'pending', 'under_review', 'under_investigation', 
+            'summons_sent', 'verified', 'dismissed', 
+            'resolved', 'escalated'
+        ]
+        
+        if new_status not in valid_statuses:
+            return Response({
+                'success': False,
+                'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update report
         report.status = new_status
-        report.handled_by_counselor = counselor
+        report.assigned_counselor = counselor
         
         # Add notes if provided
         if notes:
+            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+            counselor_name = request.user.get_full_name() or request.user.username
+            note_entry = f"[{timestamp}] {counselor_name}: {notes}"
+            
             if report.counselor_notes:
-                report.counselor_notes += f"\n\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {notes}"
+                report.counselor_notes += f"\n\n{note_entry}"
             else:
-                report.counselor_notes = notes
+                report.counselor_notes = note_entry
+        
+        # Update timestamps based on status
+        if new_status == 'verified':
+            report.is_reviewed = True
+            report.reviewed_at = timezone.now()
+        elif new_status == 'resolved':
+            report.resolved_at = timezone.now()
         
         report.save()
         
-        # ✅ NEW: Send notifications based on status change
+        logger.info(f"✅ {report_type} #{report_id} status updated: {old_status} → {new_status}")
+        
+        # Send notifications
         from django.contrib.contenttypes.models import ContentType
-        report_content_type = ContentType.objects.get_for_model(Report)
         
-        # Notification for SUMMONED status
-        if new_status == 'summoned' and old_status != 'summoned':
-            # Notify reported student
-            if report.reported_student and report.reported_student.user:
-                Notification.objects.create(
-                    user=report.reported_student.user,
-                    title='📢 Guidance Office Notice',
-                    message=f'You are summoned to the guidance office regarding: "{report.title}". '
-                           f'Please report as soon as possible for counseling.',
-                    notification_type='guidance_summon',
-                    related_content_type=report_content_type,
-                    related_object_id=report.id,
-                    action_url=f'/student/reports/{report.id}',
-                    priority='high',
-                )
+        if report_type == 'teacher_report':
+            report_ct = ContentType.objects.get_for_model(TeacherReport)
+            reported_student = report.reported_student
+            reporter = report.reporter_teacher
+        else:
+            report_ct = ContentType.objects.get_for_model(StudentReport)
+            reported_student = report.reported_student
+            reporter = report.reporter_student or report.reporter_teacher or report.reporter_counselor
+        
+        # Notify reported student
+        if reported_student and reported_student.user:
+            if new_status == 'verified':
+                message = f'The report "{report.title}" has been validated after counseling. It will be tallied as a violation.'
+            elif new_status == 'dismissed':
+                message = f'The report "{report.title}" has been dismissed after investigation. No violation will be recorded.'
+            elif new_status == 'resolved':
+                message = f'The report "{report.title}" has been resolved and closed.'
+            elif new_status == 'summons_sent':
+                message = f'You have been summoned to the guidance office regarding "{report.title}". Please report as soon as possible.'
+            else:
+                message = f'Report "{report.title}" status updated to: {new_status}'
             
-            # Notify reporter
-            if report.reported_by_user:
-                Notification.objects.create(
-                    user=report.reported_by_user,
-                    title='📋 Report Update: Student Summoned',
-                    message=f'Your report "{report.title}" has been reviewed. The student has been summoned to guidance office.',
-                    notification_type='report_update',
-                    related_content_type=report_content_type,
-                    related_object_id=report.id,
-                    action_url=f'/reports/{report.id}',
-                    priority='medium',
-                )
+            Notification.objects.create(
+                recipient=reported_student.user,
+                title='Report Status Update',
+                message=message,
+                notification_type='report_update',
+                related_content_type=report_ct,
+                related_object_id=report.id,
+            )
         
-        # Notification for REVIEWED status
-        elif new_status == 'reviewed':
-            if report.reported_by_user:
-                Notification.objects.create(
-                    user=report.reported_by_user,
-                    title='✅ Report Reviewed',
-                    message=f'Your report "{report.title}" has been validated and marked as reviewed. It will be tallied as a violation.',
-                    notification_type='report_update',
-                    related_content_type=report_content_type,
-                    related_object_id=report.id,
-                    priority='medium',
-                )
-        
-        # Notification for INVALID status
-        elif new_status == 'invalid':
-            # Notify reporter that their report was invalid
-            if report.reported_by_user:
-                Notification.objects.create(
-                    user=report.reported_by_user,
-                    title='❌ Report Marked Invalid',
-                    message=f'Your report "{report.title}" has been reviewed and marked as invalid. Reason: {notes[:100]}',
-                    notification_type='report_update',
-                    related_content_type=report_content_type,
-                    related_object_id=report.id,
-                    priority='medium',
-                )
-            
-            # Notify reported student that they were cleared
-            if report.reported_student and report.reported_student.user:
-                Notification.objects.create(
-                    user=report.reported_student.user,
-                    title='✅ Report Cleared',
-                    message=f'The report against you regarding "{report.title}" has been investigated and found to be invalid. You are cleared.',
-                    notification_type='cleared',
-                    related_content_type=report_content_type,
-                    related_object_id=report.id,
-                    priority='high',
-                )
+        # Notify reporter
+        if reporter and hasattr(reporter, 'user'):
+            Notification.objects.create(
+                recipient=reporter.user,
+                title='Report Status Update',
+                message=f'Report "{report.title}" has been updated to: {new_status}',
+                notification_type='report_update',
+                related_content_type=report_ct,
+                related_object_id=report.id,
+            )
         
         return Response({
             'success': True,
             'message': f'Report status updated to {new_status}',
-            'report_id': report.id,
-            'status': report.status,
-        })
+            'report': {
+                'id': report.id,
+                'status': report.status,
+                'old_status': old_status,
+                'counselor_notes': report.counselor_notes,
+            }
+        }, status=status.HTTP_200_OK)
         
-    except Report.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Report not found'
-        }, status=404)
     except Exception as e:
-        print(f"❌ Error updating report status: {e}")
+        logger.error(f"❌ Error updating report status: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return Response({
             'success': False,
-            'error': str(e)
-        }, status=500)
+            'error': f'Failed to update report status: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
