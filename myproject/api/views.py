@@ -3761,7 +3761,7 @@ def send_guidance_notice(request, report_id):
         
         # Update report status if still pending
         if report.status == 'pending':
-            report.status = 'summons_sent'
+            report.status = 'summoned'
         
         report.save()
         
