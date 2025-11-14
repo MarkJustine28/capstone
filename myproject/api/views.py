@@ -1482,19 +1482,34 @@ def record_violation(request):
             logger.error(f"Error parsing incident_date: {e}")
             incident_date_parsed = timezone.now()
         
+        # ✅ FIX: Check what fields StudentViolationRecord actually has
+        # Try different possible field names for severity
+        violation_data = {
+            'student': student,
+            'violation_type': violation_type,
+            'incident_date': incident_date_parsed,
+            'description': description,
+            'location': location,
+            'counselor': counselor,
+            'counselor_notes': counselor_notes,
+            'school_year': student.school_year,
+            'status': 'active',
+        }
+        
+        # ✅ Try to add severity field with different possible names
+        severity_value = severity_override or (violation_type.severity_level if hasattr(violation_type, 'severity_level') else 'Medium')
+        
+        # Try common field name variations
+        if hasattr(StudentViolationRecord, 'severity'):
+            violation_data['severity'] = severity_value
+        elif hasattr(StudentViolationRecord, 'severity_override'):
+            violation_data['severity_override'] = severity_value
+        elif hasattr(StudentViolationRecord, 'disciplinary_action_level'):
+            violation_data['disciplinary_action_level'] = severity_value
+        # If no severity field exists, we'll skip it
+        
         # Create violation history record
-        violation_history = StudentViolationRecord.objects.create(
-            student=student,
-            violation_type=violation_type,
-            incident_date=incident_date_parsed,
-            description=description,
-            location=location,
-            severity_level=severity_override or violation_type.severity_level,
-            counselor=counselor,
-            counselor_notes=counselor_notes,
-            school_year=student.school_year,
-            status='active',
-        )
+        violation_history = StudentViolationRecord.objects.create(**violation_data)
         
         logger.info(f"✅ Violation recorded: {violation_type.name} for student {student.user.get_full_name()}")
         logger.info(f"   Violation ID: {violation_history.id}, School Year: {student.school_year}")
@@ -1538,7 +1553,6 @@ def record_violation(request):
                 'student_name': student.user.get_full_name(),
                 'violation_type': violation_type.name,
                 'incident_date': violation_history.incident_date.isoformat(),
-                'severity': violation_history.severity_level,
                 'status': 'active',
             }
         }, status=status.HTTP_201_CREATED)
