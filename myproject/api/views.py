@@ -3434,13 +3434,12 @@ def update_report_status(request, report_id):
         
         logger.info(f"🔄 Updating {report_type} #{report_id} status")
         
-        # ✅ FIX: Get the correct report based on type
+        # ✅ FIX: Use correct field names from the model
         if report_type == 'teacher_report':
             try:
                 report = TeacherReport.objects.select_related(
-                    'reporter_teacher__user',
-                    'reported_student__user',
-                    'assigned_counselor__user'
+                    'reported_by__user',
+                    'student__user',
                 ).get(id=report_id)
             except TeacherReport.DoesNotExist:
                 return Response({
@@ -3450,12 +3449,12 @@ def update_report_status(request, report_id):
         else:
             # student_report, peer_report, or self_report
             try:
+                # ✅ FIX: Only select_related fields that exist in StudentReport model
                 report = StudentReport.objects.select_related(
-                    'reported_student__user',
-                    'reporter_student__user',
-                    'reporter_teacher__user',
-                    'reporter_counselor__user',
-                    'assigned_counselor__user'
+                    'reporter_student__user',      # ✅ Correct field name
+                    'reported_student__user',      # ✅ Correct field name
+                    'assigned_counselor__user',    # ✅ Correct field name
+                    'verified_by__user',           # ✅ Correct field name
                 ).get(id=report_id)
             except StudentReport.DoesNotExist:
                 return Response({
@@ -3514,26 +3513,24 @@ def update_report_status(request, report_id):
         
         # Update timestamps based on status
         if new_status == 'verified':
-            report.is_reviewed = True
-            report.reviewed_at = timezone.now()
+            report.verified_by = counselor
+            # Note: If there's a verified_at field, add: report.verified_at = timezone.now()
         elif new_status == 'resolved':
-            report.resolved_at = timezone.now()
+            # Note: If there's a resolved_at field, add: report.resolved_at = timezone.now()
+            pass
         
         report.save()
         
         logger.info(f"✅ {report_type} #{report_id} status updated: {old_status} → {new_status}")
         
         # Send notifications
-        from django.contrib.contenttypes.models import ContentType
-        
         if report_type == 'teacher_report':
-            report_ct = ContentType.objects.get_for_model(TeacherReport)
-            reported_student = report.reported_student
-            reporter = report.reporter_teacher
+            reported_student = report.student
+            reporter = report.reported_by
         else:
-            report_ct = ContentType.objects.get_for_model(StudentReport)
             reported_student = report.reported_student
-            reporter = report.reporter_student or report.reporter_teacher or report.reporter_counselor
+            # ✅ FIX: Get reporter from correct field
+            reporter = report.reporter_student if hasattr(report, 'reporter_student') else None
         
         # Notify reported student
         if reported_student and reported_student.user:
@@ -3553,20 +3550,22 @@ def update_report_status(request, report_id):
                 title='Report Status Update',
                 message=message,
                 notification_type='report_update',
-                related_content_type=report_ct,
-                related_object_id=report.id,
+                related_report_id=report.id,
             )
+            
+            logger.info(f"📧 Notification sent to {reported_student.user.get_full_name()}")
         
         # Notify reporter
-        if reporter and hasattr(reporter, 'user'):
+        if reporter and hasattr(reporter, 'user') and reporter.user:
             Notification.objects.create(
                 recipient=reporter.user,
                 title='Report Status Update',
                 message=f'Report "{report.title}" has been updated to: {new_status}',
                 notification_type='report_update',
-                related_content_type=report_ct,
-                related_object_id=report.id,
+                related_report_id=report.id,
             )
+            
+            logger.info(f"📧 Notification sent to reporter {reporter.user.get_full_name()}")
         
         return Response({
             'success': True,
