@@ -3512,7 +3512,7 @@ def update_report_status(request, report_id):
         
         # Update timestamps based on status
         if new_status == 'verified':
-            report.verified_by = request.user  # ✅ FIX: Assign User instance, not Counselor
+            report.verified_by = request.user
             if hasattr(report, 'verified_at'):
                 report.verified_at = timezone.now()
         elif new_status == 'resolved':
@@ -3531,6 +3531,7 @@ def update_report_status(request, report_id):
             reported_student = report.reported_student
             reporter = report.reporter_student
         
+        # ✅ FIX: Use correct Notification field names (user instead of recipient)
         # Notify reported student
         if reported_student and hasattr(reported_student, 'user') and reported_student.user:
             if new_status == 'verified':
@@ -3544,12 +3545,13 @@ def update_report_status(request, report_id):
             else:
                 message = f'Report "{report.title}" status updated to: {new_status}'
             
+            # ✅ FIX: Use correct field names for your Notification model
             Notification.objects.create(
-                recipient=reported_student.user,
+                user=reported_student.user,  # ✅ Changed from 'recipient' to 'user'
                 title='Report Status Update',
                 message=message,
-                notification_type='report_update',
-                related_report_id=report.id,
+                type='report_update',  # ✅ Changed from 'notification_type' to 'type'
+                # related_report_id removed - not a field in your model
             )
             
             logger.info(f"📧 Notification sent to {reported_student.user.get_full_name()}")
@@ -3557,11 +3559,11 @@ def update_report_status(request, report_id):
         # Notify reporter
         if reporter and hasattr(reporter, 'user') and reporter.user:
             Notification.objects.create(
-                recipient=reporter.user,
+                user=reporter.user,  # ✅ Changed from 'recipient' to 'user'
                 title='Report Status Update',
                 message=f'Report "{report.title}" has been updated to: {new_status}',
-                notification_type='report_update',
-                related_report_id=report.id,
+                type='report_update',  # ✅ Changed from 'notification_type' to 'type'
+                # related_report_id removed - not a field in your model
             )
             
             logger.info(f"📧 Notification sent to reporter {reporter.user.get_full_name()}")
