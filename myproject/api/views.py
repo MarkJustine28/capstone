@@ -1419,215 +1419,134 @@ def delete_student(request, student_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def record_violation(request):
-    """Record a new violation after report verification"""
+    """
+    Record a violation after tallying a verified report
+    Used by counselors to officially record violations in student records
+    """
     try:
-        # Check if user is a counselor
+        # Verify user is a counselor
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Access denied. Counselor role required.'
+                'error': 'Only counselors can record violations'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        data = request.data
-        logger.info(f"📝 Recording violation with data: {data}")
+        counselor = request.user.counselor
         
-        student_id = data.get('student_id')
-        violation_type_id = data.get('violation_type_id')
+        # Get violation data from request
+        student_id = request.data.get('student_id')
+        violation_type_id = request.data.get('violation_type_id')
+        incident_date = request.data.get('incident_date')
+        description = request.data.get('description', '')
+        location = request.data.get('location', '')
+        severity_override = request.data.get('severity_override')
+        related_report_id = request.data.get('related_report_id')
+        counselor_notes = request.data.get('counselor_notes', '')
         
-        if not student_id or not violation_type_id:
+        logger.info(f"🎯 Recording violation for student {student_id}, violation type {violation_type_id}")
+        
+        # Validate required fields
+        if not all([student_id, violation_type_id, incident_date, description]):
             return Response({
                 'success': False,
-                'error': 'Student ID and violation type ID are required'
+                'error': 'Missing required fields: student_id, violation_type_id, incident_date, description'
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        # Get student
         try:
             student = Student.objects.select_related('user').get(id=student_id)
-            violation_type = ViolationType.objects.get(id=violation_type_id)
         except Student.DoesNotExist:
-            logger.error(f"❌ Student with ID {student_id} not found")
             return Response({
                 'success': False,
                 'error': f'Student with ID {student_id} not found'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get violation type
+        try:
+            violation_type = ViolationType.objects.get(id=violation_type_id)
         except ViolationType.DoesNotExist:
-            logger.error(f"❌ Violation type with ID {violation_type_id} not found")
             return Response({
                 'success': False,
                 'error': f'Violation type with ID {violation_type_id} not found'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            }, status=status.HTTP_404_NOT_FOUND)
         
-        # Parse incident date and make it timezone-aware
-        incident_date = timezone.now()
-        if data.get('incident_date'):
-            try:
-                parsed_date = parse_datetime(data.get('incident_date'))
-                if parsed_date:
-                    # Make timezone-aware if it's naive
-                    if timezone.is_naive(parsed_date):
-                        incident_date = timezone.make_aware(parsed_date)
-                    else:
-                        incident_date = parsed_date
-            except Exception as e:
-                logger.warning(f"⚠️ Could not parse incident_date: {e}")
-                incident_date = timezone.now()
+        # Parse incident date
+        try:
+            if isinstance(incident_date, str):
+                incident_date_parsed = datetime.fromisoformat(incident_date.replace('Z', '+00:00'))
+                if timezone.is_naive(incident_date_parsed):
+                    incident_date_parsed = timezone.make_aware(incident_date_parsed)
+            else:
+                incident_date_parsed = timezone.now()
+        except Exception as e:
+            logger.error(f"Error parsing incident_date: {e}")
+            incident_date_parsed = timezone.now()
         
-        # Get counselor
-        counselor = request.user.counselor
-        
-        # Get related report if provided
-        related_report = None
-        if data.get('related_report_id'):
-            try:
-                related_report = Report.objects.get(id=data.get('related_report_id'))
-            except Report.DoesNotExist:
-                logger.warning(f"⚠️ Report {data.get('related_report_id')} not found")
-        
-        # Create violation record
-        violation_record = StudentViolationRecord.objects.create(
+        # Create violation history record
+        violation_history = StudentViolationRecord.objects.create(
             student=student,
             violation_type=violation_type,
+            incident_date=incident_date_parsed,
+            description=description,
+            location=location,
+            severity_level=severity_override or violation_type.severity_level,
             counselor=counselor,
-            incident_date=incident_date,
-            description=data.get('description', ''),
-            location=data.get('location', ''),
-            status=data.get('status', 'active'),
-            counselor_notes=data.get('counselor_notes', ''),
-            related_report=related_report,
+            counselor_notes=counselor_notes,
+            school_year=student.school_year,
+            status='active',
         )
         
-        logger.info(f"✅ Violation record created with ID: {violation_record.id}")
+        logger.info(f"✅ Violation recorded: {violation_type.name} for student {student.user.get_full_name()}")
+        logger.info(f"   Violation ID: {violation_history.id}, School Year: {student.school_year}")
         
-        # ✅ FIX: Update violation tally using the correct model structure
-        # Get or create tally record for this student
-        tally, created = StudentViolationTally.objects.get_or_create(
-            student=student,
-            defaults={
-                'total_violations': 0,
-                'first_violation_date': incident_date,
-                'last_violation_date': incident_date,
-            }
-        )
-        
-        # ✅ Update the appropriate violation type field based on violation name
-        violation_name = violation_type.name.lower()
-        
-        # Increment total violations
-        tally.total_violations += 1
-        tally.last_violation_date = incident_date
-        
-        # ✅ Increment specific violation type counter
-        if 'bullying' in violation_name:
-            tally.bullying_violations += 1
-        elif 'tardiness' in violation_name or 'late' in violation_name:
-            tally.tardiness_violations += 1
-        elif 'absent' in violation_name:
-            tally.absenteeism_violations += 1
-        elif 'cutting' in violation_name or 'skip' in violation_name:
-            tally.cutting_classes_violations += 1
-        elif 'vape' in violation_name or 'cigarette' in violation_name or 'smoking' in violation_name:
-            tally.using_vape_cigarette_violations += 1
-        elif 'cheat' in violation_name:
-            tally.cheating_violations += 1
-        elif 'misbehavior' in violation_name or 'behavioral' in violation_name:
-            tally.misbehavior_violations += 1
-        elif 'gambl' in violation_name:
-            tally.gambling_violations += 1
-        elif 'uniform' in violation_name or 'dress code' in violation_name:
-            tally.not_wearing_uniform_violations += 1
-        elif 'hair' in violation_name:
-            tally.haircut_violations += 1
-        else:
-            tally.other_violations += 1
-        
-        # Update severity counters
-        severity = violation_type.severity_level.lower()
-        if severity == 'low':
-            tally.low_severity_count += 1
-        elif severity == 'medium':
-            tally.medium_severity_count += 1
-        elif severity == 'high':
-            tally.high_severity_count += 1
-        elif severity == 'critical':
-            tally.critical_severity_count += 1
-        
-        # Update active/resolved counters based on status
-        if data.get('status', 'active').lower() in ['active', 'pending']:
-            tally.active_violations += 1
-        elif data.get('status', 'active').lower() in ['resolved', 'closed']:
-            tally.resolved_violations += 1
-        
-        tally.save()
-        
-        logger.info(f"✅ Tally updated: {tally.total_violations} total violations for student {student.user.username}")
-        
-        # 🔔 Notify all counselors about the new violation
-        counselors = Counselor.objects.select_related('user').all()
-        
-        for counselor_obj in counselors:
-            if counselor_obj.user:
-                student_name = f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username
+        # Update related report status to 'resolved' if provided
+        if related_report_id:
+            report_type = request.data.get('report_type', 'student_report')
+            
+            try:
+                if report_type == 'teacher_report':
+                    report = TeacherReport.objects.get(id=related_report_id)
+                else:
+                    report = StudentReport.objects.get(id=related_report_id)
                 
-                notification_title = "🆕 New Violation Recorded"
-                notification_message = (
-                    f"A violation has been recorded for {student_name}.\n\n"
-                    f"Violation Type: {violation_type.name}\n"
-                    f"Category: {violation_type.category}\n"
-                    f"Severity: {violation_type.severity_level}\n"
-                    f"Total Count: {tally.total_violations}"
-                )
+                report.status = 'resolved'
+                report.save()
                 
-                if data.get('description'):
-                    notification_message += f"\n\nDescription: {data.get('description')}"
+                logger.info(f"✅ Report #{related_report_id} marked as resolved")
                 
-                create_notification(
-                    user=counselor_obj.user,
-                    title=notification_title,
-                    message=notification_message,
-                    notification_type='violation_recorded',
-                    related_report=related_report
-                )
+            except (StudentReport.DoesNotExist, TeacherReport.DoesNotExist):
+                logger.warning(f"⚠️ Report #{related_report_id} not found")
         
-        logger.info(f"✅ Notifications sent to {len(counselors)} counselor(s)")
-        
-        # 🔔 Notify the student about the violation
+        # Send notification to student
         if student.user:
-            student_notification_title = "Violation Notice"
-            student_notification_message = (
-                f"A violation has been recorded in your file.\n\n"
-                f"Violation Type: {violation_type.name}\n"
-                f"Date: {incident_date.strftime('%B %d, %Y')}\n"
-                f"Total Violations: {tally.total_violations}\n\n"
-                f"Please visit the guidance office if you have any questions."
-            )
-            
-            create_notification(
+            Notification.objects.create(
                 user=student.user,
-                title=student_notification_title,
-                message=student_notification_message,
-                notification_type='violation_recorded',
-                related_report=related_report
+                title='Violation Recorded',
+                message=f'A violation has been recorded: {violation_type.name}. '
+                       f'Please report to the guidance office for more information.',
+                type='violation',
             )
             
-            logger.info(f"✅ Notification sent to student {student.user.username}")
+            logger.info(f"📧 Notification sent to {student.user.get_full_name()}")
         
         return Response({
             'success': True,
-            'message': 'Violation recorded successfully and notifications sent',
+            'message': 'Violation recorded successfully',
             'violation': {
-                'id': violation_record.id,
-                'tally_count': tally.total_violations,
+                'id': violation_history.id,
                 'student_id': student.id,
-                'student_name': f"{student.user.first_name} {student.user.last_name}".strip(),
+                'student_name': student.user.get_full_name(),
                 'violation_type': violation_type.name,
-                'incident_date': incident_date.isoformat(),
-            },
-            'notifications_sent': len(counselors) + (1 if student.user else 0)
+                'incident_date': violation_history.incident_date.isoformat(),
+                'severity': violation_history.severity_level,
+                'status': 'active',
+            }
         }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
-        logger.error(f"❌ Error recording violation: {str(e)}")
+        logger.error(f"❌ Error recording violation: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return Response({
             'success': False,
             'error': f'Failed to record violation: {str(e)}'

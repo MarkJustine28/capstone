@@ -89,6 +89,8 @@ urlpatterns = [
     path('counselor/tally-records/', tally_records, name='tally_records'),
     path('counselor/available-school-years/', views.counselor_available_school_years, name='counselor_available_school_years'),
     
+    path('record-violation/', views.record_violation, name='record_violation'),
+
     # ✅ ADD THESE COUNSELOR REPORT MANAGEMENT ROUTES:
     path('counselor/send-guidance-notice/<int:report_id>/', send_guidance_notice, name='counselor_send_guidance_notice'),
     path('counselor/update-report-status/<int:report_id>/', update_report_status, name='counselor_update_report_status'),
