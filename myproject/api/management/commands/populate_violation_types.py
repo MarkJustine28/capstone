@@ -36,9 +36,6 @@ class Command(BaseCommand):
 
             # Absenteeism
             {'name': 'Absenteeism', 'category': 'Absenteeism', 'severity_level': 'Medium', 'description': 'Frequent unexcused absences'},
-
-            # Others
-            {'name': 'Others', 'category': 'Others', 'severity_level': 'Medium', 'description': 'Other violations not listed above'},
         ]
 
         created_count = 0
