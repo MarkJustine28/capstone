@@ -1,13 +1,22 @@
 from django.core.management.base import BaseCommand
-from api.models import ViolationType  # ✅ Changed from reports.models to api.models
+from api.models import ViolationType
 
 class Command(BaseCommand):
-    help = "Seed initial violation types"
+    help = "Seed initial violation types (only if empty)"
 
     def handle(self, *args, **kwargs):
-        # Clear existing first
-        ViolationType.objects.all().delete()
-        self.stdout.write(self.style.WARNING('🗑️  Cleared existing violation types'))
+        # ✅ Only seed if database is empty
+        if ViolationType.objects.exists():
+            count = ViolationType.objects.count()
+            self.stdout.write(self.style.WARNING(f'⚠️  Violation types already exist ({count} types). Skipping seed.'))
+            self.stdout.write(self.style.SUCCESS('✅ Use --force flag to reset: python manage.py seed_violation_types --force'))
+            return
+        
+        # Add --force option to allow manual reset
+        force = self.options.get('force', False)
+        if force:
+            ViolationType.objects.all().delete()
+            self.stdout.write(self.style.WARNING('🗑️  Cleared existing violation types (--force used)'))
         
         violation_data = [
             {'id': 1, 'name': 'Tardiness', 'category': 'Attendance', 'severity_level': 'Low'},
@@ -28,14 +37,29 @@ class Command(BaseCommand):
 
         created_count = 0
         for data in violation_data:
-            vt = ViolationType.objects.create(
+            vt, created = ViolationType.objects.get_or_create(
                 id=data['id'],
-                name=data['name'],
-                category=data['category'],
-                severity_level=data['severity_level'],
-                description=f"Default description for {data['name']}"
+                defaults={
+                    'name': data['name'],
+                    'category': data['category'],
+                    'severity_level': data['severity_level'],
+                    'description': f"Default description for {data['name']}"
+                }
             )
-            self.stdout.write(self.style.SUCCESS(f"✅ Created: ID {vt.id:2d} - {vt.name}"))
-            created_count += 1
+            if created:
+                self.stdout.write(self.style.SUCCESS(f"✅ Created: ID {vt.id:2d} - {vt.name}"))
+                created_count += 1
+            else:
+                self.stdout.write(self.style.WARNING(f"⏭️  Skipped: ID {vt.id:2d} - {vt.name} (already exists)"))
 
-        self.stdout.write(self.style.SUCCESS(f'\n🎉 Successfully seeded {created_count} violation types!'))
+        if created_count > 0:
+            self.stdout.write(self.style.SUCCESS(f'\n🎉 Successfully seeded {created_count} new violation types!'))
+        else:
+            self.stdout.write(self.style.SUCCESS(f'\n✅ All {len(violation_data)} violation types already exist!'))
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            help='Force reset: delete existing violation types and recreate',
+        )
