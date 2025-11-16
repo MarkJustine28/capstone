@@ -1491,158 +1491,134 @@ def delete_student(request, student_id):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def record_violation(request):
-    """
-    Record a violation after tallying a verified report
-    Used by counselors to officially record violations in student records
-    """
+    """Record a student violation - used when tallying from reports"""
     try:
-        # Verify user is a counselor
-        if not hasattr(request.user, 'counselor'):
-            return Response({
+        # Verify counselor authentication
+        try:
+            counselor = Counselor.objects.get(user=request.user)
+        except Counselor.DoesNotExist:
+            return JsonResponse({
                 'success': False,
-                'error': 'Only counselors can record violations'
-            }, status=status.HTTP_403_FORBIDDEN)
+                'message': 'Counselor profile not found'
+            }, status=403)
+
+        data = request.data
+        student_id = data.get('student_id')
+        violation_type_id = data.get('violation_type_id')
         
-        counselor = request.user.counselor
-        
-        # Get violation data from request
-        student_id = request.data.get('student_id')
-        violation_type_id = request.data.get('violation_type_id')
-        incident_date = request.data.get('incident_date')
-        description = request.data.get('description', '')
-        location = request.data.get('location', '')
-        severity_override = request.data.get('severity_override')
-        related_report_id = request.data.get('related_report_id')
-        counselor_notes = request.data.get('counselor_notes', '')
+        # ✅ CRITICAL: Get related report info
+        related_report_id = data.get('related_report_id')
+        report_type = data.get('report_type', 'student_report')
         
         logger.info(f"🎯 Recording violation for student {student_id}, violation type {violation_type_id}")
-        
-        # Validate required fields
-        if not all([student_id, violation_type_id, incident_date, description]):
-            return Response({
+        logger.info(f"🔗 Related report: ID={related_report_id}, type={report_type}")
+
+        if not student_id or not violation_type_id:
+            return JsonResponse({
                 'success': False,
-                'error': 'Missing required fields: student_id, violation_type_id, incident_date, description'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get student
+                'message': 'Missing required fields'
+            }, status=400)
+
         try:
-            student = Student.objects.select_related('user').get(id=student_id)
+            student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
-            return Response({
+            return JsonResponse({
                 'success': False,
-                'error': f'Student with ID {student_id} not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Get violation type
+                'message': f'Student with ID {student_id} not found'
+            }, status=404)
+
         try:
             violation_type = ViolationType.objects.get(id=violation_type_id)
         except ViolationType.DoesNotExist:
-            return Response({
+            return JsonResponse({
                 'success': False,
-                'error': f'Violation type with ID {violation_type_id} not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Parse incident date
-        try:
-            if isinstance(incident_date, str):
-                incident_date_parsed = datetime.fromisoformat(incident_date.replace('Z', '+00:00'))
-                if timezone.is_naive(incident_date_parsed):
-                    incident_date_parsed = timezone.make_aware(incident_date_parsed)
-            else:
-                incident_date_parsed = timezone.now()
-        except Exception as e:
-            logger.error(f"Error parsing incident_date: {e}")
-            incident_date_parsed = timezone.now()
-        
-        # ✅ FIX: Get school year from student or calculate current school year
-        school_year = student.school_year
-        
-        if not school_year:
-            # Calculate current school year if student doesn't have one
-            current_year = timezone.now().year
-            current_month = timezone.now().month
-            school_year = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
-            
-            # Update student's school year
-            student.school_year = school_year
-            student.save()
-        
+                'message': f'Violation type with ID {violation_type_id} not found'
+            }, status=404)
+
+        # Get current school year from system settings or student
+        school_year = get_current_school_year() or student.school_year
         logger.info(f"📅 Using school year: {school_year} for violation")
-        
-        # Build violation data
-        violation_data = {
-            'student': student,
-            'violation_type': violation_type,
-            'incident_date': incident_date_parsed,
-            'description': description,
-            'location': location,
-            'counselor': counselor,
-            'counselor_notes': counselor_notes,
-            'school_year': school_year,  # ✅ Set school year
-            'status': 'active',
-        }
-        
-        # Create violation history record
-        violation_history = StudentViolationRecord.objects.create(**violation_data)
-        
-        logger.info(f"✅ Violation recorded: {violation_type.name} for student {student.user.get_full_name()}")
-        logger.info(f"   Violation ID: {violation_history.id}, School Year: {school_year}")
-        
-        # Update related report status to 'resolved' if provided
+
+        # ✅ Create violation record with all fields
+        violation = StudentViolationRecord.objects.create(
+            student=student,
+            violation_type=violation_type,
+            incident_date=data.get('incident_date', timezone.now()),
+            description=data.get('description', ''),
+            status=data.get('status', 'active'),
+            severity_level=data.get('severity_override', violation_type.severity_level),
+            school_year=school_year,
+            counselor=counselor,
+        )
+
+        # ✅ CRITICAL: Link to the related report
         if related_report_id:
-            report_type = request.data.get('report_type', 'student_report')
-            
-            try:
-                if report_type == 'teacher_report':
-                    report = TeacherReport.objects.get(id=related_report_id)
-                else:
+            if report_type == 'student_report':
+                try:
+                    related_report = StudentReport.objects.get(id=related_report_id)
+                    violation.related_student_report = related_report
+                    violation.save()
+                    logger.info(f"✅ Linked violation {violation.id} to StudentReport {related_report_id}")
+                except StudentReport.DoesNotExist:
+                    logger.warning(f"⚠️  StudentReport {related_report_id} not found")
+            elif report_type == 'teacher_report':
+                try:
+                    related_report = TeacherReport.objects.get(id=related_report_id)
+                    violation.related_teacher_report = related_report
+                    violation.save()
+                    logger.info(f"✅ Linked violation {violation.id} to TeacherReport {related_report_id}")
+                except TeacherReport.DoesNotExist:
+                    logger.warning(f"⚠️  TeacherReport {related_report_id} not found")
+
+        logger.info(f"✅ Violation recorded: {violation.violation_type.name} for student {student.user.get_full_name()}")
+        logger.info(f"   Violation ID: {violation.id}, School Year: {violation.school_year}")
+
+        # Mark the related report as resolved
+        if related_report_id:
+            if report_type == 'student_report':
+                try:
                     report = StudentReport.objects.get(id=related_report_id)
-                
-                report.status = 'resolved'
-                report.save()
-                
-                logger.info(f"✅ Report #{related_report_id} marked as resolved")
-                
-            except (StudentReport.DoesNotExist, TeacherReport.DoesNotExist):
-                logger.warning(f"⚠️ Report #{related_report_id} not found")
-        
-        # Send notification to student
-        if student.user:
-            Notification.objects.create(
-                user=student.user,
-                title='Violation Recorded',
-                message=f'A violation has been recorded: {violation_type.name}. '
-                       f'Please report to the guidance office for more information.',
-                type='violation',
-            )
-            
-            logger.info(f"📧 Notification sent to {student.user.get_full_name()}")
-        
-        return Response({
+                    report.status = 'resolved'
+                    report.save()
+                    logger.info(f"✅ Report #{related_report_id} marked as resolved")
+                    
+                    # Notify student
+                    Notification.objects.create(
+                        recipient=student.user,
+                        title="Violation Recorded",
+                        message=f"A violation has been recorded on your account: {violation.violation_type.name}",
+                        notification_type="violation_recorded",
+                        related_violation_id=violation.id,
+                    )
+                    logger.info(f"📧 Notification sent to {student.user.get_full_name()}")
+                except StudentReport.DoesNotExist:
+                    logger.warning(f"⚠️  StudentReport {related_report_id} not found for status update")
+
+        return JsonResponse({
             'success': True,
             'message': 'Violation recorded successfully',
             'violation': {
-                'id': violation_history.id,
+                'id': violation.id,
                 'student_id': student.id,
-                'student_name': student.user.get_full_name(),
-                'violation_type': violation_type.name,
-                'incident_date': violation_history.incident_date.isoformat(),
-                'school_year': school_year,  # ✅ Include in response
-                'status': 'active',
+                'violation_type': violation.violation_type.name,
+                'school_year': violation.school_year,
+                'related_report_id': related_report_id,  # ✅ Include in response
+                'related_report_type': report_type if related_report_id else None,  # ✅ Include type
             }
-        }, status=status.HTTP_201_CREATED)
-        
+        }, status=201)
+
     except Exception as e:
-        logger.error(f"❌ Error recording violation: {e}")
+        logger.error(f"❌ Error recording violation: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to record violation: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            'message': f'Error recording violation: {str(e)}'
+        }, status=500)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
