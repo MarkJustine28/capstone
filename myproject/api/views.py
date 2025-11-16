@@ -2282,67 +2282,87 @@ def counselor_student_violations(request):
                 'message': 'Counselor profile not found'
             }, status=403)
 
-        # ✅ FIX: Update select_related to use new field names
-        violations = StudentViolationRecord.objects.select_related(
+        # ✅ Get school year filter from query params
+        school_year = request.GET.get('school_year', None)
+        
+        logger.info(f"📊 Fetching violations for school year: {school_year or 'all'}")
+
+        # Base query
+        violations_query = StudentViolationRecord.objects.select_related(
             'student',
             'student__user',
             'violation_type',
             'counselor',
             'counselor__user',
-            'related_student_report',  # ✅ Changed from 'related_report'
-            'related_teacher_report'   # ✅ Added teacher report
-        ).all().order_by('-incident_date')
+            'related_student_report',
+            'related_teacher_report'
+        )
+        
+        # ✅ Filter by school year if provided
+        if school_year and school_year != 'all':
+            violations_query = violations_query.filter(school_year=school_year)
+            logger.info(f"🔍 Filtering violations by school year: {school_year}")
+        
+        violations = violations_query.all().order_by('-incident_date')
         
         violations_data = []
         for violation in violations:
             try:
-                # ✅ Get whichever report exists
-                related_report = violation.related_student_report or violation.related_teacher_report
+                # ✅ FIX: Always include school_year in response
+                student_school_year = violation.school_year or violation.student.school_year
                 
                 violation_data = {
                     'id': violation.id,
-                    'student_id': violation.student.id if violation.student else None,
+                    'student_id': violation.student.id,
                     'student': {
                         'id': violation.student.id,
-                        'name': f"{violation.student.user.first_name} {violation.student.user.last_name}",
+                        'name': violation.student.user.get_full_name(),
                         'student_id': violation.student.student_id,
                         'user_id': violation.student.user.id,
                         'grade_level': violation.student.grade_level,
                         'section': violation.student.section,
-                    } if violation.student else None,
+                        'school_year': violation.student.school_year,  # ✅ Include student's school year
+                    },
                     'violation_type': {
-                        'id': violation.violation_type.id,
-                        'name': violation.violation_type.name,
-                        'category': violation.violation_type.category,
-                        'severity_level': violation.violation_type.severity_level,
+                        'id': violation.violation_type.id if violation.violation_type else None,
+                        'name': violation.violation_type.name if violation.violation_type else 'Unknown',
+                        'category': violation.violation_type.category if violation.violation_type else 'Unknown',
+                        'severity_level': violation.violation_type.severity_level if violation.violation_type else 'Medium',
                     } if violation.violation_type else None,
+                    'incident_date': violation.incident_date.isoformat(),
+                    'description': violation.description,
+                    'location': violation.location if hasattr(violation, 'location') else '',
+                    'status': violation.status,
+                    'school_year': student_school_year,  # ✅ CRITICAL: Always include school_year
+                    'severity_level': violation.severity_level if hasattr(violation, 'severity_level') else 'Medium',
                     'counselor': {
                         'id': violation.counselor.id,
-                        'name': f"{violation.counselor.user.first_name} {violation.counselor.user.last_name}",
+                        'name': violation.counselor.user.get_full_name(),
                     } if violation.counselor else None,
-                    'incident_date': violation.incident_date.isoformat() if violation.incident_date else None,
-                    'description': violation.description,
-                    'location': violation.location,
-                    'status': violation.status,
-                    'severity_level': violation.violation_type.severity_level if violation.violation_type else 'Medium',
-                    'counselor_notes': violation.counselor_notes,
-                    'action_taken': violation.action_taken if hasattr(violation, 'action_taken') else '',
-                    'recorded_at': violation.recorded_at.isoformat() if hasattr(violation, 'recorded_at') and violation.recorded_at else violation.incident_date.isoformat(),
+                    'counselor_notes': violation.counselor_notes if hasattr(violation, 'counselor_notes') else '',
+                    'created_at': violation.created_at.isoformat(),
                     
-                    # ✅ Update these fields
-                    'related_report_id': related_report.id if related_report else None,
+                    # ✅ Include related report info
+                    'related_report_id': violation.related_student_report.id if violation.related_student_report else (
+                        violation.related_teacher_report.id if violation.related_teacher_report else None
+                    ),
                     'related_report': {
-                        'id': related_report.id,
-                        'title': related_report.title,
-                        'status': related_report.status,
-                        'report_type': 'student_report' if violation.related_student_report else 'teacher_report',
-                    } if related_report else None,
+                        'id': violation.related_student_report.id if violation.related_student_report else (
+                            violation.related_teacher_report.id if violation.related_teacher_report else None
+                        ),
+                        'type': 'student_report' if violation.related_student_report else (
+                            'teacher_report' if violation.related_teacher_report else None
+                        ),
+                        'title': violation.related_student_report.title if violation.related_student_report else (
+                            violation.related_teacher_report.title if violation.related_teacher_report else None
+                        ),
+                    } if (violation.related_student_report or violation.related_teacher_report) else None,
                 }
                 
                 violations_data.append(violation_data)
                 
             except Exception as e:
-                logger.warning(f"Error processing violation {violation.id}: {e}")
+                logger.error(f"❌ Error serializing violation {violation.id}: {e}")
                 continue
 
         logger.info(f"✅ Returning {len(violations_data)} student violations")
@@ -2354,11 +2374,11 @@ def counselor_student_violations(request):
             'violations': violations_data,
             'count': len(violations_data),
             'tallied_count': tallied_count,
+            'filtered_by_school_year': school_year if school_year and school_year != 'all' else None,
         })
 
     except Exception as e:
         logger.error(f"Error fetching counselor student violations: {str(e)}")
-        import traceback
         traceback.print_exc()
         return JsonResponse({
             'success': False,
