@@ -714,7 +714,8 @@ def teacher_reports(request):
                         title=f"New Teacher Report: {report.title}",
                         message=f"Teacher {teacher.user.first_name} {teacher.user.last_name} reported: {student_name}",
                         type='report_submitted',
-                        related_report=report
+                        related_student_report=report if isinstance(report, StudentReport) else None,
+                        related_teacher_report=report if isinstance(report, TeacherReport) else None,
                     )
                 print(f"✅ Notifications created for counselors")
             except Exception as e:
