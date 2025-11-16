@@ -25,6 +25,18 @@ from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, N
 # Set up logging
 logger = logging.getLogger(__name__)
 
+def get_current_school_year():
+    """Get current school year from SystemSettings"""
+    try:
+        settings = SystemSettings.get_current_settings()
+        return settings.current_school_year
+    except Exception as e:
+        logger.warning(f"⚠️  Could not get school year from settings: {e}")
+        # Fallback: calculate from current date
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        return f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+
 # Authentication Views
 @csrf_exempt
 @api_view(['POST'])
@@ -1539,20 +1551,41 @@ def record_violation(request):
                 'message': f'Violation type with ID {violation_type_id} not found'
             }, status=404)
 
-        # Get current school year from system settings or student
-        school_year = get_current_school_year() or student.school_year
+        # ✅ Get school year from system settings or student
+        try:
+            school_year = get_current_school_year() or student.school_year
+        except Exception as e:
+            logger.warning(f"⚠️  Error getting school year: {e}")
+            school_year = student.school_year
+        
         logger.info(f"📅 Using school year: {school_year} for violation")
+
+        # ✅ Parse incident date
+        incident_date = data.get('incident_date')
+        if incident_date:
+            try:
+                if isinstance(incident_date, str):
+                    incident_date = timezone.datetime.fromisoformat(incident_date.replace('Z', '+00:00'))
+                    if timezone.is_naive(incident_date):
+                        incident_date = timezone.make_aware(incident_date)
+            except Exception as e:
+                logger.warning(f"⚠️  Could not parse incident_date: {e}")
+                incident_date = timezone.now()
+        else:
+            incident_date = timezone.now()
 
         # ✅ Create violation record with all fields
         violation = StudentViolationRecord.objects.create(
             student=student,
             violation_type=violation_type,
-            incident_date=data.get('incident_date', timezone.now()),
+            incident_date=incident_date,
             description=data.get('description', ''),
             status=data.get('status', 'active'),
             severity_level=data.get('severity_override', violation_type.severity_level),
             school_year=school_year,
             counselor=counselor,
+            location=data.get('location', ''),
+            counselor_notes=data.get('counselor_notes', ''),
         )
 
         # ✅ CRITICAL: Link to the related report
@@ -1576,6 +1609,7 @@ def record_violation(request):
 
         logger.info(f"✅ Violation recorded: {violation.violation_type.name} for student {student.user.get_full_name()}")
         logger.info(f"   Violation ID: {violation.id}, School Year: {violation.school_year}")
+        logger.info(f"   Related report: {related_report_id} ({report_type})")
 
         # Mark the related report as resolved
         if related_report_id:
@@ -1588,11 +1622,10 @@ def record_violation(request):
                     
                     # Notify student
                     Notification.objects.create(
-                        recipient=student.user,
+                        user=student.user,
                         title="Violation Recorded",
                         message=f"A violation has been recorded on your account: {violation.violation_type.name}",
-                        notification_type="violation_recorded",
-                        related_violation_id=violation.id,
+                        type="violation_recorded",
                     )
                     logger.info(f"📧 Notification sent to {student.user.get_full_name()}")
                 except StudentReport.DoesNotExist:
