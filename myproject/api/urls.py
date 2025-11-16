@@ -138,4 +138,6 @@ urlpatterns = [
     # System Settings
     path('system/settings/', get_system_settings, name='get_system_settings'),
     path('system/settings/update/', update_system_settings, name='update_system_settings'),
+
+    path('search-students/', views.search_students, name='search-students'),
 ]

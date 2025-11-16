@@ -873,61 +873,104 @@ def student_reports(request):
                     reported_student_name_clean = reported_student_name.strip()
                     logger.info(f"🔍 Searching for student: '{reported_student_name_clean}'")
                     
-                    # ✅ FIX: Try multiple search strategies
-                    # Strategy 1: Exact match (first name + last name)
-                    name_parts = reported_student_name_clean.split()
-                    if len(name_parts) >= 2:
-                        first_name = name_parts[0]
-                        last_name = ' '.join(name_parts[1:])
-                        
-                        reported_student = Student.objects.filter(
-                            user__first_name__iexact=first_name,
-                            user__last_name__iexact=last_name
-                        ).first()
-                        
-                        if reported_student:
-                            logger.info(f"✅ Found student (exact match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
-                        else:
-                            # Strategy 2: Try reversed (last name + first name)
-                            first_name_alt = name_parts[-1]
-                            last_name_alt = ' '.join(name_parts[:-1])
+                    # ✅ ENHANCED FIX: Try multiple search strategies
+                    from django.db.models import Q, Value
+                    from django.db.models.functions import Concat
+                    
+                    # Strategy 1: Search by concatenated full name (handles all name order variations)
+                    students = Student.objects.annotate(
+                        full_name=Concat('user__first_name', Value(' '), 'user__last_name')
+                    ).filter(
+                        Q(full_name__iexact=reported_student_name_clean) |
+                        Q(full_name__icontains=reported_student_name_clean)
+                    ).select_related('user')
+                    
+                    reported_student = students.first()
+                    
+                    if reported_student:
+                        logger.info(f"✅ Found student (full name match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                    else:
+                        # Strategy 2: Try component matching (first name OR last name)
+                        name_parts = reported_student_name_clean.split()
+                        if len(name_parts) >= 2:
+                            # Try different combinations
+                            first_name = name_parts[0]
+                            last_name = ' '.join(name_parts[1:])
                             
+                            # Exact match on both parts
                             reported_student = Student.objects.filter(
-                                user__first_name__iexact=first_name_alt,
-                                user__last_name__iexact=last_name_alt
-                            ).first()
+                                user__first_name__iexact=first_name,
+                                user__last_name__iexact=last_name
+                            ).select_related('user').first()
                             
                             if reported_student:
-                                logger.info(f"✅ Found student (reversed match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                                logger.info(f"✅ Found student (exact parts match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                            else:
+                                # Try reversed (last name first)
+                                first_name_alt = name_parts[-1]
+                                last_name_alt = ' '.join(name_parts[:-1])
+                                
+                                reported_student = Student.objects.filter(
+                                    user__first_name__iexact=first_name_alt,
+                                    user__last_name__iexact=last_name_alt
+                                ).select_related('user').first()
+                                
+                                if reported_student:
+                                    logger.info(f"✅ Found student (reversed match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
                     
-                    # Strategy 3: Try full name search (contains)
+                    # Strategy 3: Fuzzy match on any part of the name
                     if not reported_student:
-                        from django.db.models import Q
-                        reported_student = Student.objects.filter(
-                            Q(user__first_name__icontains=reported_student_name_clean) |
-                            Q(user__last_name__icontains=reported_student_name_clean)
-                        ).first()
-                        
-                        if reported_student:
-                            logger.info(f"✅ Found student (partial match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                        for part in name_parts:
+                            if len(part) >= 3:  # Only search parts with 3+ characters
+                                reported_student = Student.objects.filter(
+                                    Q(user__first_name__icontains=part) |
+                                    Q(user__last_name__icontains=part)
+                                ).select_related('user').first()
+                                
+                                if reported_student:
+                                    logger.info(f"✅ Found student (fuzzy match on '{part}'): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                                    break
                     
-                    # ✅ CRITICAL: If still not found, REJECT the report instead of self-reporting
+                    # ✅ CRITICAL: If still not found, REJECT with helpful error
                     if not reported_student:
                         logger.error(f"❌ Could not find student: '{reported_student_name_clean}'")
+                        
+                        # ✅ Get suggestions (students with similar names)
+                        suggestions = []
+                        for part in name_parts:
+                            if len(part) >= 3:
+                                similar_students = Student.objects.filter(
+                                    Q(user__first_name__icontains=part) |
+                                    Q(user__last_name__icontains=part)
+                                ).select_related('user')[:5]
+                                
+                                for s in similar_students:
+                                    full_name = f"{s.user.first_name} {s.user.last_name}"
+                                    if full_name not in suggestions:
+                                        suggestions.append(full_name)
+                        
+                        error_message = f"Student '{reported_student_name_clean}' not found in the system."
+                        if suggestions:
+                            error_message += f"\n\nDid you mean one of these?\n" + "\n".join(f"• {name}" for name in suggestions[:5])
+                        else:
+                            error_message += "\n\nPlease verify the student's name and try again."
+                        
                         return Response({
                             'success': False,
-                            'error': f"Student '{reported_student_name_clean}' not found in the system. Please verify the student's name and try again."
+                            'error': error_message,
+                            'suggestions': suggestions if suggestions else None
                         }, status=400)
                         
                 except Exception as e:
                     logger.error(f"❌ Error finding reported student: {e}")
+                    import traceback
+                    traceback.print_exc()
                     return Response({
                         'success': False,
                         'error': f"Error searching for student: {str(e)}"
                     }, status=500)
             else:
-                # ✅ IMPORTANT: Only allow self-report if explicitly no name provided
-                # This is for students reporting their own violations
+                # ✅ Self-report (student reporting themselves)
                 reported_student = student
                 logger.info(f"📝 Self-report: {student.user.get_full_name()}")
 
