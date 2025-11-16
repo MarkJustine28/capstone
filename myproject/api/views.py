@@ -4822,3 +4822,47 @@ def counselor_available_school_years(request):
             'success': False,
             'error': f'Failed to fetch school years: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_students(request):
+    """Search for students by name - for report submission"""
+    try:
+        query = request.GET.get('q', '').strip()
+        
+        if not query or len(query) < 2:
+            return Response({
+                'success': False,
+                'error': 'Search query must be at least 2 characters'
+            }, status=400)
+        
+        # Search students
+        from django.db.models import Q
+        students = Student.objects.filter(
+            Q(user__first_name__icontains=query) |
+            Q(user__last_name__icontains=query) |
+            Q(student_id__icontains=query)
+        ).select_related('user')[:10]  # Limit to 10 results
+        
+        results = []
+        for student in students:
+            results.append({
+                'id': student.id,
+                'name': f"{student.user.first_name} {student.user.last_name}",
+                'student_id': student.student_id,
+                'grade_level': student.grade_level,
+                'section': student.section,
+            })
+        
+        return Response({
+            'success': True,
+            'students': results,
+            'count': len(results)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error searching students: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
