@@ -873,7 +873,8 @@ def student_reports(request):
                     reported_student_name_clean = reported_student_name.strip()
                     logger.info(f"🔍 Searching for student: '{reported_student_name_clean}'")
                     
-                    # Try to find the student by name
+                    # ✅ FIX: Try multiple search strategies
+                    # Strategy 1: Exact match (first name + last name)
                     name_parts = reported_student_name_clean.split()
                     if len(name_parts) >= 2:
                         first_name = name_parts[0]
@@ -885,19 +886,50 @@ def student_reports(request):
                         ).first()
                         
                         if reported_student:
-                            logger.info(f"✅ Found student: {reported_student.user.first_name} {reported_student.user.last_name}")
+                            logger.info(f"✅ Found student (exact match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                        else:
+                            # Strategy 2: Try reversed (last name + first name)
+                            first_name_alt = name_parts[-1]
+                            last_name_alt = ' '.join(name_parts[:-1])
+                            
+                            reported_student = Student.objects.filter(
+                                user__first_name__iexact=first_name_alt,
+                                user__last_name__iexact=last_name_alt
+                            ).first()
+                            
+                            if reported_student:
+                                logger.info(f"✅ Found student (reversed match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
                     
+                    # Strategy 3: Try full name search (contains)
                     if not reported_student:
-                        logger.warning(f"⚠️ Could not find student: '{reported_student_name_clean}'")
-                        # For self-report or if student not found, set reported_student to reporter
-                        reported_student = student
+                        from django.db.models import Q
+                        reported_student = Student.objects.filter(
+                            Q(user__first_name__icontains=reported_student_name_clean) |
+                            Q(user__last_name__icontains=reported_student_name_clean)
+                        ).first()
+                        
+                        if reported_student:
+                            logger.info(f"✅ Found student (partial match): {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
+                    
+                    # ✅ CRITICAL: If still not found, REJECT the report instead of self-reporting
+                    if not reported_student:
+                        logger.error(f"❌ Could not find student: '{reported_student_name_clean}'")
+                        return Response({
+                            'success': False,
+                            'error': f"Student '{reported_student_name_clean}' not found in the system. Please verify the student's name and try again."
+                        }, status=400)
                         
                 except Exception as e:
                     logger.error(f"❌ Error finding reported student: {e}")
-                    reported_student = student  # Default to self-report
+                    return Response({
+                        'success': False,
+                        'error': f"Error searching for student: {str(e)}"
+                    }, status=500)
             else:
-                # No student name provided - this is a self-report
+                # ✅ IMPORTANT: Only allow self-report if explicitly no name provided
+                # This is for students reporting their own violations
                 reported_student = student
+                logger.info(f"📝 Self-report: {student.user.get_full_name()}")
 
             # ✅ CREATE STUDENTREPORT (not Report)
             report = StudentReport.objects.create(
