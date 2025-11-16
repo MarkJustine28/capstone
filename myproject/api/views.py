@@ -1581,7 +1581,6 @@ def record_violation(request):
             incident_date=incident_date,
             description=data.get('description', ''),
             status=data.get('status', 'active'),
-            severity_level=data.get('severity_override', violation_type.severity_level),
             school_year=school_year,
             counselor=counselor,
             location=data.get('location', ''),
