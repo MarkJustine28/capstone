@@ -3172,71 +3172,92 @@ def mark_report_invalid(request, report_id):
                 'success': False,
                 'error': 'Only counselors can mark reports as invalid'
             }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Get the report
-        try:
-            report = Report.objects.select_related(
-                'student',
-                'student__user',
-                'reported_by'
-            ).get(id=report_id)
-        except Report.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Report not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
+
+        # Get report_type from request, default to student_report
+        report_type = request.data.get('report_type', 'student_report')
+
+        # Get the correct report model
+        if report_type == 'teacher_report':
+            try:
+                report = TeacherReport.objects.select_related(
+                    'reported_student',
+                    'reported_student__user',
+                    'reporter_teacher',
+                    'reporter_teacher__user'
+                ).get(id=report_id)
+            except TeacherReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Teacher report not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            reporter_user = report.reporter_teacher.user if report.reporter_teacher else None
+            student_user = report.reported_student.user if report.reported_student else None
+        else:
+            # Default to student_report
+            try:
+                report = StudentReport.objects.select_related(
+                    'reported_student',
+                    'reported_student__user',
+                    'reporter_student',
+                    'reporter_student__user'
+                ).get(id=report_id)
+            except StudentReport.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Student report not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            reporter_user = report.reporter_student.user if report.reporter_student else None
+            student_user = report.reported_student.user if report.reported_student else None
+
         reason = request.data.get('reason', 'No violation found after investigation')
-        
+
         # Update report status
         old_status = report.status
         report.status = 'invalid'
         report.is_reviewed = True
         report.reviewed_at = timezone.now()
-        
+
         # Add counselor notes
         timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
         invalid_note = f"\n\n[{timestamp}] Report marked as INVALID\nReason: {reason}"
         report.disciplinary_action = (report.disciplinary_action or '') + invalid_note
         report.counselor_notes = (report.counselor_notes or '') + invalid_note
         report.save()
-        
+
         # 🔔 Notify the reporter
-        if report.reported_by:
+        if reporter_user:
             reporter_notification = (
                 f"Your report '{report.title}' has been marked as INVALID after investigation.\n\n"
                 f"Reason: {reason}\n\n"
                 f"The reported incident was investigated and found to be unsubstantiated. "
                 f"No violation will be tallied."
             )
-            
             create_notification(
-                user=report.reported_by,
+                user=reporter_user,
                 title=f"Report Invalid: {report.title}",
                 message=reporter_notification,
                 notification_type='report_invalid',
                 related_report=report
             )
-        
+
         # 🔔 Notify the student
-        if report.student and report.student.user:
+        if student_user:
             student_notification = (
                 f"Good news! After investigation, the report concerning you has been marked as INVALID.\n\n"
                 f"Report: {report.title}\n"
                 f"Reason: {reason}\n\n"
                 f"No violation has been recorded in your file."
             )
-            
             create_notification(
-                user=report.student.user,
+                user=student_user,
                 title="Report Cleared - No Violation",
                 message=student_notification,
                 notification_type='report_cleared',
                 related_report=report
             )
-        
+
         logger.info(f"✅ Report {report_id} marked as invalid. Notifications sent.")
-        
+
         return Response({
             'success': True,
             'message': 'Report marked as invalid and notifications sent',
@@ -3246,7 +3267,7 @@ def mark_report_invalid(request, report_id):
                 'old_status': old_status,
             }
         })
-        
+
     except Exception as e:
         logger.error(f"❌ Error marking report as invalid: {str(e)}")
         import traceback
