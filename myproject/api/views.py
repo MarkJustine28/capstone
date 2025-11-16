@@ -2321,7 +2321,7 @@ def counselor_student_violations(request):
                         'user_id': violation.student.user.id,
                         'grade_level': violation.student.grade_level,
                         'section': violation.student.section,
-                        'school_year': violation.student.school_year,  # ✅ Include student's school year
+                        'school_year': violation.student.school_year,
                     },
                     'violation_type': {
                         'id': violation.violation_type.id if violation.violation_type else None,
@@ -2331,16 +2331,16 @@ def counselor_student_violations(request):
                     } if violation.violation_type else None,
                     'incident_date': violation.incident_date.isoformat(),
                     'description': violation.description,
-                    'location': violation.location if hasattr(violation, 'location') else '',
+                    'location': getattr(violation, 'location', ''),
                     'status': violation.status,
                     'school_year': student_school_year,  # ✅ CRITICAL: Always include school_year
-                    'severity_level': violation.severity_level if hasattr(violation, 'severity_level') else 'Medium',
+                    'severity_level': getattr(violation, 'severity_level', 'Medium'),
                     'counselor': {
                         'id': violation.counselor.id,
                         'name': violation.counselor.user.get_full_name(),
                     } if violation.counselor else None,
-                    'counselor_notes': violation.counselor_notes if hasattr(violation, 'counselor_notes') else '',
-                    'created_at': violation.created_at.isoformat(),
+                    'counselor_notes': getattr(violation, 'counselor_notes', ''),
+                    'created_at': violation.incident_date.isoformat(),  # ✅ FIX: Use incident_date as created_at
                     
                     # ✅ Include related report info
                     'related_report_id': violation.related_student_report.id if violation.related_student_report else (
@@ -2363,6 +2363,8 @@ def counselor_student_violations(request):
                 
             except Exception as e:
                 logger.error(f"❌ Error serializing violation {violation.id}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 continue
 
         logger.info(f"✅ Returning {len(violations_data)} student violations")
@@ -2378,8 +2380,9 @@ def counselor_student_violations(request):
         })
 
     except Exception as e:
-        logger.error(f"Error fetching counselor student violations: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"❌ Error fetching counselor student violations: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return JsonResponse({
             'success': False,
             'message': f'Error fetching student violations: {str(e)}'
