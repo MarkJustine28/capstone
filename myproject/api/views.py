@@ -2,7 +2,6 @@ import time
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.contrib.auth import get_user_model
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -19,7 +18,6 @@ import json
 import logging
 from django.db import models
 from datetime import datetime
-from django.http import HttpResponse
 
 # Import your models (adjust these imports based on your actual models)
 from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings
@@ -4986,36 +4984,3 @@ def search_students(request):
             'error': str(e)
         }, status=500)
 
-def create_admin(request):
-    username = "admin"
-    password = "Admin123!"
-
-    # If admin exists, update password + privileges
-    if User.objects.filter(username=username).exists():
-        u = User.objects.get(username=username)
-        u.set_password(password)
-        u.is_staff = True
-        u.is_superuser = True
-        u.save()
-        return HttpResponse("Admin account already existed — password reset.")
-
-    # Create new superuser
-    User.objects.create_superuser(
-        username=username,
-        email="admin@example.com",
-        password=password
-    )
-
-    return HttpResponse("Superuser created successfully.")
-
-def reset_admin_password(request):
-    User = get_user_model()
-    try:
-        u = User.objects.get(username="admin")
-        u.set_password("Admin123!")
-        u.is_staff = True
-        u.is_superuser = True
-        u.save()
-        return HttpResponse("Admin password reset to Admin123!")
-    except User.DoesNotExist:
-        return HttpResponse("Admin user does not exist.")
