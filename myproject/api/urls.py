@@ -5,8 +5,6 @@ from . import views
 from .views import (
     login_view,
     register_view,
-    reset_admin_password,
-    create_admin,
     forgot_password_view,
     profile_view,
     teacher_profile,
