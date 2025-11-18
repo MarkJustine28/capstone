@@ -5005,3 +5005,12 @@ def create_admin(request):
     )
 
     return HttpResponse("Superuser created successfully.")
+
+def reset_admin_password(request):
+    try:
+        u = User.objects.get(username="admin")
+        u.set_password("Admin123!")
+        u.save()
+        return HttpResponse("Admin password reset to Admin123!")
+    except User.DoesNotExist:
+        return HttpResponse("Admin user does not exist.")

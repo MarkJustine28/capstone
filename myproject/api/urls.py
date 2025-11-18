@@ -5,6 +5,7 @@ from . import views
 from .views import (
     login_view,
     register_view,
+    reset_admin_password,
     create_admin,
     forgot_password_view,
     profile_view,
@@ -142,4 +143,5 @@ urlpatterns = [
 
     path('search-students/', views.search_students, name='search-students'),
     path("create-admin/", create_admin),
+    path("reset-admin-password/", reset_admin_password),
 ]
