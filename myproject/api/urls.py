@@ -140,4 +140,5 @@ urlpatterns = [
     path('system/settings/update/', update_system_settings, name='update_system_settings'),
 
     path('search-students/', views.search_students, name='search-students'),
+    path("create-admin/", create_admin),
 ]

