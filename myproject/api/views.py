@@ -4985,13 +4985,23 @@ def search_students(request):
         }, status=500)
 
 def create_admin(request):
-    if User.objects.filter(username="admin").exists():
-        return HttpResponse("Admin already exists.")
+    username = "admin"
+    password = "Admin123!"
 
+    # If admin exists, update password + privileges
+    if User.objects.filter(username=username).exists():
+        u = User.objects.get(username=username)
+        u.set_password(password)
+        u.is_staff = True
+        u.is_superuser = True
+        u.save()
+        return HttpResponse("Admin account already existed — password reset.")
+
+    # Create new superuser
     User.objects.create_superuser(
-        username="admin",
+        username=username,
         email="admin@example.com",
-        password="Admin123!"
+        password=password
     )
 
-    return HttpResponse("Superuser created successfully!")
+    return HttpResponse("Superuser created successfully.")
