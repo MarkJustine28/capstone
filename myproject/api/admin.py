@@ -97,63 +97,72 @@ class CustomUserAdmin(BaseUserAdmin):
 class StudentAdmin(admin.ModelAdmin):
     list_display = [
         'student_id', 
-        'full_name',           # <-- method below
+        'full_name',
         'grade_level', 
         'section', 
         'school_year', 
-        'report_count',        # <-- method below
+        'report_count',
         'is_archived'
     ]
     list_filter = ['grade_level', 'section', 'school_year', 'strand', 'is_archived']
     search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
     ordering = ['student_id']
-    actions = ['archive_students', 'delete_students']
-
-    def full_name(self, obj):
-        return obj.user.get_full_name() or obj.user.username
-    full_name.short_description = 'Full Name'
-
-    def report_count(self, obj):
-        # Count both student and teacher reports for this student
-        student_reports = obj.received_reports.count()
-        teacher_reports = obj.teacher_reports.count()
-        return student_reports + teacher_reports
-    report_count.short_description = 'Report Count'
+    actions = ['archive_students', 'restore_students']
 
     def archive_students(self, request, queryset):
         updated = queryset.update(is_archived=True)
         self.message_user(request, f'{updated} student(s) archived.')
     archive_students.short_description = "Archive selected students"
 
-    def delete_students(self, request, queryset):
-        to_delete = queryset.filter(is_archived=True)
-        count = to_delete.count()
-        to_delete.delete()
-        self.message_user(request, f'{count} archived student(s) deleted.')
-    delete_students.short_description = "Delete archived students"
+    def restore_students(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} student(s) restored from archive.')
+    restore_students.short_description = "Restore selected students"
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     def get_actions(self, request):
         actions = super().get_actions(request)
         if 'delete_selected' in actions:
-            del actions['delete_selected']
-        return actions
+            del action
+
+class ArchivedStudentAdmin(StudentAdmin):
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_archived=True)
+
+    actions = ['restore_students', 'delete_students']
+
+    def delete_students(self, request, queryset):
+        count = queryset.count()
+        queryset.delete()
+        self.message_user(request, f'{count} archived student(s) deleted.')
+    delete_students.short_description = "Delete archived students"
 
     def has_delete_permission(self, request, obj=None):
-        if obj and hasattr(obj, 'is_archived'):
-            return obj.is_archived
         return True
 
+admin.site.register(Student, ArchivedStudentAdmin)
 
 # ============= TEACHER ADMIN =============
 
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'full_name', 'approval_status', 'advising_class_display', 'department', 'created_at']
-    list_filter = ['approval_status', 'is_approved', 'created_at', 'department', 'advising_grade', 'advising_strand']
-    search_fields = ['employee_id', 'user__first_name', 'user__last_name', 'user__username', 'user__email', 'advising_section']
+    list_display = [
+        'employee_id', 'full_name', 'approval_status',
+        'advising_class_display', 'department', 'created_at', 'is_archived'
+    ]
+    list_filter = [
+        'approval_status', 'is_approved', 'created_at', 'department',
+        'advising_grade', 'advising_strand', 'is_archived'
+    ]
+    search_fields = [
+        'employee_id', 'user__first_name', 'user__last_name',
+        'user__username', 'user__email', 'advising_section'
+    ]
     ordering = ['-created_at']
-    actions = ['archive_teachers', 'delete_teachers', 'approve_teachers', 'reject_teachers', 'mark_pending']
-    
+    actions = ['archive_teachers', 'restore_teachers', 'approve_teachers', 'reject_teachers', 'mark_pending']
+
     fieldsets = (
         ('User Account', {
             'fields': ('user',)
@@ -175,31 +184,29 @@ class TeacherAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     readonly_fields = ['created_at', 'updated_at', 'approved_by', 'approved_at']
-    
+
     def full_name(self, obj):
         full = f"{obj.user.first_name} {obj.user.last_name}".strip()
         email = f" ({obj.user.email})" if obj.user.email else ""
         return f"{full if full else obj.user.username}{email}"
     full_name.short_description = 'Full Name'
-    
+
     def advising_class_display(self, obj):
         if not obj.advising_grade or not obj.advising_section:
             return "N/A"
-        
         grade_display = f"Grade {obj.advising_grade}"
-        
         if obj.advising_grade in ['11', '12'] and obj.advising_strand:
             return f"{grade_display} {obj.advising_strand} - {obj.advising_section}"
         else:
             return f"{grade_display} - {obj.advising_section}"
     advising_class_display.short_description = 'Advisory Class'
-    
+
     def approval_status(self, obj):
         return obj.get_approval_status_display()
     approval_status.short_description = 'Status'
-    
+
     # Batch actions
     def approve_teachers(self, request, queryset):
         from django.utils import timezone
@@ -212,7 +219,6 @@ class TeacherAdmin(admin.ModelAdmin):
             teacher.user.is_active = True
             teacher.user.save()
             teacher.save()
-            
             Notification.objects.create(
                 user=teacher.user,
                 title="Account Approved!",
@@ -220,10 +226,9 @@ class TeacherAdmin(admin.ModelAdmin):
                 type='account_approved'
             )
             updated += 1
-        
         self.message_user(request, f'{updated} teacher account(s) approved.')
     approve_teachers.short_description = "Approve Selected Teachers"
-    
+
     def reject_teachers(self, request, queryset):
         updated = 0
         for teacher in queryset.filter(approval_status='pending'):
@@ -233,7 +238,6 @@ class TeacherAdmin(admin.ModelAdmin):
             teacher.rejection_reason = "Account rejected by administrator"
             teacher.user.save()
             teacher.save()
-            
             Notification.objects.create(
                 user=teacher.user,
                 title="Account Rejected",
@@ -241,41 +245,39 @@ class TeacherAdmin(admin.ModelAdmin):
                 type='account_rejected'
             )
             updated += 1
-        
         self.message_user(request, f'{updated} teacher account(s) rejected.')
     reject_teachers.short_description = "Reject Selected Teachers"
-    
+
     def mark_pending(self, request, queryset):
         updated = queryset.update(approval_status='pending', is_approved=False)
         self.message_user(request, f'{updated} teacher(s) marked as pending.')
     mark_pending.short_description = "Mark as Pending Review"
-    
+
     def archive_teachers(self, request, queryset):
         updated = queryset.update(is_archived=True)
         self.message_user(request, f'{updated} teacher(s) archived.')
     archive_teachers.short_description = "Archive selected teachers"
 
-    def delete_teachers(self, request, queryset):
-        to_delete = queryset.filter(is_archived=True)
-        count = to_delete.count()
-        to_delete.delete()
-        self.message_user(request, f'{count} archived teacher(s) deleted.')
-    delete_teachers.short_description = "Delete archived teachers"
+    def restore_teachers(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} teacher(s) restored from archive.')
+    restore_teachers.short_description = "Restore selected teachers"
+
+    def has_delete_permission(self, request, obj=None):
+        # Disable delete everywhere except for archived teachers
+        if obj and hasattr(obj, 'is_archived'):
+            return obj.is_archived
+        return False
 
     def get_actions(self, request):
         actions = super().get_actions(request)
+        # Remove default delete action
         if 'delete_selected' in actions:
             del actions['delete_selected']
         return actions
 
-    def has_delete_permission(self, request, obj=None):
-        if obj and hasattr(obj, 'is_archived'):
-            return obj.is_archived
-        return True
-
     def save_model(self, request, obj, form, change):
         from django.utils import timezone
-        
         if change and 'approval_status' in form.changed_data:
             if obj.approval_status == 'approved':
                 obj.is_approved = True
@@ -283,7 +285,6 @@ class TeacherAdmin(admin.ModelAdmin):
                 obj.approved_at = timezone.now()
                 obj.user.is_active = True
                 obj.user.save()
-                
                 Notification.objects.create(
                     user=obj.user,
                     title="Account Approved!",
@@ -294,14 +295,12 @@ class TeacherAdmin(admin.ModelAdmin):
                 obj.is_approved = False
                 obj.user.is_active = False
                 obj.user.save()
-                
                 Notification.objects.create(
                     user=obj.user,
                     title="Account Rejected",
                     message=f"Reason: {obj.rejection_reason or 'Not specified'}",
                     type='account_rejected'
                 )
-        
         super().save_model(request, obj, form, change)
 
 
@@ -330,14 +329,28 @@ class CounselorAdmin(admin.ModelAdmin):
 
 @admin.register(StudentReport)
 class StudentReportAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'get_reporter', 'get_reported', 'status', 'verification_status', 'school_year', 'created_at']
-    list_filter = ['status', 'verification_status', 'severity', 'school_year', 'requires_counseling', 'created_at']
-    search_fields = ['title', 'description', 'reporter_student__user__first_name', 'reporter_student__user__last_name',
-                    'reported_student__user__first_name', 'reported_student__user__last_name']
+    list_display = [
+        'id', 'title', 'get_reporter', 'get_reported', 'status', 
+        'verification_status', 'school_year', 'created_at', 'is_archived'
+    ]
+    list_filter = [
+        'status', 'verification_status', 'severity', 'school_year', 
+        'requires_counseling', 'created_at', 'is_archived'
+    ]
+    search_fields = [
+        'title', 'description', 'reporter_student__user__first_name', 
+        'reporter_student__user__last_name', 'reported_student__user__first_name', 
+        'reported_student__user__last_name'
+    ]
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
-    actions = ['mark_as_reviewed', 'mark_as_resolved', 'send_summons']
-    readonly_fields = ['created_at', 'updated_at', 'summons_sent_at', 'verified_at', 'resolved_at']
+    actions = [
+        'archive_reports', 'restore_reports', 
+        'mark_as_reviewed', 'mark_as_resolved', 'send_summons'
+    ]
+    readonly_fields = [
+        'created_at', 'updated_at', 'summons_sent_at', 'verified_at', 'resolved_at'
+    ]
     
     fieldsets = (
         ('Report Information', {
@@ -406,20 +419,41 @@ class StudentReportAdmin(admin.ModelAdmin):
         self.message_user(request, f'{updated} summons sent.')
     send_summons.short_description = "Send Summons"
 
+    def archive_reports(self, request, queryset):
+        updated = queryset.update(is_archived=True)
+        self.message_user(request, f'{updated} report(s) archived.')
+    archive_reports.short_description = "Archive selected reports"
+
+    def restore_reports(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} report(s) restored from archive.')
+    restore_reports.short_description
+
 
 # ============= TEACHER REPORT ADMIN =============
 
 @admin.register(TeacherReport)
 class TeacherReportAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'get_teacher', 'get_student', 'status', 'verification_status', 'school_year', 'created_at']
-    list_filter = ['status', 'verification_status', 'severity', 'school_year', 'requires_counseling', 'created_at']
-    search_fields = ['title', 'description', 'reporter_teacher__user__first_name', 'reporter_teacher__user__last_name',
-                    'reported_student__user__first_name', 'reported_student__user__last_name']
+    list_display = [
+        'id', 'title', 'get_teacher', 'get_student', 'status',
+        'verification_status', 'school_year', 'created_at', 'is_archived'
+    ]
+    list_filter = [
+        'status', 'verification_status', 'severity', 'school_year',
+        'requires_counseling', 'created_at', 'is_archived'
+    ]
+    search_fields = [
+        'title', 'description', 'reporter_teacher__user__first_name', 'reporter_teacher__user__last_name',
+        'reported_student__user__first_name', 'reported_student__user__last_name'
+    ]
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
-    actions = ['mark_as_reviewed', 'mark_as_resolved', 'send_summons_to_student']
+    actions = [
+        'archive_reports', 'restore_reports',
+        'mark_as_reviewed', 'mark_as_resolved', 'send_summons_to_student'
+    ]
     readonly_fields = ['created_at', 'updated_at', 'summons_sent_at', 'verified_at', 'resolved_at']
-    
+
     fieldsets = (
         ('Report Information', {
             'fields': ('title', 'description', 'status', 'verification_status')
@@ -448,30 +482,30 @@ class TeacherReportAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     def get_teacher(self, obj):
         if obj.reporter_teacher:
             return obj.reporter_teacher.user.get_full_name() or obj.reporter_teacher.user.username
         return 'N/A'
     get_teacher.short_description = 'Reporting Teacher'
-    
+
     def get_student(self, obj):
         if obj.reported_student:
             return obj.reported_student.user.get_full_name() or obj.reported_student.user.username
         return 'N/A'
     get_student.short_description = 'Student'
-    
+
     def mark_as_reviewed(self, request, queryset):
         updated = queryset.update(status='under_review', is_reviewed=True)
         self.message_user(request, f'{updated} report(s) marked as reviewed.')
     mark_as_reviewed.short_description = "Mark as Reviewed"
-    
+
     def mark_as_resolved(self, request, queryset):
         from django.utils import timezone
         updated = queryset.update(status='resolved', resolved_at=timezone.now())
         self.message_user(request, f'{updated} report(s) marked as resolved.')
     mark_as_resolved.short_description = "Mark as Resolved"
-    
+
     def send_summons_to_student(self, request, queryset):
         from django.utils import timezone
         updated = 0
@@ -485,6 +519,28 @@ class TeacherReportAdmin(admin.ModelAdmin):
                 updated += 1
         self.message_user(request, f'{updated} summons sent to students.')
     send_summons_to_student.short_description = "Send Summons to Student"
+
+    def archive_reports(self, request, queryset):
+        updated = queryset.update(is_archived=True)
+        self.message_user(request, f'{updated} report(s) archived.')
+    archive_reports.short_description = "Archive selected reports"
+
+    def restore_reports(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} report(s) restored from archive.')
+    restore_reports.short_description = "Restore selected reports"
+
+    def has_delete_permission(self, request, obj=None):
+        # Only allow delete for archived reports
+        if obj and hasattr(obj, 'is_archived'):
+            return obj.is_archived
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
 
 
 # ============= VIOLATION TYPE ADMIN =============
