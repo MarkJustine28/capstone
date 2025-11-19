@@ -239,7 +239,7 @@ class StudentReport(models.Model):
     status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
     
     is_archived = models.BooleanField(default=False)
-    
+
     # ✅ Verification status
     verification_status = models.CharField(
         max_length=20, 
@@ -379,6 +379,8 @@ class TeacherReport(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
     status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
+    
+    is_archived = models.BooleanField(default=False)
     
     # ✅ Verification status
     verification_status = models.CharField(
