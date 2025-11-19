@@ -4992,3 +4992,86 @@ def search_students(request):
             'error': str(e)
         }, status=500)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def archived_students_list(request):
+    """
+    Get list of archived students for admin/counselor.
+    """
+    try:
+        # Only allow staff or counselor
+        if not (request.user.is_staff or hasattr(request.user, 'counselor')):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Admin or counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        students_query = Student.objects.select_related('user').filter(is_archived=True)
+        students_data = []
+        for student in students_query:
+            students_data.append({
+                'id': student.id,
+                'student_id': student.student_id,
+                'username': student.user.username,
+                'first_name': student.user.first_name,
+                'last_name': student.user.last_name,
+                'email': student.user.email,
+                'grade_level': student.grade_level,
+                'section': student.section,
+                'strand': student.strand,
+                'school_year': student.school_year,
+                'contact_number': student.contact_number,
+                'guardian_name': student.guardian_name,
+                'guardian_contact': student.guardian_contact,
+            })
+        return Response({
+            'success': True,
+            'archived_students': students_data,
+            'total': len(students_data),
+        })
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def restore_student(request, student_id):
+    """
+    Restore an archived student (set is_archived=False)
+    """
+    try:
+        if not (request.user.is_staff or hasattr(request.user, 'counselor')):
+            return Response({'success': False, 'error': 'Access denied.'}, status=403)
+        student = Student.objects.get(id=student_id)
+        if not student.is_archived:
+            return Response({'success': False, 'error': 'Student is not archived.'}, status=400)
+        student.is_archived = False
+        student.save()
+        return Response({'success': True, 'message': 'Student restored.'})
+    except Student.DoesNotExist:
+        return Response({'success': False, 'error': 'Student not found.'}, status=404)
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=500)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_student_permanent(request, student_id):
+    """
+    Permanently delete an archived student.
+    """
+    try:
+        if not (request.user.is_staff or hasattr(request.user, 'counselor')):
+            return Response({'success': False, 'error': 'Access denied.'}, status=403)
+        student = Student.objects.get(id=student_id)
+        if not student.is_archived:
+            return Response({'success': False, 'error': 'Student must be archived before permanent deletion.'}, status=400)
+        user = student.user
+        student.delete()
+        user.delete()
+        return Response({'success': True, 'message': 'Student permanently deleted.'})
+    except Student.DoesNotExist:
+        return Response({'success': False, 'error': 'Student not found.'}, status=404)
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=500)
