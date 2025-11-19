@@ -127,23 +127,6 @@ class StudentAdmin(admin.ModelAdmin):
         if 'delete_selected' in actions:
             del action
 
-class ArchivedStudentAdmin(StudentAdmin):
-    def get_queryset(self, request):
-        return super().get_queryset(request).filter(is_archived=True)
-
-    actions = ['restore_students', 'delete_students']
-
-    def delete_students(self, request, queryset):
-        count = queryset.count()
-        queryset.delete()
-        self.message_user(request, f'{count} archived student(s) deleted.')
-    delete_students.short_description = "Delete archived students"
-
-    def has_delete_permission(self, request, obj=None):
-        return True
-
-admin.site.register(Student, ArchivedStudentAdmin)
-
 # ============= TEACHER ADMIN =============
 
 @admin.register(Teacher)
