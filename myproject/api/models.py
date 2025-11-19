@@ -381,7 +381,7 @@ class TeacherReport(models.Model):
     status = models.CharField(max_length=30, choices=REPORT_STATUS_CHOICES, default='pending')
     
     is_archived = models.BooleanField(default=False)
-    
+
     # ✅ Verification status
     verification_status = models.CharField(
         max_length=20, 
@@ -496,7 +496,34 @@ class TeacherReport(models.Model):
         db_table = 'teacher_reports'
         ordering = ['-created_at']
 
+class ArchivedStudent(Student):
+    """Proxy model for archived students"""
+    class Meta:
+        proxy = True
+        verbose_name = 'Archived Student'
+        verbose_name_plural = 'Archived Students'
 
+class ArchivedTeacher(Teacher):
+    """Proxy model for archived teachers"""
+    class Meta:
+        proxy = True
+        verbose_name = 'Archived Teacher'
+        verbose_name_plural = 'Archived Teachers'
+
+class ArchivedStudentReport(StudentReport):
+    """Proxy model for archived student reports"""
+    class Meta:
+        proxy = True
+        verbose_name = 'Archived Student Report'
+        verbose_name_plural = 'Archived Student Reports'
+
+class ArchivedTeacherReport(TeacherReport):
+    """Proxy model for archived teacher reports"""
+    class Meta:
+        proxy = True
+        verbose_name = 'Archived Teacher Report'
+        verbose_name_plural = 'Archived Teacher Reports'
+        
 # ✅ NEW MODEL: Track counseling sessions for report verification
 class CounselingSession(models.Model):
     """Track counseling sessions for report verification"""

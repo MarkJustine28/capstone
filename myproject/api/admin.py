@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.db.models import Count, Q
 from .models import (
     Student, Teacher, Counselor, StudentReport, TeacherReport, ViolationType, 
-    ViolationHistory, Notification, SystemSettings
+    ViolationHistory, Notification, SystemSettings, ArchivedStudent, ArchivedTeacher, ArchivedStudentReport, ArchivedTeacherReport
 )
 
 # Customize admin site
@@ -646,3 +646,192 @@ class SystemSettingsAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Prevent deletion
         return False
+
+# ============= ARCHIVED STUDENT ADMIN =============
+
+@admin.register(ArchivedStudent)
+class ArchivedStudentAdmin(admin.ModelAdmin):
+    list_display = [
+        'student_id', 'full_name', 'grade_level', 'section', 
+        'school_year', 'report_count', 'created_at'
+    ]
+    list_filter = ['grade_level', 'section', 'school_year', 'strand']
+    search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
+    ordering = ['student_id']
+    actions = ['restore_students', 'delete_permanently']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_archived=True)
+
+    def full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+    full_name.short_description = 'Full Name'
+
+    def report_count(self, obj):
+        student_reports = obj.received_reports.count()
+        teacher_reports = obj.teacher_reports.count()
+        return student_reports + teacher_reports
+    report_count.short_description = 'Report Count'
+
+    def restore_students(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} student(s) restored from archive.')
+    restore_students.short_description = "Restore selected students"
+
+    def delete_permanently(self, request, queryset):
+        count = 0
+        for student in queryset:
+            user = student.user
+            student.delete()
+            user.delete()
+            count += 1
+        self.message_user(request, f'{count} student(s) permanently deleted.')
+    delete_permanently.short_description = "Delete permanently"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
+
+
+# ============= ARCHIVED TEACHER ADMIN =============
+
+@admin.register(ArchivedTeacher)
+class ArchivedTeacherAdmin(admin.ModelAdmin):
+    list_display = [
+        'employee_id', 'full_name', 'department', 
+        'advising_class_display', 'created_at'
+    ]
+    list_filter = ['department', 'advising_grade', 'advising_strand']
+    search_fields = ['employee_id', 'user__first_name', 'user__last_name', 'user__username']
+    ordering = ['-created_at']
+    actions = ['restore_teachers', 'delete_permanently']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_archived=True)
+
+    def full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+    full_name.short_description = 'Full Name'
+
+    def advising_class_display(self, obj):
+        if not obj.advising_grade or not obj.advising_section:
+            return "N/A"
+        return obj.get_advising_info()
+    advising_class_display.short_description = 'Advisory Class'
+
+    def restore_teachers(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} teacher(s) restored from archive.')
+    restore_teachers.short_description = "Restore selected teachers"
+
+    def delete_permanently(self, request, queryset):
+        count = 0
+        for teacher in queryset:
+            user = teacher.user
+            teacher.delete()
+            user.delete()
+            count += 1
+        self.message_user(request, f'{count} teacher(s) permanently deleted.')
+    delete_permanently.short_description = "Delete permanently"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
+
+
+# ============= ARCHIVED STUDENT REPORT ADMIN =============
+
+@admin.register(ArchivedStudentReport)
+class ArchivedStudentReportAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'title', 'get_reporter', 'get_reported', 'status',
+        'verification_status', 'school_year', 'created_at'
+    ]
+    list_filter = ['status', 'verification_status', 'severity', 'school_year']
+    search_fields = ['title', 'description', 'reporter_student__user__username']
+    date_hierarchy = 'created_at'
+    ordering = ['-created_at']
+    actions = ['restore_reports', 'delete_permanently']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_archived=True)
+
+    def get_reporter(self, obj):
+        if obj.reporter_student:
+            return obj.reporter_student.user.get_full_name() or obj.reporter_student.user.username
+        return 'N/A'
+    get_reporter.short_description = 'Reporter'
+
+    def get_reported(self, obj):
+        if obj.reported_student:
+            return obj.reported_student.user.get_full_name() or obj.reported_student.user.username
+        return 'Self-Report'
+    get_reported.short_description = 'Reported Student'
+
+    def restore_reports(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} report(s) restored from archive.')
+    restore_reports.short_description = "Restore selected reports"
+
+    def delete_permanently(self, request, queryset):
+        count = queryset.count()
+        queryset.delete()
+        self.message_user(request, f'{count} report(s) permanently deleted.')
+    delete_permanently.short_description = "Delete permanently"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
+
+
+# ============= ARCHIVED TEACHER REPORT ADMIN =============
+
+@admin.register(ArchivedTeacherReport)
+class ArchivedTeacherReportAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'title', 'get_teacher', 'get_student', 'status',
+        'verification_status', 'school_year', 'created_at'
+    ]
+    list_filter = ['status', 'verification_status', 'severity', 'school_year']
+    search_fields = ['title', 'description', 'reporter_teacher__user__username']
+    date_hierarchy = 'created_at'
+    ordering = ['-created_at']
+    actions = ['restore_reports', 'delete_permanently']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_archived=True)
+
+    def get_teacher(self, obj):
+        if obj.reporter_teacher:
+            return obj.reporter_teacher.user.get_full_name() or obj.reporter_teacher.user.username
+        return 'N/A'
+    get_teacher.short_description = 'Reporting Teacher'
+
+    def get_student(self, obj):
+        if obj.reported_student:
+            return obj.reported_student.user.get_full_name() or obj.reported_student.user.username
+        return 'N/A'
+    get_student.short_description = 'Student'
+
+    def restore_reports(self, request, queryset):
+        updated = queryset.update(is_archived=False)
+        self.message_user(request, f'{updated} report(s) restored from archive.')
+    restore_reports.short_description = "Restore selected reports"
+
+    def delete_permanently(self, request, queryset):
+        count = queryset.count()
+        queryset.delete()
+        self.message_user(request, f'{count} report(s) permanently deleted.')
+    delete_permanently.short_description = "Delete permanently"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
