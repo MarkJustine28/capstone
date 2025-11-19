@@ -95,11 +95,30 @@ class CustomUserAdmin(BaseUserAdmin):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['student_id', 'full_name', 'grade_level', 'section', 'school_year', 'report_count', 'is_archived']
+    list_display = [
+        'student_id', 
+        'full_name',           # <-- method below
+        'grade_level', 
+        'section', 
+        'school_year', 
+        'report_count',        # <-- method below
+        'is_archived'
+    ]
     list_filter = ['grade_level', 'section', 'school_year', 'strand', 'is_archived']
     search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
     ordering = ['student_id']
     actions = ['archive_students', 'delete_students']
+
+    def full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+    full_name.short_description = 'Full Name'
+
+    def report_count(self, obj):
+        # Count both student and teacher reports for this student
+        student_reports = obj.received_reports.count()
+        teacher_reports = obj.teacher_reports.count()
+        return student_reports + teacher_reports
+    report_count.short_description = 'Report Count'
 
     def archive_students(self, request, queryset):
         updated = queryset.update(is_archived=True)
