@@ -410,7 +410,7 @@ class StudentReportAdmin(admin.ModelAdmin):
     def restore_reports(self, request, queryset):
         updated = queryset.update(is_archived=False)
         self.message_user(request, f'{updated} report(s) restored from archive.')
-    restore_reports.short_description
+    restore_reports.short_description = "Restore selected reports"
 
 
 # ============= TEACHER REPORT ADMIN =============
