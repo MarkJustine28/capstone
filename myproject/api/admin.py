@@ -127,6 +127,17 @@ class StudentAdmin(admin.ModelAdmin):
         if 'delete_selected' in actions:
             del action
 
+    def full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+    full_name.short_description = 'Full Name'
+
+    def report_count(self, obj):
+        # Count both student and teacher reports for this student
+        student_reports = obj.received_reports.count()
+        teacher_reports = obj.teacher_reports.count()
+        return student_reports + teacher_reports
+    report_count.short_description = 'Report Count'
+
 # ============= TEACHER ADMIN =============
 
 @admin.register(Teacher)
