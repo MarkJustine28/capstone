@@ -1175,7 +1175,7 @@ def get_students_list(request):
         school_year = request.GET.get('school_year', None)
         
         # Base query
-        students_query = Student.objects.select_related('user')
+        students_query = Student.objects.select_related('user').filter(is_archived=False)
         
         # ✅ NEW: Filter by school year if provided
         if school_year and school_year != 'all':
@@ -1471,7 +1471,7 @@ def update_student(request, student_id):
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_student(request, student_id):
-    """Delete a student"""
+    """Delete a student (archive first if not archived)"""
     try:
         # Check if user is a counselor
         if not hasattr(request.user, 'counselor'):
@@ -1487,6 +1487,14 @@ def delete_student(request, student_id):
                 'success': False,
                 'error': 'Student not found'
             }, status=status.HTTP_404_NOT_FOUND)
+        
+        if not student.is_archived:
+            student.is_archived = True
+            student.save()
+            return Response({
+                'success': True,
+                'message': 'Student archived. You must archive before deletion.'
+            }, status=status.HTTP_200_OK)
         
         # Delete the user (this will cascade delete the student)
         user = student.user

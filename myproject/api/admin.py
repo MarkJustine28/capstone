@@ -95,25 +95,34 @@ class CustomUserAdmin(BaseUserAdmin):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['student_id', 'full_name', 'grade_level', 'section', 'school_year', 'report_count']
-    list_filter = ['grade_level', 'section', 'school_year', 'strand']
+    list_display = ['student_id', 'full_name', 'grade_level', 'section', 'school_year', 'report_count', 'is_archived']
+    list_filter = ['grade_level', 'section', 'school_year', 'strand', 'is_archived']
     search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
     ordering = ['student_id']
-    
-    def full_name(self, obj):
-        full = f"{obj.user.first_name} {obj.user.last_name}".strip()
-        return full if full else obj.user.username
-    full_name.short_description = 'Full Name'
-    
-    def report_count(self, obj):
-        # Count both student reports (as reporter and reported) and teacher reports
-        student_reports = StudentReport.objects.filter(
-            Q(reporter_student=obj) | Q(reported_student=obj)
-        ).count()
-        teacher_reports = TeacherReport.objects.filter(reported_student=obj).count()
-        total = student_reports + teacher_reports
-        return f"{total} (S:{student_reports}, T:{teacher_reports})"
-    report_count.short_description = 'Reports'
+    actions = ['archive_students', 'delete_students']
+
+    def archive_students(self, request, queryset):
+        updated = queryset.update(is_archived=True)
+        self.message_user(request, f'{updated} student(s) archived.')
+    archive_students.short_description = "Archive selected students"
+
+    def delete_students(self, request, queryset):
+        to_delete = queryset.filter(is_archived=True)
+        count = to_delete.count()
+        to_delete.delete()
+        self.message_user(request, f'{count} archived student(s) deleted.')
+    delete_students.short_description = "Delete archived students"
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and hasattr(obj, 'is_archived'):
+            return obj.is_archived
+        return True
 
 
 # ============= TEACHER ADMIN =============
@@ -124,7 +133,7 @@ class TeacherAdmin(admin.ModelAdmin):
     list_filter = ['approval_status', 'is_approved', 'created_at', 'department', 'advising_grade', 'advising_strand']
     search_fields = ['employee_id', 'user__first_name', 'user__last_name', 'user__username', 'user__email', 'advising_section']
     ordering = ['-created_at']
-    actions = ['approve_teachers', 'reject_teachers', 'mark_pending']
+    actions = ['archive_teachers', 'delete_teachers', 'approve_teachers', 'reject_teachers', 'mark_pending']
     
     fieldsets = (
         ('User Account', {
@@ -222,6 +231,29 @@ class TeacherAdmin(admin.ModelAdmin):
         self.message_user(request, f'{updated} teacher(s) marked as pending.')
     mark_pending.short_description = "Mark as Pending Review"
     
+    def archive_teachers(self, request, queryset):
+        updated = queryset.update(is_archived=True)
+        self.message_user(request, f'{updated} teacher(s) archived.')
+    archive_teachers.short_description = "Archive selected teachers"
+
+    def delete_teachers(self, request, queryset):
+        to_delete = queryset.filter(is_archived=True)
+        count = to_delete.count()
+        to_delete.delete()
+        self.message_user(request, f'{count} archived teacher(s) deleted.')
+    delete_teachers.short_description = "Delete archived teachers"
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and hasattr(obj, 'is_archived'):
+            return obj.is_archived
+        return True
+
     def save_model(self, request, obj, form, change):
         from django.utils import timezone
         

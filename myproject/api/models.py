@@ -31,6 +31,7 @@ class Student(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     student_id = models.CharField(max_length=20, unique=True, blank=True, null=True)
     grade_level = models.CharField(max_length=2, choices=GRADE_CHOICES, blank=True, null=True)
+    is_archived = models.BooleanField(default=False)
     
     # NEW: Add strand field for Senior High School
     strand = models.CharField(max_length=30, choices=STRAND_CHOICES, blank=True, null=True, 
@@ -89,6 +90,7 @@ class Teacher(models.Model):
     employee_id = models.CharField(max_length=20, unique=True, blank=True, null=True)  # ✅ Make nullable
     department = models.CharField(max_length=100, blank=True, default='')
     specialization = models.CharField(max_length=100, blank=True, default='')
+    is_archived = models.BooleanField(default=False)
     
     # Advising Information
     advising_grade = models.CharField(max_length=2, choices=Student.GRADE_CHOICES, blank=True, null=True)
