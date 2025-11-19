@@ -109,15 +109,27 @@ class StudentAdmin(admin.ModelAdmin):
     ordering = ['student_id']
     actions = ['archive_students', 'restore_students', 'delete_permanently']
 
-    def archive_students(self, request, queryset):
-        updated = queryset.update(is_archived=True)
-        self.message_user(request, f'{updated} student(s) archived.')
-    archive_students.short_description = "Archive selected students"
+    def archive_teachers(self, request, queryset):
+        count = 0
+        for teacher in queryset:
+            teacher.is_archived = True
+            teacher.user.is_active = False  # Disable login
+            teacher.user.save()
+            teacher.save()
+            count += 1
+        self.message_user(request, f'{count} teacher(s) archived and login disabled.')
+    archive_teachers.short_description = "Archive selected teachers"
 
-    def restore_students(self, request, queryset):
-        updated = queryset.update(is_archived=False)
-        self.message_user(request, f'{updated} student(s) restored from archive.')
-    restore_students.short_description = "Restore selected students"
+    def restore_teachers(self, request, queryset):
+        count = 0
+        for teacher in queryset:
+            teacher.is_archived = False
+            teacher.user.is_active = True  # Re-enable login
+            teacher.user.save()
+            teacher.save()
+            count += 1
+        self.message_user(request, f'{count} teacher(s) restored and login enabled.')
+    restore_teachers.short_description = "Restore selected teachers"
 
     def has_delete_permission(self, request, obj=None):
         return False
@@ -674,8 +686,14 @@ class ArchivedStudentAdmin(admin.ModelAdmin):
     report_count.short_description = 'Report Count'
 
     def restore_students(self, request, queryset):
-        updated = queryset.update(is_archived=False)
-        self.message_user(request, f'{updated} student(s) restored from archive.')
+        count = 0
+        for student in queryset:
+            student.is_archived = False
+            student.user.is_active = True  # Re-enable login
+            student.user.save()
+            student.save()
+            count += 1
+        self.message_user(request, f'{count} student(s) restored and login enabled.')
     restore_students.short_description = "Restore selected students"
 
     def delete_permanently(self, request, queryset):
@@ -722,8 +740,14 @@ class ArchivedTeacherAdmin(admin.ModelAdmin):
     advising_class_display.short_description = 'Advisory Class'
 
     def restore_teachers(self, request, queryset):
-        updated = queryset.update(is_archived=False)
-        self.message_user(request, f'{updated} teacher(s) restored from archive.')
+        count = 0
+        for teacher in queryset:
+            teacher.is_archived = False
+            teacher.user.is_active = True  # Re-enable login
+            teacher.user.save()
+            teacher.save()
+            count += 1
+        self.message_user(request, f'{count} teacher(s) restored and login enabled.')
     restore_teachers.short_description = "Restore selected teachers"
 
     def delete_permanently(self, request, queryset):
