@@ -107,7 +107,7 @@ class StudentAdmin(admin.ModelAdmin):
     list_filter = ['grade_level', 'section', 'school_year', 'strand', 'is_archived']
     search_fields = ['student_id', 'user__first_name', 'user__last_name', 'user__username']
     ordering = ['student_id']
-    actions = ['archive_students', 'restore_students']
+    actions = ['archive_students', 'restore_students', 'delete_permanently']
 
     def archive_students(self, request, queryset):
         updated = queryset.update(is_archived=True)
@@ -122,10 +122,22 @@ class StudentAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def delete_permanently(self, request, queryset):
+        count = 0
+        for student in queryset:
+            if student.is_archived:
+                user = student.user
+                student.delete()
+                user.delete()
+                count += 1
+        self.message_user(request, f'{count} archived student(s) permanently deleted.')
+    delete_permanently.short_description = "Delete permanently (archived only)"
+
     def get_actions(self, request):
         actions = super().get_actions(request)
         if 'delete_selected' in actions:
-            del action
+            del actions['delete_selected']
+        return actions
 
     def full_name(self, obj):
         return obj.user.get_full_name() or obj.user.username
