@@ -55,6 +55,9 @@ from .views import (
     student_profile,
     get_system_settings,
     update_system_settings,
+    archived_students_list,
+    restore_student,
+    delete_student_permanent,
 )
 
 urlpatterns = [
