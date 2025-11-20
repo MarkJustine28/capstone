@@ -58,6 +58,7 @@ from .views import (
     archived_students_list,
     restore_student,
     delete_student_permanent,
+    bulk_add_students,
 )
 
 urlpatterns = [
@@ -106,7 +107,7 @@ urlpatterns = [
     path('students/<int:student_id>/delete/', delete_student, name='delete_student'),
     path('students/<int:student_id>/violation-history/', get_student_violation_history, name='get_student_violation_history'),
     path('counselor/bulk-add-students/', bulk_add_students, name='bulk_add_students'),
-    
+
     path('violations/', get_student_violations, name='get_student_violations'),
     path('violations/record/', record_violation, name='record_violation'),
     path('violation-types/', violation_types, name='violation_types'),
