@@ -5291,3 +5291,125 @@ def create_system_report(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_counseling_action(request):
+    """Log a counseling action for a student"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can log actions'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        counselor = request.user.counselor
+        data = request.data
+        
+        student_id = data.get('student_id')
+        if not student_id:
+            return Response({
+                'success': False,
+                'error': 'Student ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        from .models import CounselingLog
+        
+        # Create counseling log
+        log = CounselingLog.objects.create(
+            counselor=counselor,
+            student=student,
+            action_type=data.get('action_type', 'Individual Counseling'),
+            description=data.get('description', ''),
+            scheduled_date=data.get('scheduled_date', timezone.now()),
+            status='completed' if data.get('mark_completed') else 'scheduled',
+            completion_date=timezone.now() if data.get('mark_completed') else None,
+            notes=data.get('notes', ''),
+            school_year=get_current_school_year(),
+        )
+        
+        logger.info(f"✅ Counseling action logged: {log.action_type} for {student.user.get_full_name()}")
+        
+        return Response({
+            'success': True,
+            'message': 'Counseling action logged successfully',
+            'log': {
+                'id': log.id,
+                'student_id': student.id,
+                'student_name': student.user.get_full_name(),
+                'action_type': log.action_type,
+                'status': log.status,
+                'created_at': log.created_at.isoformat(),
+            }
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"❌ Error logging counseling action: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_counseling_logs(request):
+    """Get counseling logs for a student or all students"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        from .models import CounselingLog
+        
+        student_id = request.GET.get('student_id')
+        school_year = request.GET.get('school_year')
+        
+        logs_query = CounselingLog.objects.select_related('student__user', 'counselor__user').all()
+        
+        if student_id:
+            logs_query = logs_query.filter(student_id=student_id)
+        
+        if school_year and school_year != 'all':
+            logs_query = logs_query.filter(school_year=school_year)
+        
+        logs_data = []
+        for log in logs_query:
+            logs_data.append({
+                'id': log.id,
+                'student_id': log.student.id,
+                'student_name': log.student.user.get_full_name(),
+                'counselor_name': log.counselor.user.get_full_name(),
+                'action_type': log.action_type,
+                'description': log.description,
+                'scheduled_date': log.scheduled_date.isoformat(),
+                'completion_date': log.completion_date.isoformat() if log.completion_date else None,
+                'status': log.status,
+                'notes': log.notes,
+                'school_year': log.school_year,
+                'created_at': log.created_at.isoformat(),
+            })
+        
+        return Response({
+            'success': True,
+            'logs': logs_data,
+            'total': len(logs_data),
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching counseling logs: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

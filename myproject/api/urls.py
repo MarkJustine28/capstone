@@ -60,6 +60,8 @@ from .views import (
     delete_student_permanent,
     bulk_add_students,
     create_system_report,
+    get_counseling_logs,
+    log_counseling_action,
 )
 
 urlpatterns = [
@@ -151,4 +153,7 @@ urlpatterns = [
     path('students/archived/<int:student_id>/restore/', restore_student, name='restore_student'),
     path('students/archived/<int:student_id>/delete/', delete_student_permanent, name='delete_student_permanent'),
     path('counselor/system-reports/', create_system_report, name='create_system_report'),
+
+    path('counseling-logs/', get_counseling_logs, name='get_counseling_logs'),
+    path('counseling-logs/create/', log_counseling_action, name='log_counseling_action'),
 ]

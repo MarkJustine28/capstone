@@ -524,6 +524,33 @@ class ArchivedTeacherReport(TeacherReport):
         verbose_name = 'Archived Teacher Report'
         verbose_name_plural = 'Archived Teacher Reports'
         
+class CounselingLog(models.Model):
+    """Track counseling actions taken by counselors"""
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    counselor = models.ForeignKey(Counselor, on_delete=models.CASCADE, related_name='counseling_logs')
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='counseling_logs')
+    action_type = models.CharField(max_length=100)  # e.g., "Individual Counseling", "Group Session"
+    description = models.TextField()
+    scheduled_date = models.DateTimeField()
+    completion_date = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    school_year = models.CharField(max_length=20)
+    
+    class Meta:
+        ordering = ['-created_at']
+        db_table = 'counseling_logs'
+        
+    def __str__(self):
+        return f"{self.action_type} - {self.student.user.get_full_name()} by {self.counselor.user.get_full_name()}"
+        
 # ✅ NEW MODEL: Track counseling sessions for report verification
 class CounselingSession(models.Model):
     """Track counseling sessions for report verification"""
