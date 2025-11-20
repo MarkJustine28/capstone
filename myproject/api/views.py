@@ -1831,14 +1831,26 @@ def counselor_dashboard_analytics(request):
         
         # Basic counts
         total_students = students_query.count()
+
+        counselor_recorded_violations = violations_query.filter(
+            counselor=counselor,
+            related_student_report__isnull=True,
+            related_teacher_report__isnull=True
+        ).count()
         
         # ✅ Count both StudentReport and TeacherReport
         student_reports_count = student_reports_query.count()
         teacher_reports_count = teacher_reports_query.count()
-        total_reports = student_reports_count + teacher_reports_count
+        total_reports = student_reports_count + teacher_reports_count + counselor_recorded_violationss
         
         total_violations = violations_query.count()
         
+        tallied_violations = violations_query.filter(
+            models.Q(related_student_report__isnull=False) |
+            models.Q(related_teacher_report__isnull=False) |
+            models.Q(counselor=counselor)
+        ).count()
+
         # ✅ Report status breakdown for both types
         pending_student_reports = student_reports_query.filter(status='pending').count()
         pending_teacher_reports = teacher_reports_query.filter(status='pending').count()
@@ -2002,9 +2014,12 @@ def counselor_dashboard_analytics(request):
         
         logger.info(f"✅ Dashboard analytics retrieved for counselor {counselor.user.username}")
         logger.info(f"   Total Students: {total_students}")
-        logger.info(f"   Total Reports: {total_reports} (Student: {student_reports_count}, Teacher: {teacher_reports_count})")
+        logger.info(f"   Student Reports: {student_reports_count}")
+        logger.info(f"   Teacher Reports: {teacher_reports_count}")
+        logger.info(f"   Counselor-Recorded: {counselor_recorded_violations}")
+        logger.info(f"   Total Reports: {total_reports}")
         logger.info(f"   Total Violations: {total_violations}")
-        logger.info(f"   Pending Reports: {pending_reports}")
+        logger.info(f"   Tallied Violations: {tallied_violations}")
         
         return Response({
             'success': True,
@@ -2014,7 +2029,9 @@ def counselor_dashboard_analytics(request):
                     'total_reports': total_reports,
                     'student_reports': student_reports_count,
                     'teacher_reports': teacher_reports_count,
+                    'counselor_recorded': counselor_recorded_violations,  # ✅ NEW
                     'total_violations': total_violations,
+                    'tallied_violations': tallied_violations,  # ✅ NEW
                     'pending_reports': pending_reports,
                 },
                 'report_status': {
