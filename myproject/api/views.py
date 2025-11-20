@@ -5229,7 +5229,7 @@ def create_system_report(request):
                 'error': 'Student not found'
             }, status=status.HTTP_404_NOT_FOUND)
         
-        # ✅ Create violation record directly (no report needed)
+        # ✅ Create violation record (removed severity, location fields)
         violation = StudentViolationRecord.objects.create(
             student=student,
             violation_type=violation_type_instance,
@@ -5237,9 +5237,7 @@ def create_system_report(request):
             incident_date=timezone.now(),
             description=data.get('description', ''),
             status='active',
-            severity=data.get('severity', 'Medium'),
             school_year=get_current_school_year(),
-            location=data.get('location', ''),
             counselor_notes=f"Recorded by {counselor.user.get_full_name()} via Add Violation",
         )
         
@@ -5258,7 +5256,6 @@ def create_system_report(request):
                 'student_id': student.id,
                 'student_name': student.user.get_full_name(),
                 'violation_type': violation_type_instance.name,
-                'severity': violation.severity,
                 'school_year': violation.school_year,
                 'recorded_at': violation.recorded_at.isoformat(),
             }
