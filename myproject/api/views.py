@@ -5209,16 +5209,16 @@ def create_system_report(request):
             except ViolationType.DoesNotExist:
                 logger.warning(f"⚠️ Violation type '{violation_type_name}' not found, creating without violation_type")
         
+        # ✅ REMOVED: report_type field (doesn't exist in StudentReport model)
         # Create the report
         report = StudentReport.objects.create(
             title=data.get('title', 'Manual Violation Record'),
             description=data.get('description', ''),
-            violation_type=violation_type_instance,  # ✅ Use instance, not string
-            custom_violation=violation_type_name if not violation_type_instance else None,  # ✅ Store as custom if not found
+            violation_type=violation_type_instance,
+            custom_violation=violation_type_name if not violation_type_instance else None,
             reported_student_id=data['reported_student_id'],
             status='verified',
             verification_status='verified',
-            report_type='manual_record',
             severity=data.get('severity', 'Medium'),
             school_year=get_current_school_year(),
         )
