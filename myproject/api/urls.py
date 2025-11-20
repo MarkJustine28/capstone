@@ -105,6 +105,7 @@ urlpatterns = [
     path('students/<int:student_id>/', update_student, name='update_student'),
     path('students/<int:student_id>/delete/', delete_student, name='delete_student'),
     path('students/<int:student_id>/violation-history/', get_student_violation_history, name='get_student_violation_history'),
+    path('counselor/bulk-add-students/', bulk_add_students, name='bulk_add_students'),
     
     path('violations/', get_student_violations, name='get_student_violations'),
     path('violations/record/', record_violation, name='record_violation'),

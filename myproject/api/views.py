@@ -5075,3 +5075,110 @@ def delete_student_permanent(request, student_id):
         return Response({'success': False, 'error': 'Student not found.'}, status=404)
     except Exception as e:
         return Response({'success': False, 'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def bulk_add_students(request):
+    """Bulk add multiple students at once"""
+    try:
+        # Check if user is a counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied. Counselor role required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        students_data = request.data.get('students', [])
+        
+        if not students_data:
+            return Response({
+                'success': False,
+                'error': 'No students data provided'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        added_students = []
+        errors = []
+        
+        # Get current school year
+        current_school_year = get_current_school_year()
+        
+        with transaction.atomic():
+            for idx, student_data in enumerate(students_data):
+                try:
+                    first_name = student_data.get('first_name', '').strip()
+                    last_name = student_data.get('last_name', '').strip()
+                    email = student_data.get('email', '').strip()
+                    grade_level = student_data.get('grade_level')
+                    section = student_data.get('section')
+                    
+                    if not first_name or not last_name:
+                        errors.append(f"Row {idx + 1}: First name and last name are required")
+                        continue
+                    
+                    if not grade_level or not section:
+                        errors.append(f"Row {idx + 1}: Grade level and section are required")
+                        continue
+                    
+                    # Generate username
+                    base_username = f"{first_name.lower()}.{last_name.lower()}".replace(' ', '')
+                    username = base_username
+                    counter = 1
+                    while User.objects.filter(username=username).exists():
+                        username = f"{base_username}{counter}"
+                        counter += 1
+                    
+                    # Create user
+                    user = User.objects.create_user(
+                        username=username,
+                        first_name=first_name,
+                        last_name=last_name,
+                        email=email if email else f"{username}@school.edu",
+                        password='student123'  # Default password
+                    )
+                    
+                    # Generate student ID
+                    student_id = f"STU-{user.id:04d}"
+                    
+                    # Create student
+                    student = Student.objects.create(
+                        user=user,
+                        student_id=student_id,
+                        grade_level=grade_level,
+                        section=section,
+                        strand=student_data.get('strand', ''),
+                        school_year=current_school_year,
+                        contact_number=student_data.get('contact_number', ''),
+                        guardian_name=student_data.get('guardian_name', ''),
+                        guardian_contact=student_data.get('guardian_contact', '')
+                    )
+                    
+                    added_students.append({
+                        'id': student.id,
+                        'student_id': student_id,
+                        'username': username,
+                        'name': f"{first_name} {last_name}"
+                    })
+                    
+                    logger.info(f"✅ Bulk add: Created student {username} (ID: {student_id})")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error adding student at row {idx + 1}: {str(e)}")
+                    errors.append(f"Row {idx + 1}: {str(e)}")
+                    continue
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully added {len(added_students)} students',
+            'added_students': added_students,
+            'total_attempted': len(students_data),
+            'errors': errors if errors else None,
+            'school_year': current_school_year
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"❌ Bulk add students error: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
