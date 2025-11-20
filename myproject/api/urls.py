@@ -62,6 +62,7 @@ from .views import (
     create_system_report,
     get_counseling_logs,
     log_counseling_action,
+    update_counseling_session
 )
 
 urlpatterns = [
