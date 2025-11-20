@@ -5187,49 +5187,81 @@ def bulk_add_students(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_system_report(request):
-    """Create a system-generated report for manual violations"""
+    """Create a counselor-recorded violation (no report needed)"""
     try:
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Only counselors can create system reports'
+                'error': 'Only counselors can record violations'
             }, status=status.HTTP_403_FORBIDDEN)
         
+        counselor = request.user.counselor
         data = request.data
         
-        # ✅ FIX: Get ViolationType instance instead of string
+        # Get ViolationType instance
         violation_type_name = data.get('violation_type', '')
         violation_type_instance = None
         
         if violation_type_name:
             try:
-                # Try to find the violation type by name
                 violation_type_instance = ViolationType.objects.get(name=violation_type_name)
                 logger.info(f"✅ Found violation type: {violation_type_instance.name} (ID: {violation_type_instance.id})")
             except ViolationType.DoesNotExist:
-                logger.warning(f"⚠️ Violation type '{violation_type_name}' not found, creating without violation_type")
+                logger.warning(f"⚠️ Violation type '{violation_type_name}' not found")
+                return Response({
+                    'success': False,
+                    'error': f'Violation type "{violation_type_name}" not found'
+                }, status=status.HTTP_400_BAD_REQUEST)
         
-        # ✅ REMOVED: report_type field (doesn't exist in StudentReport model)
-        # Create the report
-        report = StudentReport.objects.create(
-            title=data.get('title', 'Manual Violation Record'),
-            description=data.get('description', ''),
+        # Get student
+        reported_student_id = data.get('reported_student_id')
+        if not reported_student_id:
+            return Response({
+                'success': False,
+                'error': 'Student ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            student = Student.objects.get(id=reported_student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # ✅ Create violation record directly (no report needed)
+        violation = StudentViolationRecord.objects.create(
+            student=student,
             violation_type=violation_type_instance,
-            custom_violation=violation_type_name if not violation_type_instance else None,
-            reported_student_id=data['reported_student_id'],
-            status='verified',
-            verification_status='verified',
+            counselor=counselor,
+            incident_date=timezone.now(),
+            description=data.get('description', ''),
+            status='active',
             severity=data.get('severity', 'Medium'),
             school_year=get_current_school_year(),
+            location=data.get('location', ''),
+            counselor_notes=f"Recorded by {counselor.user.get_full_name()} via Add Violation",
         )
         
-        logger.info(f"✅ System report created: #{report.id} by {request.user.username}")
-        logger.info(f"   Violation Type: {violation_type_instance.name if violation_type_instance else 'Custom: ' + violation_type_name}")
+        logger.info(f"✅ Counselor violation recorded: #{violation.id} by {request.user.username}")
+        logger.info(f"   Student: {student.user.get_full_name()} ({student.student_id})")
+        logger.info(f"   Violation: {violation_type_instance.name}")
+        logger.info(f"   School Year: {violation.school_year}")
         
         return Response({
             'success': True,
-            'id': report.id,
-            'message': 'System report created successfully'
+            'id': violation.id,
+            'violation_id': violation.id,
+            'message': 'Violation recorded successfully',
+            'violation': {
+                'id': violation.id,
+                'student_id': student.id,
+                'student_name': student.user.get_full_name(),
+                'violation_type': violation_type_instance.name,
+                'severity': violation.severity,
+                'school_year': violation.school_year,
+                'recorded_at': violation.recorded_at.isoformat(),
+            }
         }, status=status.HTTP_201_CREATED)
         
     except KeyError as e:
@@ -5239,7 +5271,7 @@ def create_system_report(request):
             'error': f'Missing required field: {str(e)}'
         }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        logger.error(f"❌ Error creating system report: {str(e)}")
+        logger.error(f"❌ Error recording counselor violation: {str(e)}")
         traceback.print_exc()
         return Response({
             'success': False,
