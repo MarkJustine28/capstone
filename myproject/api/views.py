@@ -18,6 +18,7 @@ import json
 import logging
 from django.db import models
 from datetime import datetime
+import traceback
 
 # Import your models (adjust these imports based on your actual models)
 from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings
