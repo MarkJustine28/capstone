@@ -5196,11 +5196,24 @@ def create_system_report(request):
         
         data = request.data
         
+        # ✅ FIX: Get ViolationType instance instead of string
+        violation_type_name = data.get('violation_type', '')
+        violation_type_instance = None
+        
+        if violation_type_name:
+            try:
+                # Try to find the violation type by name
+                violation_type_instance = ViolationType.objects.get(name=violation_type_name)
+                logger.info(f"✅ Found violation type: {violation_type_instance.name} (ID: {violation_type_instance.id})")
+            except ViolationType.DoesNotExist:
+                logger.warning(f"⚠️ Violation type '{violation_type_name}' not found, creating without violation_type")
+        
         # Create the report
         report = StudentReport.objects.create(
             title=data.get('title', 'Manual Violation Record'),
             description=data.get('description', ''),
-            violation_type=data.get('violation_type', ''),
+            violation_type=violation_type_instance,  # ✅ Use instance, not string
+            custom_violation=violation_type_name if not violation_type_instance else None,  # ✅ Store as custom if not found
             reported_student_id=data['reported_student_id'],
             status='verified',
             verification_status='verified',
@@ -5210,6 +5223,7 @@ def create_system_report(request):
         )
         
         logger.info(f"✅ System report created: #{report.id} by {request.user.username}")
+        logger.info(f"   Violation Type: {violation_type_instance.name if violation_type_instance else 'Custom: ' + violation_type_name}")
         
         return Response({
             'success': True,
@@ -5217,8 +5231,15 @@ def create_system_report(request):
             'message': 'System report created successfully'
         }, status=status.HTTP_201_CREATED)
         
+    except KeyError as e:
+        logger.error(f"❌ Missing required field: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Missing required field: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         logger.error(f"❌ Error creating system report: {str(e)}")
+        traceback.print_exc()
         return Response({
             'success': False,
             'error': str(e)
