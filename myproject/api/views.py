@@ -5322,6 +5322,17 @@ def log_counseling_action(request):
             }, status=status.HTTP_404_NOT_FOUND)
         
         from .models import CounselingLog
+        from django.utils.dateparse import parse_datetime
+        
+        # ✅ Parse scheduled_date with timezone awareness
+        scheduled_date_str = data.get('scheduled_date')
+        if scheduled_date_str:
+            scheduled_date = parse_datetime(scheduled_date_str)
+            if scheduled_date and not scheduled_date.tzinfo:
+                # Make it timezone-aware
+                scheduled_date = timezone.make_aware(scheduled_date)
+        else:
+            scheduled_date = timezone.now()
         
         # Create counseling log
         log = CounselingLog.objects.create(
@@ -5329,7 +5340,7 @@ def log_counseling_action(request):
             student=student,
             action_type=data.get('action_type', 'Individual Counseling'),
             description=data.get('description', ''),
-            scheduled_date=data.get('scheduled_date', timezone.now()),
+            scheduled_date=scheduled_date,  # ✅ Now timezone-aware
             status='completed' if data.get('mark_completed') else 'scheduled',
             completion_date=timezone.now() if data.get('mark_completed') else None,
             notes=data.get('notes', ''),
