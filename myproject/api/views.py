@@ -362,11 +362,104 @@ def register_view(request):
 
 @csrf_exempt
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def forgot_password_view(request):
-    return Response({
-        'success': True,
-        'message': 'Password reset functionality not implemented yet'
-    })
+    """Reset password using username or email with validation"""
+    try:
+        data = json.loads(request.body)
+        identifier = data.get('identifier')  # Can be username or email
+        new_password = data.get('new_password')
+        
+        logger.info(f"🔐 Password reset attempt for: {identifier}")
+        
+        if not identifier or not new_password:
+            return Response({
+                'success': False,
+                'error': 'Username/email and new password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Try to find user by username or email
+        user = None
+        try:
+            # Try username first
+            user = User.objects.get(username=identifier)
+            logger.info(f"✅ Found user by username: {user.username}")
+        except User.DoesNotExist:
+            # Try email
+            try:
+                user = User.objects.get(email=identifier)
+                logger.info(f"✅ Found user by email: {user.username}")
+            except User.DoesNotExist:
+                logger.warning(f"❌ No account found for: {identifier}")
+                return Response({
+                    'success': False,
+                    'error': 'No account found with this username or email'
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            return Response({
+                'success': False,
+                'error': 'Password must be at least 8 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check for uppercase, lowercase, and digit
+        import re
+        if not re.search(r'[A-Z]', new_password):
+            return Response({
+                'success': False,
+                'error': 'Password must contain at least one uppercase letter'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not re.search(r'[a-z]', new_password):
+            return Response({
+                'success': False,
+                'error': 'Password must contain at least one lowercase letter'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not re.search(r'\d', new_password):
+            return Response({
+                'success': False,
+                'error': 'Password must contain at least one number'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        logger.info(f"✅ Password reset successful for user: {user.username}")
+        
+        # Create notification for user about password change
+        try:
+            Notification.objects.create(
+                user=user,
+                title='Password Changed',
+                message='Your password has been successfully reset. If you did not make this change, please contact the administrator immediately.',
+                type='security_alert'
+            )
+            logger.info(f"📧 Password change notification sent to {user.username}")
+        except Exception as notif_error:
+            logger.warning(f"⚠️ Could not create notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': f'Password reset successful! You can now login with your new password.',
+            'username': user.username
+        }, status=status.HTTP_200_OK)
+        
+    except json.JSONDecodeError:
+        logger.error("❌ Invalid JSON data in password reset")
+        return Response({
+            'success': False,
+            'error': 'Invalid request data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Password reset error: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': 'An error occurred during password reset. Please try again.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # Profile Views
 @api_view(['GET'])
