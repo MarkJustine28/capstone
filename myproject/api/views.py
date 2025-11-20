@@ -5424,3 +5424,63 @@ def get_counseling_logs(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def update_counseling_session(request, session_id):
+    """Update a counseling session (mark as completed/cancelled)"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Access denied'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        from .models import CounselingLog
+        from django.utils.dateparse import parse_datetime
+        
+        try:
+            session = CounselingLog.objects.get(id=session_id)
+        except CounselingLog.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Session not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        data = request.data
+        
+        # Update fields
+        if 'status' in data:
+            session.status = data['status']
+        
+        if 'completion_date' in data:
+            completion_date_str = data['completion_date']
+            completion_date = parse_datetime(completion_date_str)
+            if completion_date and not completion_date.tzinfo:
+                completion_date = timezone.make_aware(completion_date)
+            session.completion_date = completion_date
+        
+        if 'notes' in data:
+            session.notes = data['notes']
+        
+        session.save()
+        
+        logger.info(f"✅ Counseling session updated: #{session.id} - Status: {session.status}")
+        
+        return Response({
+            'success': True,
+            'message': 'Session updated successfully',
+            'session': {
+                'id': session.id,
+                'status': session.status,
+                'completion_date': session.completion_date.isoformat() if session.completion_date else None,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating counseling session: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

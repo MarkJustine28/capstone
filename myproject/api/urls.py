@@ -156,4 +156,5 @@ urlpatterns = [
 
     path('counseling-logs/', get_counseling_logs, name='get_counseling_logs'),
     path('counseling-logs/create/', log_counseling_action, name='log_counseling_action'),
+    path('counseling-logs/<int:session_id>/update/', update_counseling_session, name='update_counseling_session'),
 ]
