@@ -5182,3 +5182,44 @@ def bulk_add_students(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_system_report(request):
+    """Create a system-generated report for manual violations"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can create system reports'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        data = request.data
+        
+        # Create the report
+        report = StudentReport.objects.create(
+            title=data.get('title', 'Manual Violation Record'),
+            description=data.get('description', ''),
+            violation_type=data.get('violation_type', ''),
+            reported_student_id=data['reported_student_id'],
+            status='verified',
+            verification_status='verified',
+            report_type='manual_record',
+            severity=data.get('severity', 'Medium'),
+            school_year=get_current_school_year(),
+        )
+        
+        logger.info(f"✅ System report created: #{report.id} by {request.user.username}")
+        
+        return Response({
+            'success': True,
+            'id': report.id,
+            'message': 'System report created successfully'
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating system report: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
