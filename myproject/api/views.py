@@ -5601,13 +5601,14 @@ def counselor_profile(request):
         if not full_name:
             full_name = user.username
         
+        # ✅ CHANGED: Return profile data directly (not nested)
         profile_data = {
             'id': counselor.id,
             'user_id': user.id,
             'username': user.username,
             'first_name': first_name,
             'last_name': last_name,
-            'full_name': full_name,  # ✅ Explicit full_name field
+            'full_name': full_name,
             'email': user.email or '',
             'employee_id': counselor.employee_id or '',
             'department': counselor.department or '',
@@ -5616,10 +5617,8 @@ def counselor_profile(request):
         
         logger.info(f"✅ Counselor profile retrieved: {full_name} ({user.username})")
         
-        return Response({
-            'success': True,
-            'profile': profile_data,
-        })
+        # ✅ Return profile data at root level
+        return Response(profile_data)
         
     except Exception as e:
         logger.error(f"❌ Counselor profile error: {str(e)}")
