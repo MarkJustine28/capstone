@@ -5601,7 +5601,7 @@ def counselor_profile(request):
         if not full_name:
             full_name = user.username
         
-        # ✅ CHANGED: Return profile data directly (not nested)
+        # ✅ FIXED: Only use fields that exist in the Counselor model
         profile_data = {
             'id': counselor.id,
             'user_id': user.id,
@@ -5610,14 +5610,22 @@ def counselor_profile(request):
             'last_name': last_name,
             'full_name': full_name,
             'email': user.email or '',
-            'employee_id': counselor.employee_id or '',
-            'department': counselor.department or '',
             'role': 'counselor',
         }
         
+        # ✅ Add optional fields only if they exist
+        if hasattr(counselor, 'employee_id'):
+            profile_data['employee_id'] = counselor.employee_id or ''
+        
+        if hasattr(counselor, 'department'):
+            profile_data['department'] = counselor.department or ''
+            
+        if hasattr(counselor, 'phone'):
+            profile_data['phone'] = counselor.phone or ''
+        
         logger.info(f"✅ Counselor profile retrieved: {full_name} ({user.username})")
         
-        # ✅ Return profile data at root level
+        # Return profile data at root level
         return Response(profile_data)
         
     except Exception as e:
