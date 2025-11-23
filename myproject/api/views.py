@@ -5577,3 +5577,54 @@ def update_counseling_session(request, session_id):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def counselor_profile(request):
+    """Get counselor profile information with full name"""
+    try:
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Counselor profile not found',
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        counselor = request.user.counselor
+        user = request.user
+        
+        # Build full name
+        first_name = user.first_name or ''
+        last_name = user.last_name or ''
+        full_name = f"{first_name} {last_name}".strip()
+        
+        # If no name is set, use username as fallback
+        if not full_name:
+            full_name = user.username
+        
+        profile_data = {
+            'id': counselor.id,
+            'user_id': user.id,
+            'username': user.username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'full_name': full_name,  # ✅ Explicit full_name field
+            'email': user.email or '',
+            'employee_id': counselor.employee_id or '',
+            'department': counselor.department or '',
+            'role': 'counselor',
+        }
+        
+        logger.info(f"✅ Counselor profile retrieved: {full_name} ({user.username})")
+        
+        return Response({
+            'success': True,
+            'profile': profile_data,
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Counselor profile error: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e),
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

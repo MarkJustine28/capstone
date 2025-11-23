@@ -62,7 +62,8 @@ from .views import (
     create_system_report,
     get_counseling_logs,
     log_counseling_action,
-    update_counseling_session
+    update_counseling_session,
+    views.counselor_profile
 )
 
 urlpatterns = [
@@ -84,6 +85,7 @@ urlpatterns = [
     path('student/reports/', student_reports, name='student_reports'),
     
     # Counselor endpoints
+    path('counselor/profile/', views.counselor_profile, name='counselor_profile'),
     path('counselor/dashboard/', counselor_dashboard, name='counselor_dashboard'),
     path('counselor/dashboard/analytics/', counselor_dashboard_analytics, name='counselor_dashboard_analytics'),
     path('counselor/dashboard/stats/', get_counselor_dashboard_stats, name='get_counselor_dashboard_stats'),
