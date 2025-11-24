@@ -30,6 +30,14 @@ class Student(models.Model):
     
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     student_id = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    lrn = models.CharField(
+        max_length=12,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name='Learner Reference Number',
+        help_text='12-digit Learner Reference Number'
+    )
     grade_level = models.CharField(max_length=2, choices=GRADE_CHOICES, blank=True, null=True)
     is_archived = models.BooleanField(default=False)
     
@@ -58,6 +66,12 @@ class Student(models.Model):
         if self.grade_level not in ['11', '12'] and self.strand:
             raise ValidationError('Strand should only be specified for Grade 11 and 12 students.')
 
+        if self.lrn:
+            if not self.lrn.isdigit():
+                raise ValidationError('LRN must contain only numbers.')
+            if len(self.lrn) != 12:
+                raise ValidationError('LRN must be exactly 12 digits.')
+                
     def get_full_grade_section(self):
         """Get the complete grade, strand, and section info"""
         if self.grade_level in ['11', '12'] and self.strand:
