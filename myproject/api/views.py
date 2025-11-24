@@ -242,97 +242,50 @@ def register_view(request):
             
             # Create role-specific profile
             if role == 'student':
-                # ✅ Calculate current school year if not provided
-                school_year = data.get('school_year')
-                if not school_year:
-                    current_year = datetime.now().year
-                    current_month = datetime.now().month
-                    school_year = f"{current_year}-{current_year + 1}" if current_month >= 6 else f"{current_year - 1}-{current_year}"
+                lrn = data.get('lrn', '').strip()
                 
-                # ✅ Generate student_id if not provided
-                student_id = data.get('student_id', f"STU{user.id:06d}")
+                # ✅ Validate LRN
+                if not lrn:
+                    raise ValueError("LRN is required for student registration")
+                
+                if len(lrn) != 12:
+                    raise ValueError("LRN must be exactly 12 digits")
+                
+                if not lrn.isdigit():
+                    raise ValueError("LRN must contain only numbers")
+                
+                # ✅ Check if LRN already exists
+                if Student.objects.filter(lrn=lrn).exists():
+                    raise ValueError(f"LRN {lrn} is already registered")
+                
+                # Generate student_id
+                student_count = Student.objects.count()
+                student_id = f"STU-{student_count + 1:04d}"
+                
+                # Get school year
+                school_year = data.get('school_year') or get_current_school_year()
                 
                 student = Student.objects.create(
                     user=user,
                     student_id=student_id,
-                    grade_level=data.get('grade_level', ''),
-                    section=data.get('section', ''),
-                    strand=data.get('strand', ''),
-                    school_year=school_year,  # ✅ Save school_year
+                    lrn=lrn,  # ✅ NEW
+                    grade_level=data.get('grade_level'),
+                    strand=data.get('strand'),
+                    section=data.get('section'),
+                    school_year=school_year,
                     contact_number=data.get('contact_number', ''),
                     guardian_name=data.get('guardian_name', ''),
                     guardian_contact=data.get('guardian_contact', '')
                 )
-                logger.info(f"✅ Student profile created for {username} - School Year: {school_year}")
                 
-            elif role == 'teacher':
-                # ✅ Create teacher with pending approval status
-                teacher = Teacher.objects.create(
-                    user=user,
-                    employee_id=data.get('employee_id', ''),
-                    department=data.get('department', ''),
-                    specialization=data.get('specialization', ''),
-                    advising_grade=data.get('advising_grade', ''),
-                    advising_strand=data.get('advising_strand', ''),
-                    advising_section=data.get('advising_section', ''),
-                    approval_status='pending',  # ✅ Set to pending
-                    is_approved=False,  # ✅ Not approved yet
-                )
+                logger.info(f"✅ Student created: {student_id}, LRN: {lrn}, SY: {school_year}")
                 
-                logger.info(f"✅ Teacher profile created for {username} - Status: pending approval")
-                
-                # ✅ Notify all admins about new teacher registration
-                admin_users = User.objects.filter(is_staff=True, is_active=True)
-                for admin in admin_users:
-                    Notification.objects.create(
-                        user=admin,
-                        title="New Teacher Registration",
-                        message=(
-                            f"New teacher registration requires approval:\n\n"
-                            f"Name: {first_name} {last_name}\n"
-                            f"Username: {username}\n"
-                            f"Email: {email}\n"
-                            f"Employee ID: {data.get('employee_id', 'Not provided')}\n"
-                            f"Department: {data.get('department', 'Not provided')}\n\n"
-                            f"Please review and approve/reject in the admin panel."
-                        ),
-                        type='teacher_reg'
-                    )
-                
-                logger.info(f"✅ Notified {admin_users.count()} admin(s) about new teacher registration")
-                
-            elif role == 'counselor':
-                Counselor.objects.create(
-                    user=user,
-                    employee_id=data.get('employee_id', ''),
-                    department=data.get('department', ''),
-                    specialization=data.get('specialization', '')
-                )
-                logger.info(f"✅ Counselor profile created for {username}")
-            
-            # ✅ Only create token for non-teachers or approved teachers
-            if role == 'teacher':
-                # Teachers in pending approval don't get token yet
-                return Response({
-                    'success': True,
-                    'approval_status': 'pending',
-                    'message': 'Registration submitted. Your account is pending admin approval.',
-                    'user': {
-                        'id': user.id,
-                        'username': user.username,
-                        'first_name': user.first_name,
-                        'last_name': user.last_name,
-                        'email': user.email,
-                        'role': role
-                    }
-                }, status=status.HTTP_201_CREATED)
-            else:
-                # Students and counselors get immediate access
+                # Create token for student
                 token = Token.objects.create(user=user)
                 
                 return Response({
                     'success': True,
-                    'approval_status': 'approved',
+                    'message': f'Student account created successfully! Student ID: {student_id}',
                     'token': token.key,
                     'user': {
                         'id': user.id,
@@ -340,11 +293,57 @@ def register_view(request):
                         'first_name': user.first_name,
                         'last_name': user.last_name,
                         'email': user.email,
-                        'role': role
-                    },
-                    'message': 'Registration successful!'
+                        'role': role,
+                        'student_id': student_id,
+                        'lrn': lrn,
+                        'school_year': school_year
+                    }
+                }, status=status.HTTP_201_CREATED)
+                
+            elif role == 'teacher':
+                employee_id = data.get('employee_id', '').strip()
+                
+                if not employee_id:
+                    raise ValueError("Employee ID is required for teacher registration")
+                
+                if Teacher.objects.filter(employee_id=employee_id).exists():
+                    raise ValueError(f"Employee ID {employee_id} is already registered")
+                
+                teacher = Teacher.objects.create(
+                    user=user,
+                    employee_id=employee_id,
+                    department=data.get('department', ''),
+                    specialization=data.get('specialization', ''),
+                    advising_grade=data.get('advising_grade'),
+                    advising_section=data.get('advising_section'),
+                    is_approved=False,
+                    approval_status='pending'
+                )
+                
+                logger.info(f"✅ Teacher account created (pending approval): {employee_id}")
+                
+                return Response({
+                    'success': True,
+                    'message': 'Teacher account created successfully. Awaiting admin approval.',
+                    'approval_status': 'pending',
+                    'user': {
+                        'id': user.id,
+                        'username': user.username,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'email': user.email,
+                        'role': role,
+                        'employee_id': employee_id,
+                        'approval_status': 'pending'
+                    }
                 }, status=status.HTTP_201_CREATED)
             
+    except ValueError as ve:
+        logger.error(f"❌ Validation error: {str(ve)}")
+        return Response({
+            'success': False,
+            'error': str(ve)
+        }, status=status.HTTP_400_BAD_REQUEST)
     except json.JSONDecodeError:
         logger.error("❌ Invalid JSON data in registration")
         return Response({
@@ -353,7 +352,6 @@ def register_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         logger.error(f"❌ Registration error: {str(e)}")
-        import traceback
         traceback.print_exc()
         return Response({
             'success': False,
@@ -4912,6 +4910,7 @@ def student_profile(request):
             'id': student.id,
             'student_id': student.student_id,
             'user_id': request.user.id,
+            'lrn': student.lrn,
             'username': request.user.username,
             'email': request.user.email,
             'first_name': request.user.first_name,
