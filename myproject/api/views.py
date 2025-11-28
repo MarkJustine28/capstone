@@ -656,40 +656,50 @@ def teacher_reports(request):
             # Get teacher profile
             teacher = Teacher.objects.get(user=request.user)
             
-            # Get all reports submitted by this teacher
-            reports = Report.objects.filter(
-                reported_by=request.user,
-                report_type='teacher_report'
-            ).select_related('student', 'violation_type').order_by('-created_at')
+            # ✅ FIX: Use TeacherReport instead of Report
+            reports = TeacherReport.objects.filter(
+                reporter_teacher=teacher
+            ).select_related('reported_student', 'reported_student__user', 'violation_type').order_by('-created_at')
             
             reports_data = []
             for report in reports:
-                # Get student name from either student object or student_name field
+                # Get student info
                 student_name = 'Unknown Student'
-                if report.student:
-                    student_name = f"{report.student.user.first_name} {report.student.user.last_name}".strip()
+                if report.reported_student:
+                    student_name = f"{report.reported_student.user.first_name} {report.reported_student.user.last_name}".strip()
                     if not student_name:
-                        student_name = report.student.user.username
-                elif hasattr(report, 'student_name') and report.student_name:
-                    student_name = report.student_name
+                        student_name = report.reported_student.user.username
                 
                 reports_data.append({
                     'id': report.id,
                     'title': report.title,
-                    'content': report.content,
+                    'description': report.description,
                     'status': report.status,
+                    'verification_status': report.verification_status,
                     'incident_date': report.incident_date.isoformat() if report.incident_date else None,
                     'created_at': report.created_at.isoformat(),
-                    'student_name': student_name,
-                    'student_id': report.student.id if report.student else None,
+                    'updated_at': report.updated_at.isoformat(),
+                    'reported_student': {
+                        'id': report.reported_student.id,
+                        'name': student_name,
+                        'student_id': report.reported_student.student_id,
+                        'grade_level': report.reported_student.grade_level,
+                        'section': report.reported_student.section,
+                    } if report.reported_student else None,
                     'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
-                    'is_reviewed': report.is_reviewed,
-                    'reviewed_at': report.reviewed_at.isoformat() if report.reviewed_at else None,
+                    'violation_category': report.violation_type.category if report.violation_type else None,
+                    'severity': report.severity,
+                    'location': report.location,
+                    'witnesses': report.witnesses,
+                    'counselor_notes': report.counselor_notes,
+                    'requires_counseling': report.requires_counseling,
+                    'counseling_completed': report.counseling_completed,
                 })
             
             return Response({
                 'success': True,
-                'reports': reports_data
+                'reports': reports_data,
+                'total_count': len(reports_data),
             })
             
         except Teacher.DoesNotExist:
@@ -699,7 +709,7 @@ def teacher_reports(request):
                 'reports': []
             }, status=404)
         except Exception as e:
-            print(f"❌ Error fetching teacher reports: {e}")
+            logger.error(f"❌ Error fetching teacher reports: {e}")
             return Response({
                 'success': False,
                 'error': str(e),
@@ -709,109 +719,100 @@ def teacher_reports(request):
     elif request.method == 'POST':
         try:
             data = request.data
-            print(f"📝 Received report data: {data}")
+            logger.info(f"📝 Received report data: {data}")
             
             # Get teacher profile
             teacher = Teacher.objects.get(user=request.user)
             
-            # Get student if student_id is provided (for advising section students)
-            student = None
-            student_name = data.get('student_name', '')
+            # Get reported student
+            student_id = data.get('student_id')
+            if not student_id:
+                return Response({
+                    'success': False,
+                    'error': 'Student ID is required'
+                }, status=400)
             
-            # Check if reporting student from advising section
-            if not data.get('is_other_student', False) and data.get('student_id'):
-                try:
-                    student = Student.objects.get(id=data['student_id'])
-                    student_name = f"{student.user.first_name} {student.user.last_name}".strip()
-                    if not student_name:
-                        student_name = student.user.username
-                    print(f"✅ Found student: {student_name} (ID: {student.id})")
-                except Student.DoesNotExist:
-                    return Response({
-                        'success': False,
-                        'error': 'Student not found'
-                    }, status=404)
-            else:
-                # Reporting other student - just use the name provided
-                student = None
-                student_name = data.get('student_name', data.get('other_student_name', ''))
-                print(f"📝 Reporting other student: {student_name}")
+            try:
+                reported_student = Student.objects.get(id=student_id)
+                logger.info(f"✅ Found student: {reported_student.user.get_full_name()} (ID: {student_id})")
+            except Student.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': f'Student with ID {student_id} not found'
+                }, status=404)
             
             # Get violation type if provided
             violation_type = None
-            if data.get('violation_type_id'):
+            violation_type_id = data.get('violation_type_id')
+            if violation_type_id:
                 try:
-                    violation_type = ViolationType.objects.get(id=data['violation_type_id'])
+                    violation_type = ViolationType.objects.get(id=violation_type_id)
+                    logger.info(f"✅ Violation type: {violation_type.name}")
                 except ViolationType.DoesNotExist:
-                    pass
+                    logger.warning(f"⚠️ Violation type ID {violation_type_id} not found")
             
             # Parse incident date
             incident_date = None
             if data.get('incident_date'):
                 try:
-                    from django.utils import timezone
-                    from datetime import datetime
-                    
-                    # Parse the GMT+8 datetime string
-                    date_str = data['incident_date']
-                    if '+' in date_str:
-                        date_str = date_str.split('+')[0]
-                    
-                    incident_date = datetime.fromisoformat(date_str)
-                    # Make it timezone-aware
-                    if timezone.is_naive(incident_date):
-                        incident_date = timezone.make_aware(incident_date)
-                    
-                    print(f"📅 Parsed incident date: {incident_date}")
-                except Exception as e:
-                    print(f"⚠️ Could not parse incident date: {e}")
+                    incident_date = parse_datetime(data['incident_date'])
+                    logger.info(f"📅 Parsed incident date: {incident_date}")
+                except:
                     incident_date = timezone.now()
             else:
-                from django.utils import timezone
                 incident_date = timezone.now()
             
-            # Create the report - ONLY use fields that exist in the model
-            report = Report.objects.create(
-                student=student,  # Can be None for "other student" reports
-                student_name=student_name,  # Store the name
-                reported_by=request.user,
+            # ✅ FIX: Create TeacherReport instead of Report
+            report = TeacherReport.objects.create(
                 title=data.get('title', 'Untitled Report'),
-                content=data.get('content', ''),
-                description=data.get('description', ''),  # Short description
-                report_type='teacher_report',
-                status=data.get('status', 'pending'),
-                incident_date=incident_date,
+                description=data.get('description', ''),
+                reporter_teacher=teacher,  # ✅ Use reporter_teacher field
+                reported_student=reported_student,  # ✅ Use reported_student field
                 violation_type=violation_type,
                 custom_violation=data.get('custom_violation'),
+                severity=data.get('severity', 'medium'),
+                status='pending',
+                verification_status='pending',
+                incident_date=incident_date,
+                school_year=reported_student.school_year,  # Use student's school year
+                location=data.get('location', ''),
+                witnesses=data.get('witnesses', ''),
+                requires_counseling=True,
+                subject_involved=data.get('subject_involved', ''),  # If this field exists
             )
             
-            # ✅ ADD THIS DEBUG BLOCK
-            logger.info(f"✅ Report created with ID: {report.id}, Status: {report.status}")
-            logger.info(f"✅ Reported student: {reported_student.user.first_name} {reported_student.user.last_name} (ID: {reported_student.id})")
-            logger.info(f"✅ Violation Type: {violation_type.name if violation_type else 'None'} (ID: {violation_type.id if violation_type else 'None'})")
-            logger.info(f"✅ Violation Type ID passed in: {violation_type_id}")
-
-            # ✅ Verify what's in the database
-            saved_report = Report.objects.select_related('violation_type').get(id=report.id)
-            logger.info(f"✅ VERIFICATION - Saved report violation_type: {saved_report.violation_type.name if saved_report.violation_type else 'None'}")
-            logger.info(f"✅ VERIFICATION - Saved report violation_type ID: {saved_report.violation_type.id if saved_report.violation_type else 'None'}")
-            print(f"✅ Report created successfully (ID: {report.id})")
+            logger.info(f"✅ TeacherReport created with ID: {report.id}")
+            logger.info(f"   Reporter: {teacher.user.get_full_name()}")
+            logger.info(f"   Reported Student: {reported_student.user.get_full_name()}")
+            logger.info(f"   Violation: {violation_type.name if violation_type else 'Custom'}")
             
-            # Create notification for counselor
-            try:
-                counselors = User.objects.filter(counselor__isnull=False)
-                for counselor_user in counselors:
+            # Create notification for counselors
+            counselors = Counselor.objects.all()
+            for counselor in counselors:
+                try:
                     Notification.objects.create(
-                        user=counselor_user,
-                        title=f"New Teacher Report: {report.title}",
-                        message=f"Teacher {teacher.user.first_name} {teacher.user.last_name} reported: {student_name}",
+                        user=counselor.user,
+                        title='New Teacher Report Submitted',
+                        message=f'Teacher {teacher.user.get_full_name()} has reported a violation by {reported_student.user.get_full_name()}.\n\nViolation: {violation_type.name if violation_type else data.get("custom_violation", "Unknown")}\n\nPlease review this report in the counselor dashboard.',
                         type='report_submitted',
-                        related_student_report=report if isinstance(report, StudentReport) else None,
-                        related_teacher_report=report if isinstance(report, TeacherReport) else None,
+                        related_teacher_report=report,  # ✅ Link to TeacherReport
                     )
-                print(f"✅ Notifications created for counselors")
+                    logger.info(f"📧 Notification sent to counselor: {counselor.user.username}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to notify counselor {counselor.user.username}: {e}")
+            
+            # Create notification for the reported student
+            try:
+                Notification.objects.create(
+                    user=reported_student.user,
+                    title='You have been reported for a violation',
+                    message=f'Your teacher {teacher.user.get_full_name()} has submitted a report about your behavior.\n\nViolation: {violation_type.name if violation_type else data.get("custom_violation", "Unknown")}\n\nPlease see the guidance counselor for more information.',
+                    type='violation_report',
+                    related_teacher_report=report,  # ✅ Link to TeacherReport
+                )
+                logger.info(f"📧 Notification sent to student: {reported_student.user.username}")
             except Exception as e:
-                print(f"⚠️ Could not create notifications: {e}")
+                logger.warning(f"⚠️ Failed to notify student: {e}")
             
             return Response({
                 'success': True,
@@ -820,7 +821,8 @@ def teacher_reports(request):
                     'id': report.id,
                     'title': report.title,
                     'status': report.status,
-                    'student_name': student_name,
+                    'verification_status': report.verification_status,
+                    'reported_student_name': reported_student.user.get_full_name(),
                     'created_at': report.created_at.isoformat(),
                 }
             }, status=201)
@@ -831,8 +833,7 @@ def teacher_reports(request):
                 'error': 'Teacher profile not found'
             }, status=404)
         except Exception as e:
-            print(f"❌ Error creating teacher report: {e}")
-            import traceback
+            logger.error(f"❌ Error creating teacher report: {e}")
             traceback.print_exc()
             return Response({
                 'success': False,
