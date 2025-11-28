@@ -1740,14 +1740,13 @@ def record_violation(request):
                 'student_id': student.id,
                 'violation_type': violation.violation_type.name,
                 'school_year': violation.school_year,
-                'related_report_id': related_report_id,  # ✅ Include in response
-                'related_report_type': report_type if related_report_id else None,  # ✅ Include type
+                'related_report_id': related_report_id,
+                'related_report_type': report_type if related_report_id else None,
             }
         }, status=201)
 
     except Exception as e:
         logger.error(f"❌ Error recording violation: {str(e)}")
-        import traceback
         logger.error(traceback.format_exc())
         return JsonResponse({
             'success': False,
