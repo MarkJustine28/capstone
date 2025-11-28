@@ -2184,7 +2184,7 @@ def counselor_dashboard_analytics(request):
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def counselor_update_teacher_report_status(request, report_id):
-    """Update teacher report status - independent function"""
+    """Update teacher report status - dedicated function for teacher reports"""
     try:
         # Verify counselor
         if not hasattr(request.user, 'counselor'):
@@ -2193,31 +2193,137 @@ def counselor_update_teacher_report_status(request, report_id):
                 'error': 'Only counselors can update report status'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Force report_type to teacher_report
-        modified_data = request.data.copy()
-        modified_data['report_type'] = 'teacher_report'
+        counselor = request.user.counselor
         
-        # Create a new request with modified data
-        from rest_framework.request import Request
-        from django.http import QueryDict
+        # Get the teacher report
+        try:
+            report = TeacherReport.objects.select_related(
+                'reporter_teacher__user',
+                'reported_student__user',
+                'violation_type'
+            ).get(id=report_id)
+        except TeacherReport.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Teacher report not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         
-        # Create new request object with modified data
-        new_request = Request(request._request, parsers=request.parsers)
-        new_request._full_data = modified_data
-        new_request.user = request.user
+        # Get new status and notes
+        new_status = request.data.get('status')
+        notes = request.data.get('notes', '')
         
-        # Call the generic update function
-        return update_report_status(new_request, report_id)
+        if not new_status:
+            return Response({
+                'success': False,
+                'error': 'Status is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        old_status = report.status
+        
+        # Validate status
+        valid_statuses = [
+            'pending', 'under_review', 'under_investigation', 
+            'summoned', 'verified', 'reviewed', 'dismissed', 
+            'resolved', 'escalated', 'invalid'
+        ]
+        
+        if new_status not in valid_statuses:
+            return Response({
+                'success': False,
+                'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update report
+        report.status = new_status
+        report.assigned_counselor = counselor
+        
+        # Add notes if provided
+        if notes:
+            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+            counselor_name = request.user.get_full_name() or request.user.username
+            note_entry = f"[{timestamp}] {counselor_name}: {notes}"
+            
+            if report.counselor_notes:
+                report.counselor_notes += f"\n\n{note_entry}"
+            else:
+                report.counselor_notes = note_entry
+        
+        # Update timestamps based on status
+        if new_status == 'verified' or new_status == 'reviewed':
+            report.verified_by = request.user
+            report.verified_at = timezone.now()
+            report.is_reviewed = True
+            report.reviewed_at = timezone.now()
+        elif new_status == 'resolved':
+            report.resolved_at = timezone.now()
+        
+        report.save()
+        
+        logger.info(f"✅ TeacherReport #{report_id} status updated: {old_status} → {new_status}")
+        
+        # Send notifications
+        try:
+            # Get users
+            reporter_user = report.reporter_teacher.user if report.reporter_teacher else None
+            student_user = report.reported_student.user if report.reported_student else None
+            
+            # Notify reported student
+            if student_user:
+                if new_status == 'verified' or new_status == 'reviewed':
+                    message = f'The report "{report.title}" has been validated after counseling. It will be tallied as a violation.'
+                elif new_status == 'dismissed' or new_status == 'invalid':
+                    message = f'The report "{report.title}" has been dismissed after investigation. No violation will be recorded.'
+                elif new_status == 'resolved':
+                    message = f'The report "{report.title}" has been resolved and closed.'
+                elif new_status == 'summoned':
+                    message = f'You have been summoned to the guidance office regarding "{report.title}". Please report as soon as possible.'
+                else:
+                    message = f'Report "{report.title}" status updated to: {new_status}'
+                
+                Notification.objects.create(
+                    user=student_user,
+                    title='Report Status Update',
+                    message=message,
+                    type='report_update',
+                    related_teacher_report=report,
+                )
+                logger.info(f"📧 Notification sent to student: {student_user.get_full_name()}")
+            
+            # Notify teacher reporter
+            if reporter_user and reporter_user != student_user:
+                Notification.objects.create(
+                    user=reporter_user,
+                    title='Report Status Update',
+                    message=f'Your report "{report.title}" has been updated to: {new_status}',
+                    type='report_update',
+                    related_teacher_report=report,
+                )
+                logger.info(f"📧 Notification sent to teacher: {reporter_user.get_full_name()}")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Error sending notifications: {e}")
+            # Don't fail the whole operation if notifications fail
+        
+        return Response({
+            'success': True,
+            'message': f'Teacher report status updated to {new_status}',
+            'report': {
+                'id': report.id,
+                'status': report.status,
+                'old_status': old_status,
+                'counselor_notes': report.counselor_notes,
+                'report_type': 'teacher_report',
+            }
+        }, status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"❌ Error updating teacher report status: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return Response({
             'success': False,
-            'error': str(e)
+            'error': f'Failed to update teacher report status: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# Add the tally_records function if missing:
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
