@@ -64,6 +64,7 @@ from .views import (
     log_counseling_action,
     update_counseling_session,
     counselor_profile,
+    get_high_risk_students
 )
 
 urlpatterns = [
@@ -105,7 +106,8 @@ urlpatterns = [
     path('counselor/send-guidance-notice/<int:report_id>/', send_guidance_notice, name='counselor_send_guidance_notice'),
     path('counselor/update-report-status/<int:report_id>/', update_report_status, name='counselor_update_report_status'),
     path('counselor/mark-report-invalid/<int:report_id>/', mark_report_invalid, name='counselor_mark_report_invalid'),
-    
+    path('counselor/high-risk-students/', get_high_risk_students, name='get_high_risk_students'),
+
     # General/shared endpoints
     path('students/', get_students_list, name='get_students_list'),
     path('students/add/', add_student, name='add_student'),
