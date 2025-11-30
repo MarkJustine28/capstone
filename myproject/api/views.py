@@ -21,7 +21,7 @@ from datetime import datetime
 import traceback
 
 # Import your models (adjust these imports based on your actual models)
-from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings
+from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings, CounselingLog
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -653,187 +653,271 @@ def teacher_reports(request):
     
     if request.method == 'GET':
         try:
-            # Get teacher profile
-            teacher = Teacher.objects.get(user=request.user)
+            # Check if user is a teacher
+            if not hasattr(request.user, 'teacher'):
+                return Response({
+                    'success': False,
+                    'error': 'Only teachers can view teacher reports'
+                }, status=403)
             
-            # ✅ FIX: Use TeacherReport instead of Report
+            teacher = request.user.teacher
+            
+            # ✅ Get teacher's submitted reports with proper fields
             reports = TeacherReport.objects.filter(
                 reporter_teacher=teacher
-            ).select_related('reported_student', 'reported_student__user', 'violation_type').order_by('-created_at')
+            ).select_related(
+                'reported_student__user',
+                'violation_type',
+                'assigned_counselor__user'
+            ).order_by('-created_at')
             
             reports_data = []
             for report in reports:
-                # Get student info
-                student_name = 'Unknown Student'
-                if report.reported_student:
-                    student_name = f"{report.reported_student.user.first_name} {report.reported_student.user.last_name}".strip()
-                    if not student_name:
-                        student_name = report.reported_student.user.username
-                
-                reports_data.append({
+                # ✅ Build report data with description field
+                report_data = {
                     'id': report.id,
                     'title': report.title,
-                    'description': report.description,
+                    'description': report.description,  # ✅ This is the field that exists in TeacherReport model
+                    'content': report.description,      # ✅ Also provide as 'content' for frontend compatibility
                     'status': report.status,
+                    'severity': report.severity,
                     'verification_status': report.verification_status,
-                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
                     'created_at': report.created_at.isoformat(),
                     'updated_at': report.updated_at.isoformat(),
+                    'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                    'location': report.location,
+                    'school_year': report.school_year,
+                    
+                    # Student info
                     'reported_student': {
                         'id': report.reported_student.id,
-                        'name': student_name,
+                        'name': f"{report.reported_student.user.first_name} {report.reported_student.user.last_name}".strip() or report.reported_student.user.username,
                         'student_id': report.reported_student.student_id,
                         'grade_level': report.reported_student.grade_level,
                         'section': report.reported_student.section,
+                        'strand': report.reported_student.strand,
                     } if report.reported_student else None,
-                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
-                    'violation_category': report.violation_type.category if report.violation_type else None,
-                    'severity': report.severity,
-                    'location': report.location,
-                    'witnesses': report.witnesses,
+                    
+                    # Violation type info
+                    'violation_type': {
+                        'id': report.violation_type.id,
+                        'name': report.violation_type.name,
+                        'category': report.violation_type.category,
+                        'severity_level': report.violation_type.severity_level,
+                    } if report.violation_type else None,
+                    
+                    # Custom violation if any
+                    'custom_violation': report.custom_violation,
+                    
+                    # Counselor info
+                    'assigned_counselor': {
+                        'id': report.assigned_counselor.id,
+                        'name': f"{report.assigned_counselor.user.first_name} {report.assigned_counselor.user.last_name}".strip() or report.assigned_counselor.user.username,
+                    } if report.assigned_counselor else None,
+                    
+                    # Additional details
                     'counselor_notes': report.counselor_notes,
+                    'witnesses': report.witnesses,
+                    'follow_up_required': report.follow_up_required,
+                    'parent_notified': report.parent_notified,
+                    'disciplinary_action': report.disciplinary_action,
+                    'subject_involved': getattr(report, 'subject_involved', None),
+                    
+                    # Counseling info
                     'requires_counseling': report.requires_counseling,
                     'counseling_completed': report.counseling_completed,
-                })
+                    'counseling_date': report.counseling_date.isoformat() if report.counseling_date else None,
+                    'counseling_notes': report.counseling_notes,
+                    
+                    # Summons info
+                    'summons_sent_at': report.summons_sent_at.isoformat() if report.summons_sent_at else None,
+                    'summons_sent_to_student': getattr(report, 'summons_sent_to_student', False),
+                    
+                    # Verification info
+                    'verified_by': {
+                        'id': report.verified_by.id,
+                        'name': f"{report.verified_by.first_name} {report.verified_by.last_name}".strip() or report.verified_by.username,
+                    } if report.verified_by else None,
+                    'verified_at': report.verified_at.isoformat() if report.verified_at else None,
+                    'verification_notes': report.verification_notes,
+                    
+                    # Review info
+                    'is_reviewed': report.is_reviewed,
+                    'reviewed_at': report.reviewed_at.isoformat() if report.reviewed_at else None,
+                    'resolved_at': report.resolved_at.isoformat() if report.resolved_at else None,
+                }
+                
+                reports_data.append(report_data)
+            
+            logger.info(f"✅ Retrieved {len(reports_data)} teacher reports for {teacher.user.username}")
             
             return Response({
                 'success': True,
                 'reports': reports_data,
-                'total_count': len(reports_data),
+                'count': len(reports_data),
+                'message': f'Retrieved {len(reports_data)} teacher reports'
             })
             
-        except Teacher.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Teacher profile not found',
-                'reports': []
-            }, status=404)
         except Exception as e:
-            logger.error(f"❌ Error fetching teacher reports: {e}")
+            logger.error(f"❌ Error fetching teacher reports: {str(e)}")
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e),
                 'reports': []
-            }, status=500)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     elif request.method == 'POST':
+        # Handle report submission - your existing POST code
         try:
-            data = request.data
-            logger.info(f"📝 Received report data: {data}")
-            
-            # Get teacher profile
-            teacher = Teacher.objects.get(user=request.user)
-            
-            # Get reported student
-            student_id = data.get('student_id')
-            if not student_id:
+            # Check if user is a teacher
+            if not hasattr(request.user, 'teacher'):
                 return Response({
                     'success': False,
-                    'error': 'Student ID is required'
+                    'error': 'Only teachers can submit reports'
+                }, status=403)
+            
+            teacher = request.user.teacher
+            data = request.data
+            
+            logger.info(f"📝 Teacher {teacher.user.username} submitting report")
+            logger.info(f"📝 Report data received: {data}")
+            
+            # Get required fields
+            title = data.get('title', '').strip()
+            description = data.get('description', '').strip()  # ✅ Use description field
+            
+            if not title or not description:
+                return Response({
+                    'success': False,
+                    'error': 'Title and description are required'
                 }, status=400)
             
-            try:
-                reported_student = Student.objects.get(id=student_id)
-                logger.info(f"✅ Found student: {reported_student.user.get_full_name()} (ID: {student_id})")
-            except Student.DoesNotExist:
+            # Get student info
+            student_id = data.get('student_id')
+            student_name = data.get('student_name', '').strip()
+            
+            # Handle different student scenarios
+            reported_student = None
+            
+            if student_id:
+                # Student from advising section
+                try:
+                    reported_student = Student.objects.get(id=student_id)
+                    logger.info(f"✅ Found student from advising section: {reported_student.user.username}")
+                except Student.DoesNotExist:
+                    return Response({
+                        'success': False,
+                        'error': f'Student with ID {student_id} not found'
+                    }, status=404)
+            elif student_name and data.get('is_other_student', False):
+                # Other student - try to find by name or create placeholder
+                logger.info(f"🔍 Looking for other student: {student_name}")
+                
+                # Try to find existing student by name
+                name_parts = student_name.split()
+                if len(name_parts) >= 2:
+                    first_name = name_parts[0]
+                    last_name = ' '.join(name_parts[1:])
+                    
+                    existing_students = Student.objects.filter(
+                        user__first_name__icontains=first_name,
+                        user__last_name__icontains=last_name
+                    ).select_related('user')
+                    
+                    if existing_students.exists():
+                        reported_student = existing_students.first()
+                        logger.info(f"✅ Found existing student: {reported_student.user.username}")
+                    else:
+                        logger.info(f"⚠️ Student '{student_name}' not found in system")
+                        # For now, we'll create the report without linking to a specific student
+                        # The counselor can link it later during review
+                else:
+                    logger.warning(f"⚠️ Invalid student name format: '{student_name}'")
+            else:
                 return Response({
                     'success': False,
-                    'error': f'Student with ID {student_id} not found'
-                }, status=404)
+                    'error': 'Student information is required'
+                }, status=400)
             
-            # Get violation type if provided
-            violation_type = None
+            # Get violation type
             violation_type_id = data.get('violation_type_id')
+            violation_type = None
+            
             if violation_type_id:
                 try:
                     violation_type = ViolationType.objects.get(id=violation_type_id)
-                    logger.info(f"✅ Violation type: {violation_type.name}")
                 except ViolationType.DoesNotExist:
-                    logger.warning(f"⚠️ Violation type ID {violation_type_id} not found")
+                    logger.warning(f"⚠️ Violation type {violation_type_id} not found")
             
-            # Parse incident date
-            incident_date = None
-            if data.get('incident_date'):
-                try:
-                    incident_date = parse_datetime(data['incident_date'])
-                    logger.info(f"📅 Parsed incident date: {incident_date}")
-                except:
-                    incident_date = timezone.now()
-            else:
-                incident_date = timezone.now()
+            # Get current school year
+            current_school_year = get_current_school_year()
             
-            # ✅ FIX: Create TeacherReport instead of Report
-            report = TeacherReport.objects.create(
-                title=data.get('title', 'Untitled Report'),
-                description=data.get('description', ''),
-                reporter_teacher=teacher,  # ✅ Use reporter_teacher field
-                reported_student=reported_student,  # ✅ Use reported_student field
+            # Create teacher report
+            teacher_report = TeacherReport.objects.create(
+                title=title,
+                description=description,  # ✅ Save to description field
+                reporter_teacher=teacher,
+                reported_student=reported_student,
                 violation_type=violation_type,
-                custom_violation=data.get('custom_violation'),
+                custom_violation=data.get('custom_violation', '').strip() if not violation_type else None,
                 severity=data.get('severity', 'medium'),
+                location=data.get('location', '').strip(),
+                incident_date=timezone.now(),  # You can parse this from frontend if needed
+                school_year=current_school_year,
                 status='pending',
                 verification_status='pending',
-                incident_date=incident_date,
-                school_year=reported_student.school_year,  # Use student's school year
-                location=data.get('location', ''),
-                witnesses=data.get('witnesses', ''),
                 requires_counseling=True,
-                subject_involved=data.get('subject_involved', ''),  # If this field exists
             )
             
-            logger.info(f"✅ TeacherReport created with ID: {report.id}")
-            logger.info(f"   Reporter: {teacher.user.get_full_name()}")
-            logger.info(f"   Reported Student: {reported_student.user.get_full_name()}")
-            logger.info(f"   Violation: {violation_type.name if violation_type else 'Custom'}")
+            logger.info(f"✅ Teacher report created: ID {teacher_report.id}")
             
-            # Create notification for counselors
-            counselors = Counselor.objects.all()
-            for counselor in counselors:
-                try:
-                    Notification.objects.create(
-                        user=counselor.user,
-                        title='New Teacher Report Submitted',
-                        message=f'Teacher {teacher.user.get_full_name()} has reported a violation by {reported_student.user.get_full_name()}.\n\nViolation: {violation_type.name if violation_type else data.get("custom_violation", "Unknown")}\n\nPlease review this report in the counselor dashboard.',
-                        type='report_submitted',
-                        related_teacher_report=report,  # ✅ Link to TeacherReport
-                    )
-                    logger.info(f"📧 Notification sent to counselor: {counselor.user.username}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to notify counselor {counselor.user.username}: {e}")
-            
-            # Create notification for the reported student
+            # Send notification to counselors
             try:
-                Notification.objects.create(
-                    user=reported_student.user,
-                    title='You have been reported for a violation',
-                    message=f'Your teacher {teacher.user.get_full_name()} has submitted a report about your behavior.\n\nViolation: {violation_type.name if violation_type else data.get("custom_violation", "Unknown")}\n\nPlease see the guidance counselor for more information.',
-                    type='violation_report',
-                    related_teacher_report=report,  # ✅ Link to TeacherReport
-                )
-                logger.info(f"📧 Notification sent to student: {reported_student.user.username}")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to notify student: {e}")
+                counselors = Counselor.objects.all()
+                notification_title = f"📋 New Teacher Report: {title}"
+                notification_message = f"""
+New teacher report submitted by {teacher.user.get_full_name() or teacher.user.username}
+
+Student: {student_name}
+Violation: {title}
+Status: Pending Review
+
+Please review this report in the counselor dashboard.
+                """.strip()
+                
+                notifications_sent = 0
+                for counselor in counselors:
+                    if counselor.user:
+                        Notification.objects.create(
+                            user=counselor.user,
+                            title=notification_title,
+                            message=notification_message,
+                            type='report_submitted',
+                            related_teacher_report=teacher_report
+                        )
+                        notifications_sent += 1
+                
+                logger.info(f"✅ Sent notifications to {notifications_sent} counselors")
+                
+            except Exception as notif_error:
+                logger.error(f"⚠️ Error sending notifications: {notif_error}")
             
             return Response({
                 'success': True,
-                'message': 'Report submitted successfully',
+                'message': 'Teacher report submitted successfully',
                 'report': {
-                    'id': report.id,
-                    'title': report.title,
-                    'status': report.status,
-                    'verification_status': report.verification_status,
-                    'reported_student_name': reported_student.user.get_full_name(),
-                    'created_at': report.created_at.isoformat(),
+                    'id': teacher_report.id,
+                    'title': teacher_report.title,
+                    'description': teacher_report.description,  # ✅ Return description
+                    'status': teacher_report.status,
+                    'student_name': student_name,
+                    'created_at': teacher_report.created_at.isoformat(),
                 }
             }, status=201)
             
-        except Teacher.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Teacher profile not found'
-            }, status=404)
         except Exception as e:
-            logger.error(f"❌ Error creating teacher report: {e}")
+            logger.error(f"❌ Error creating teacher report: {str(e)}")
             traceback.print_exc()
             return Response({
                 'success': False,
@@ -5864,15 +5948,13 @@ def schedule_emergency_counseling(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_counseling_logs(request):
-    """Get counseling logs for a student or all students"""
+    """Get counseling logs with optional filtering"""
     try:
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Access denied'
+                'error': 'Counselor access required'
             }, status=status.HTTP_403_FORBIDDEN)
-        
-        from .models import CounselingLog
         
         student_id = request.GET.get('student_id')
         school_year = request.GET.get('school_year')
@@ -5885,20 +5967,33 @@ def get_counseling_logs(request):
         if school_year and school_year != 'all':
             logs_query = logs_query.filter(school_year=school_year)
         
+        logs = logs_query.order_by('-created_at')
+        
         logs_data = []
-        for log in logs_query:
+        for log in logs:
+            # Get student name safely
+            if log.student and log.student.user:
+                student_name = f"{log.student.user.first_name} {log.student.user.last_name}".strip()
+                if not student_name:
+                    student_name = log.student.user.username
+            else:
+                student_name = f"Student #{log.student.id}" if log.student else "Unknown Student"
+            
             logs_data.append({
                 'id': log.id,
-                'student_id': log.student.id,
-                'student_name': log.student.user.get_full_name(),
-                'counselor_name': log.counselor.user.get_full_name(),
+                'student_id': log.student.id if log.student else None,
+                'student_name': student_name,
                 'action_type': log.action_type,
                 'description': log.description,
-                'scheduled_date': log.scheduled_date.isoformat(),
-                'completion_date': log.completion_date.isoformat() if log.completion_date else None,
                 'status': log.status,
+                'priority': getattr(log, 'priority', 'medium'),
+                'scheduled_date': log.scheduled_date.isoformat() if log.scheduled_date else None,
+                'completion_date': log.completion_date.isoformat() if hasattr(log, 'completion_date') and log.completion_date else None,
                 'notes': log.notes,
                 'school_year': log.school_year,
+                'is_auto_generated': getattr(log, 'is_auto_generated', False),
+                'violation_count': getattr(log, 'violation_count', None),
+                'notification_sent': True,  # Assume sent if session exists
                 'created_at': log.created_at.isoformat(),
             })
         
@@ -5923,18 +6018,15 @@ def update_counseling_session(request, session_id):
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Access denied'
+                'error': 'Counselor access required'
             }, status=status.HTTP_403_FORBIDDEN)
-        
-        from .models import CounselingLog
-        from django.utils.dateparse import parse_datetime
         
         try:
             session = CounselingLog.objects.get(id=session_id)
         except CounselingLog.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Session not found'
+                'error': 'Counseling session not found'
             }, status=status.HTTP_404_NOT_FOUND)
         
         data = request.data
@@ -5942,13 +6034,16 @@ def update_counseling_session(request, session_id):
         # Update fields
         if 'status' in data:
             session.status = data['status']
+            
+            # Set completion date if completed
+            if data['status'] == 'completed':
+                session.completion_date = timezone.now()
         
         if 'completion_date' in data:
-            completion_date_str = data['completion_date']
-            completion_date = parse_datetime(completion_date_str)
-            if completion_date and not completion_date.tzinfo:
-                completion_date = timezone.make_aware(completion_date)
-            session.completion_date = completion_date
+            try:
+                session.completion_date = parse_datetime(data['completion_date'])
+            except (ValueError, TypeError):
+                pass
         
         if 'notes' in data:
             session.notes = data['notes']
@@ -5964,6 +6059,7 @@ def update_counseling_session(request, session_id):
                 'id': session.id,
                 'status': session.status,
                 'completion_date': session.completion_date.isoformat() if session.completion_date else None,
+                'notes': session.notes,
             }
         })
         
@@ -6041,17 +6137,14 @@ def get_high_risk_students(request):
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Only counselors can access this endpoint'
-            }, status=403)
-        
-        counselor = request.user.counselor
-        
-        # ✅ FIX: Use StudentViolationRecord instead of StudentViolation
-        from django.db.models import Count, Q
-        from datetime import datetime, timedelta
+                'error': 'Counselor access required'
+            }, status=status.HTTP_403_FORBIDDEN)
         
         # Get students with 3+ violations
-        high_violation_students = StudentViolationRecord.objects.filter(  # ✅ FIXED
+        from django.db.models import Count, Q
+        from datetime import timedelta
+        
+        high_violation_students = StudentViolationRecord.objects.filter(
             school_year=get_current_school_year(),
             status__in=['active', 'pending']
         ).values('student').annotate(
@@ -6061,14 +6154,13 @@ def get_high_risk_students(request):
         # Get students who had counseling in the last 7 days
         recent_cutoff = timezone.now() - timedelta(days=7)
         
-        # ✅ Check if CounselingLog model exists in your models
-        recently_counseled_students = []
         try:
-            # Try to get recently counseled students if the model exists
-            # You might need to adjust this based on your actual counseling log model
-            recently_counseled_students = []  # For now, assume no recent counseling
+            recently_counseled_students = CounselingLog.objects.filter(
+                created_at__gte=recent_cutoff,
+                status__in=['completed', 'scheduled']
+            ).values_list('student_id', flat=True).distinct()
         except Exception as e:
-            logger.warning(f"Could not check recent counseling: {e}")
+            logger.warning(f"⚠️ Could not check recent counseling: {e}")
             recently_counseled_students = []
         
         # Filter out recently counseled students
@@ -6081,32 +6173,48 @@ def get_high_risk_students(request):
         
         students_data = []
         for student in students_needing_counseling:
-            # Get violation count and details
-            violations = StudentViolationRecord.objects.filter(  # ✅ FIXED
+            # Get violation count and types
+            violations = StudentViolationRecord.objects.filter(
                 student=student,
                 school_year=get_current_school_year(),
                 status__in=['active', 'pending']
-            )
+            ).select_related('violation_type')
             
-            # Get violation types
-            violation_types = violations.values_list(
-                'violation_type__name', flat=True
-            ).distinct()
+            violation_count = violations.count()
+            violation_types = list(violations.values_list('violation_type__name', flat=True))
             
-            # Build student data
+            # Determine priority based on violation count
+            if violation_count >= 5:
+                priority = 'high'
+            elif violation_count >= 4:
+                priority = 'medium'
+            else:
+                priority = 'low'
+            
+            # Get student name
+            if student.user:
+                student_name = f"{student.user.first_name} {student.user.last_name}".strip()
+                if not student_name:
+                    student_name = student.user.username
+                first_name = student.user.first_name or ''
+                last_name = student.user.last_name or ''
+            else:
+                student_name = f"Student #{student.id}"
+                first_name = ''
+                last_name = ''
+            
             students_data.append({
                 'id': student.id,
-                'student_id': getattr(student, 'student_id', f'STU-{student.id:04d}'),
-                'name': student.user.get_full_name() or f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username,
-                'first_name': student.user.first_name or '',
-                'last_name': student.user.last_name or '',
-                'email': student.user.email or '',
-                'grade_level': getattr(student, 'grade_level', '') or '',
-                'section': getattr(student, 'section', '') or '',
-                'violation_count': violations.count(),
-                'violation_types': list(violation_types),
-                'priority': 'high' if violations.count() >= 5 else 'medium',
-                'last_violation_date': violations.order_by('-incident_date').first().incident_date.isoformat() if violations.exists() else None,
+                'name': student_name,
+                'first_name': first_name,
+                'last_name': last_name,
+                'student_id': getattr(student, 'student_id', '') or f"STU{student.id:06d}",
+                'grade_level': getattr(student, 'grade_level', ''),
+                'section': getattr(student, 'section', ''),
+                'violation_count': violation_count,
+                'violation_types': violation_types,
+                'priority': priority,
+                'last_violation_date': violations.first().incident_date.isoformat() if violations.exists() else None,
             })
         
         # Sort by violation count (highest first)
@@ -6127,9 +6235,135 @@ def get_high_risk_students(request):
         
     except Exception as e:
         logger.error(f"❌ Error getting high-risk students: {str(e)}")
-        import traceback
         logger.error(traceback.format_exc())
         return Response({
             'success': False,
             'error': str(e)
         }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_counseling_session(request):
+    """Create a real counseling session in the database"""
+    try:
+        # Verify counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Counselor access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        counselor = request.user.counselor
+        data = request.data
+        
+        # Get required data
+        student_id = data.get('student_id')
+        action_type = data.get('action_type', 'Counseling Session')
+        description = data.get('description', '')
+        scheduled_date = data.get('scheduled_date')
+        notes = data.get('notes', '')
+        school_year = data.get('school_year', get_current_school_year())
+        priority = data.get('priority', 'medium')
+        is_auto_generated = data.get('is_auto_generated', False)
+        violation_count = data.get('violation_count')
+        
+        if not student_id:
+            return Response({
+                'success': False,
+                'error': 'Student ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get student
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Parse scheduled date
+        try:
+            if scheduled_date:
+                scheduled_datetime = parse_datetime(scheduled_date)
+                if scheduled_datetime is None:
+                    scheduled_datetime = datetime.fromisoformat(scheduled_date.replace('Z', '+00:00'))
+            else:
+                scheduled_datetime = timezone.now() + timedelta(days=1)  # Schedule for tomorrow
+        except (ValueError, TypeError):
+            scheduled_datetime = timezone.now() + timedelta(days=1)
+        
+        # Create counseling session
+        counseling_session = CounselingLog.objects.create(
+            counselor=counselor,
+            student=student,
+            action_type=action_type,
+            description=description,
+            scheduled_date=scheduled_datetime,
+            status='scheduled',
+            notes=notes,
+            school_year=school_year,
+            priority=priority,
+            is_auto_generated=is_auto_generated,
+            violation_count=violation_count,
+        )
+        
+        # ✅ Send notification to student if they have a user account
+        if student.user:
+            try:
+                notification_title = "🏫 Counseling Session Scheduled"
+                notification_message = f"""
+{action_type}
+
+{description}
+
+📅 Scheduled Date: {scheduled_datetime.strftime('%B %d, %Y at %I:%M %p')}
+📍 Location: Guidance Office (Main Building)
+
+Please ensure you arrive on time. Thank you for your cooperation.
+"""
+                
+                Notification.objects.create(
+                    user=student.user,
+                    title=notification_title,
+                    message=notification_message.strip(),
+                    type='session_scheduled'
+                )
+                
+                logger.info(f"✅ Notification sent to student {student.user.username}")
+                notification_sent = True
+            except Exception as notif_error:
+                logger.warning(f"⚠️ Could not send notification: {notif_error}")
+                notification_sent = False
+        else:
+            notification_sent = False
+        
+        logger.info(f"✅ Counseling session created: {action_type} for {student.user.get_full_name() if student.user else student.id}")
+        
+        return Response({
+            'success': True,
+            'message': 'Counseling session created successfully',
+            'counseling_log': {
+                'id': counseling_session.id,
+                'student_id': student.id,
+                'student_name': f"{student.user.first_name} {student.user.last_name}".strip() if student.user else f"Student #{student.id}",
+                'action_type': counseling_session.action_type,
+                'description': counseling_session.description,
+                'scheduled_date': counseling_session.scheduled_date.isoformat(),
+                'status': counseling_session.status,
+                'priority': counseling_session.priority,
+                'school_year': counseling_session.school_year,
+                'notification_sent': notification_sent,
+                'is_auto_generated': counseling_session.is_auto_generated,
+                'violation_count': counseling_session.violation_count,
+                'created_at': counseling_session.created_at.isoformat(),
+            }
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating counseling session: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
