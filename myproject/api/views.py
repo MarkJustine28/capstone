@@ -2926,79 +2926,101 @@ def update_report_status(request, report_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def send_counseling_notification(request):
-    """Send counseling notification to a student"""
+    """Send notification to student about counseling session"""
     try:
         # Verify counselor
-        try:
-            counselor = Counselor.objects.get(user=request.user)
-        except Counselor.DoesNotExist:
+        if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
                 'error': 'Only counselors can send counseling notifications'
-            }, status=status.HTTP_403_FORBIDDEN)
+            }, status=403)
         
-        student_id = request.data.get('student_id')
-        message = request.data.get('message')
-        scheduled_date = request.data.get('scheduled_date')
+        counselor = request.user.counselor
+        data = request.data
         
-        if not student_id or not message:
+        # Get required data
+        student_id = data.get('student_id')
+        message = data.get('message', 'You have been scheduled for a counseling session.')
+        scheduled_date = data.get('scheduled_date')
+        
+        if not student_id:
             return Response({
                 'success': False,
-                'error': 'student_id and message are required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': 'Student ID is required'
+            }, status=400)
         
         # Get student
         try:
-            student = Student.objects.select_related('user').get(id=student_id)
+            student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
             return Response({
                 'success': False,
                 'error': 'Student not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=404)
         
-        if not student.user:
-            return Response({
-                'success': False,
-                'error': 'Student has no associated user account'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Create notification
-        title = "Counseling Session Scheduled"
-        full_message = message
-        
-        if scheduled_date:
+        # Send notification to student
+        if student.user:
+            student_name = f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username
+            counselor_name = f"{counselor.user.first_name} {counselor.user.last_name}".strip() or counselor.user.username
+            
+            # Format scheduled date if provided
+            date_info = ""
+            if scheduled_date:
+                try:
+                    from django.utils.dateparse import parse_datetime
+                    scheduled_datetime = parse_datetime(scheduled_date)
+                    if scheduled_datetime:
+                        from django.utils.dateformat import DateFormat
+                        date_format = DateFormat(scheduled_datetime)
+                        formatted_date = date_format.format('F j, Y')  # e.g., "December 15, 2025"
+                        formatted_time = date_format.format('g:i A')   # e.g., "2:30 PM"
+                        date_info = f"\n\n📅 Date: {formatted_date}\n🕒 Time: {formatted_time}"
+                except Exception as e:
+                    logger.warning(f"Could not parse scheduled date: {e}")
+            
+            notification_title = "🏫 Counseling Session Notification"
+            notification_message = (
+                f"Dear {student_name},\n\n"
+                f"{message}"
+                f"{date_info}\n\n"
+                f"👥 Counselor: {counselor_name}\n\n"
+                f"⚠️ IMPORTANT REMINDERS:\n"
+                f"• Please arrive 5 minutes before your scheduled time\n"
+                f"• Bring your student ID and any relevant documents\n"
+                f"• If you cannot attend, please inform the guidance office immediately\n\n"
+                f"📍 Location: Guidance Office\n"
+                f"💬 For questions, please approach the guidance office during office hours.\n\n"
+                f"Thank you for your cooperation."
+            )
+            
             try:
-                date_obj = parse_datetime(scheduled_date)
-                if date_obj:
-                    formatted_date = date_obj.strftime('%B %d, %Y at %I:%M %p')
-                    full_message += f"\n\nScheduled for: {formatted_date}"
-            except:
-                full_message += f"\n\nScheduled for: {scheduled_date}"
-        
-        notification = create_notification(
-            user=student.user,
-            title=title,
-            message=full_message,
-            notification_type='session_scheduled'
-        )
-        
-        if notification:
-            logger.info(f"✅ Counseling notification sent to student {student.user.username}")
-            return Response({
-                'success': True,
-                'message': 'Counseling notification sent successfully',
-                'notification': {
-                    'id': notification.id,
-                    'title': notification.title,
-                    'message': notification.message,
-                    'created_at': notification.created_at.isoformat(),
-                }
-            })
+                # Create notification
+                notification = Notification.objects.create(
+                    user=student.user,
+                    title=notification_title,
+                    message=notification_message,
+                    type='counseling_notification'
+                )
+                
+                logger.info(f"✅ Counseling notification sent to {student.user.username}")
+                
+                return Response({
+                    'success': True,
+                    'message': 'Notification sent successfully',
+                    'notification_id': notification.id,
+                })
+                
+            except Exception as notif_error:
+                logger.error(f"⚠️ Failed to create notification: {notif_error}")
+                return Response({
+                    'success': False,
+                    'error': 'Failed to create notification'
+                }, status=500)
         else:
             return Response({
                 'success': False,
-                'error': 'Failed to create notification'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                'error': 'Student has no associated user account'
+            }, status=400)
         
     except Exception as e:
         logger.error(f"❌ Error sending counseling notification: {str(e)}")
@@ -3007,7 +3029,7 @@ def send_counseling_notification(request):
         return Response({
             'success': False,
             'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=500)
 
 
 @api_view(['POST'])
@@ -3222,8 +3244,8 @@ def send_counseling_notification(request):
         except Counselor.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Only counselors can send counseling notifications'
-            }, status=status.HTTP_403_FORBIDDEN)
+                'error': 'Only counselors can send notifications'
+            }, status=403)
         
         student_id = request.data.get('student_id')
         message = request.data.get('message')
@@ -3232,64 +3254,62 @@ def send_counseling_notification(request):
         if not student_id or not message:
             return Response({
                 'success': False,
-                'error': 'student_id and message are required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': 'Student ID and message are required'
+            }, status=400)
         
         # Get student
         try:
-            student = Student.objects.select_related('user').get(id=student_id)
+            student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
             return Response({
                 'success': False,
                 'error': 'Student not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=404)
         
         if not student.user:
             return Response({
                 'success': False,
-                'error': 'Student has no associated user account'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': 'Student has no user account'
+            }, status=400)
         
         # Create notification
-        title = "Counseling Session Scheduled"
+        title = "🏫 Counseling Session Notification"
         full_message = message
         
         if scheduled_date:
-            full_message += f"\n\nScheduled for: {scheduled_date}"
+            try:
+                scheduled_datetime = parse_datetime(scheduled_date)
+                if scheduled_datetime:
+                    from django.utils.dateformat import DateFormat
+                    date_format = DateFormat(scheduled_datetime)
+                    formatted_date = date_format.format('F j, Y')
+                    formatted_time = date_format.format('g:i A')
+                    full_message += f"\n\nScheduled: {formatted_date} at {formatted_time}"
+            except Exception as e:
+                logger.warning(f"Could not parse date: {e}")
         
-        notification = create_notification(
+        notification = Notification.objects.create(
             user=student.user,
             title=title,
             message=full_message,
-            notification_type='session_scheduled'
+            type='session_scheduled'
         )
         
-        if notification:
-            logger.info(f"✅ Counseling notification sent to student {student.user.username}")
-            return Response({
-                'success': True,
-                'message': 'Counseling notification sent successfully',
-                'notification': {
-                    'id': notification.id,
-                    'title': notification.title,
-                    'message': notification.message,
-                    'created_at': notification.created_at.isoformat(),
-                }
-            })
-        else:
-            return Response({
-                'success': False,
-                'error': 'Failed to create notification'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.info(f"✅ Counseling notification sent to {student.user.username}")
+        
+        return Response({
+            'success': True,
+            'message': 'Notification sent successfully',
+            'notification_id': notification.id,
+        })
         
     except Exception as e:
         logger.error(f"❌ Error sending counseling notification: {str(e)}")
-        import traceback
         traceback.print_exc()
         return Response({
             'success': False,
             'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=500)
 
 
 @api_view(['POST'])

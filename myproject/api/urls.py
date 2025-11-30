@@ -109,7 +109,8 @@ urlpatterns = [
     path('counselor/mark-report-invalid/<int:report_id>/', mark_report_invalid, name='counselor_mark_report_invalid'),
     path('counselor/high-risk-students/', get_high_risk_students, name='get_high_risk_students'),
     path('counselor/emergency-counseling/', schedule_emergency_counseling, name='schedule_emergency_counseling'),
-
+    path('counseling/send-notification/', send_counseling_notification, name='send_counseling_notification'),
+    
     # General/shared endpoints
     path('students/', get_students_list, name='get_students_list'),
     path('students/add/', add_student, name='add_student'),
