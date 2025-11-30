@@ -5559,72 +5559,134 @@ def create_system_report(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def log_counseling_action(request):
-    """Log a counseling action for a student"""
+    """Log a counseling action for a student and notify them"""
     try:
+        # Verify counselor
         if not hasattr(request.user, 'counselor'):
             return Response({
                 'success': False,
-                'error': 'Only counselors can log actions'
-            }, status=status.HTTP_403_FORBIDDEN)
+                'error': 'Only counselors can log counseling actions'
+            }, status=403)
         
         counselor = request.user.counselor
         data = request.data
         
+        # Get required data
         student_id = data.get('student_id')
-        if not student_id:
+        action_type = data.get('action_type', 'Individual Counseling')
+        description = data.get('description', '')
+        scheduled_date = data.get('scheduled_date')
+        notes = data.get('notes', '')
+        school_year = data.get('school_year', get_current_school_year())
+        
+        if not student_id or not scheduled_date:
             return Response({
                 'success': False,
-                'error': 'Student ID is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': 'Student ID and scheduled date are required'
+            }, status=400)
         
+        # Get student
         try:
             student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
             return Response({
                 'success': False,
                 'error': 'Student not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=404)
         
-        from .models import CounselingLog
-        from django.utils.dateparse import parse_datetime
-        
-        # ✅ Parse scheduled_date with timezone awareness
-        scheduled_date_str = data.get('scheduled_date')
-        if scheduled_date_str:
-            scheduled_date = parse_datetime(scheduled_date_str)
-            if scheduled_date and not scheduled_date.tzinfo:
-                # Make it timezone-aware
-                scheduled_date = timezone.make_aware(scheduled_date)
-        else:
-            scheduled_date = timezone.now()
+        # Parse scheduled date
+        try:
+            scheduled_datetime = parse_datetime(scheduled_date)
+            if not scheduled_datetime:
+                # Try parsing as date only and add default time
+                from datetime import datetime
+                import datetime as dt
+                date_part = datetime.strptime(scheduled_date.split('T')[0], '%Y-%m-%d').date()
+                scheduled_datetime = datetime.combine(date_part, dt.time(10, 0))  # Default 10:00 AM
+                scheduled_datetime = timezone.make_aware(scheduled_datetime)
+        except (ValueError, TypeError):
+            return Response({
+                'success': False,
+                'error': 'Invalid date format'
+            }, status=400)
         
         # Create counseling log
-        log = CounselingLog.objects.create(
+        counseling_log = CounselingLog.objects.create(
             counselor=counselor,
             student=student,
-            action_type=data.get('action_type', 'Individual Counseling'),
-            description=data.get('description', ''),
-            scheduled_date=scheduled_date,  # ✅ Now timezone-aware
-            status='completed' if data.get('mark_completed') else 'scheduled',
-            completion_date=timezone.now() if data.get('mark_completed') else None,
-            notes=data.get('notes', ''),
-            school_year=get_current_school_year(),
+            action_type=action_type,
+            description=description,
+            scheduled_date=scheduled_datetime,
+            status='scheduled',
+            notes=notes,
+            school_year=school_year
         )
         
-        logger.info(f"✅ Counseling action logged: {log.action_type} for {student.user.get_full_name()}")
+        # ✅ NEW: Send notification to student
+        if student.user:
+            student_name = f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username
+            counselor_name = f"{counselor.user.first_name} {counselor.user.last_name}".strip() or counselor.user.username
+            
+            # Format scheduled date for notification
+            from django.utils.dateformat import DateFormat
+            date_format = DateFormat(scheduled_datetime)
+            formatted_date = date_format.format('F j, Y')  # e.g., "December 15, 2025"
+            formatted_time = date_format.format('g:i A')   # e.g., "2:30 PM"
+            
+            notification_title = "🏫 Counseling Session Scheduled"
+            notification_message = (
+                f"Dear {student_name},\n\n"
+                f"A counseling session has been scheduled for you with the Guidance Office.\n\n"
+                f"📅 Date: {formatted_date}\n"
+                f"🕒 Time: {formatted_time}\n"
+                f"👥 Counselor: {counselor_name}\n"
+                f"📋 Session Type: {action_type}\n"
+            )
+            
+            if description:
+                notification_message += f"\n📝 Details:\n{description}\n"
+            
+            notification_message += (
+                f"\n⚠️ IMPORTANT REMINDERS:\n"
+                f"• Please arrive 5 minutes before your scheduled time\n"
+                f"• Bring your student ID and any relevant documents\n"
+                f"• If you cannot attend, please inform the guidance office immediately\n"
+                f"• Failure to attend without prior notice may result in disciplinary action\n\n"
+                f"📍 Location: Guidance Office\n"
+                f"💬 For questions, please approach the guidance office during office hours.\n\n"
+                f"Thank you for your cooperation."
+            )
+            
+            try:
+                # Create notification
+                notification = Notification.objects.create(
+                    user=student.user,
+                    title=notification_title,
+                    message=notification_message,
+                    type='session_scheduled'
+                )
+                
+                logger.info(f"✅ Counseling session notification sent to {student.user.username}")
+                
+            except Exception as notif_error:
+                logger.error(f"⚠️ Failed to send notification: {notif_error}")
+                # Don't fail the counseling log creation if notification fails
+        
+        logger.info(f"✅ Counseling action logged: {action_type} for {student.user.username}")
         
         return Response({
             'success': True,
-            'message': 'Counseling action logged successfully',
-            'log': {
-                'id': log.id,
+            'message': 'Counseling session scheduled and student notified successfully',
+            'counseling_log': {
+                'id': counseling_log.id,
                 'student_id': student.id,
-                'student_name': student.user.get_full_name(),
-                'action_type': log.action_type,
-                'status': log.status,
-                'created_at': log.created_at.isoformat(),
+                'student_name': f"{student.user.first_name} {student.user.last_name}".strip(),
+                'action_type': counseling_log.action_type,
+                'scheduled_date': counseling_log.scheduled_date.isoformat(),
+                'status': counseling_log.status,
+                'notification_sent': student.user is not None,
             }
-        }, status=status.HTTP_201_CREATED)
+        })
         
     except Exception as e:
         logger.error(f"❌ Error logging counseling action: {str(e)}")
@@ -5632,7 +5694,151 @@ def log_counseling_action(request):
         return Response({
             'success': False,
             'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=500)
+
+
+# ✅ ALSO UPDATE: The scheduleEmergencyCounseling method to send notifications
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def schedule_emergency_counseling(request):
+    """Schedule emergency counseling for high-risk students and notify them"""
+    try:
+        # Verify counselor
+        if not hasattr(request.user, 'counselor'):
+            return Response({
+                'success': False,
+                'error': 'Only counselors can schedule emergency counseling'
+            }, status=403)
+        
+        counselor = request.user.counselor
+        data = request.data
+        
+        # Get required data
+        student_id = data.get('student_id')
+        student_name = data.get('student_name', '')
+        violation_count = data.get('violation_count', 0)
+        violation_types = data.get('violation_types', [])
+        notes = data.get('notes', '')
+        scheduled_date = data.get('scheduled_date')
+        
+        if not student_id:
+            return Response({
+                'success': False,
+                'error': 'Student ID is required'
+            }, status=400)
+        
+        # Get student
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=404)
+        
+        # Parse or set scheduled date
+        if scheduled_date:
+            try:
+                scheduled_datetime = parse_datetime(scheduled_date)
+            except (ValueError, TypeError):
+                scheduled_datetime = timezone.now() + timedelta(days=1)  # Tomorrow
+        else:
+            scheduled_datetime = timezone.now() + timedelta(days=1)  # Default to tomorrow
+        
+        # Create emergency counseling log
+        counseling_log = CounselingLog.objects.create(
+            counselor=counselor,
+            student=student,
+            action_type='Emergency Critical Intervention',
+            description=f'URGENT: Student has {violation_count} violations requiring immediate counseling. Violation types: {", ".join(violation_types)}',
+            scheduled_date=scheduled_datetime,
+            status='scheduled',
+            notes=notes,
+            school_year=get_current_school_year()
+        )
+        
+        # ✅ NEW: Send urgent notification to student
+        if student.user:
+            student_display_name = student_name or f"{student.user.first_name} {student.user.last_name}".strip() or student.user.username
+            counselor_name = f"{counselor.user.first_name} {counselor.user.last_name}".strip() or counselor.user.username
+            
+            # Format scheduled date
+            from django.utils.dateformat import DateFormat
+            date_format = DateFormat(scheduled_datetime)
+            formatted_date = date_format.format('F j, Y')
+            formatted_time = date_format.format('g:i A')
+            
+            notification_title = "🚨 URGENT: Emergency Counseling Required"
+            notification_message = (
+                f"Dear {student_display_name},\n\n"
+                f"⚠️ URGENT NOTICE: You are required to report to the Guidance Office for an emergency counseling session.\n\n"
+                f"📊 REASON: You have accumulated {violation_count} disciplinary violations, which requires immediate intervention.\n\n"
+                f"📅 Scheduled Date: {formatted_date}\n"
+                f"🕒 Time: {formatted_time}\n"
+                f"👥 Counselor: {counselor_name}\n"
+                f"📋 Session Type: Emergency Critical Intervention\n\n"
+                f"🔍 VIOLATIONS RECORDED:\n"
+            )
+            
+            # Add violation types
+            for i, violation_type in enumerate(violation_types[:5], 1):
+                notification_message += f"   {i}. {violation_type}\n"
+            
+            if len(violation_types) > 5:
+                notification_message += f"   ... and {len(violation_types) - 5} more\n"
+            
+            notification_message += (
+                f"\n🚨 CRITICAL REMINDERS:\n"
+                f"• This is an EMERGENCY session - attendance is MANDATORY\n"
+                f"• Failure to attend will result in automatic disciplinary action\n"
+                f"• Please arrive 10 minutes early for check-in\n"
+                f"• Bring your student ID and be prepared to discuss these incidents\n"
+                f"• Parent/guardian may be contacted if you fail to attend\n\n"
+                f"📍 Location: Guidance Office (Main Building)\n"
+                f"☎️ For emergencies only: Contact the guidance office immediately\n\n"
+                f"This session is designed to help you get back on track. Your cooperation is essential."
+            )
+            
+            try:
+                # Create urgent notification
+                notification = Notification.objects.create(
+                    user=student.user,
+                    title=notification_title,
+                    message=notification_message,
+                    type='counseling_summons'  # Use summons type for urgency
+                )
+                
+                logger.info(f"🚨 Emergency counseling notification sent to {student.user.username}")
+                
+            except Exception as notif_error:
+                logger.error(f"⚠️ Failed to send emergency notification: {notif_error}")
+        
+        logger.info(f"🚨 Emergency counseling scheduled for student {student.user.username} with {violation_count} violations")
+        
+        return Response({
+            'success': True,
+            'message': 'Emergency counseling scheduled and urgent notification sent',
+            'counseling_log': {
+                'id': counseling_log.id,
+                'student_id': student.id,
+                'student_name': student_display_name,
+                'action_type': counseling_log.action_type,
+                'scheduled_date': counseling_log.scheduled_date.isoformat(),
+                'status': counseling_log.status,
+                'violation_count': violation_count,
+                'notification_sent': student.user is not None,
+                'urgency_level': 'emergency',
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error scheduling emergency counseling: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 
 @api_view(['GET'])
