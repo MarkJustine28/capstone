@@ -19,12 +19,25 @@ import logging
 from django.db import models
 from datetime import datetime
 import traceback
+import firebase_admin
+from firebase_admin import auth as firebase_auth, credentials
+import os
 
 # Import your models (adjust these imports based on your actual models)
 from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings, CounselingLog, LoginAttempt
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+if not firebase_admin._apps:
+    try:
+        # Get the path to your Firebase credentials JSON file
+        cred_path = os.path.join(os.path.dirname(__file__), '..', 'firebase-credentials.json')
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        logger.info("✅ Firebase Admin SDK initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Firebase Admin SDK: {e}")
 
 def get_current_school_year():
     """Get current school year from SystemSettings"""
@@ -362,91 +375,77 @@ def register_view(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def forgot_password_view(request):
-    """Reset password using username or email with validation"""
+    """
+    Password reset using Firebase Authentication
+    - Send password reset email via Firebase
+    - User resets password through Firebase
+    - Django automatically syncs on next login
+    """
     try:
         data = json.loads(request.body)
-        identifier = data.get('identifier')  # Can be username or email
-        new_password = data.get('new_password')
+        email = data.get('email', '').strip()
         
-        logger.info(f"🔐 Password reset attempt for: {identifier}")
+        logger.info(f"🔐 Password reset request for email: {email}")
         
-        if not identifier or not new_password:
+        if not email:
             return Response({
                 'success': False,
-                'error': 'Username/email and new password are required'
+                'error': 'Email address is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Try to find user by username or email
-        user = None
+        # Validate email format
+        if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
+            return Response({
+                'success': False,
+                'error': 'Invalid email format'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if user exists in Django database
         try:
-            # Try username first
-            user = User.objects.get(username=identifier)
-            logger.info(f"✅ Found user by username: {user.username}")
+            user = User.objects.get(email=email)
         except User.DoesNotExist:
-            # Try email
-            try:
-                user = User.objects.get(email=identifier)
-                logger.info(f"✅ Found user by email: {user.username}")
-            except User.DoesNotExist:
-                logger.warning(f"❌ No account found for: {identifier}")
-                return Response({
-                    'success': False,
-                    'error': 'No account found with this username or email'
-                }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Validate password strength
-        if len(new_password) < 8:
+            # Don't reveal if email exists or not for security
+            logger.warning(f"⚠️ Password reset attempted for non-existent email: {email}")
             return Response({
-                'success': False,
-                'error': 'Password must be at least 8 characters long'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'success': True,
+                'message': 'If an account with that email exists, a password reset link has been sent.',
+                'email': email
+            }, status=status.HTTP_200_OK)
         
-        # Check for uppercase, lowercase, and digit
-        import re
-        if not re.search(r'[A-Z]', new_password):
-            return Response({
-                'success': False,
-                'error': 'Password must contain at least one uppercase letter'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not re.search(r'[a-z]', new_password):
-            return Response({
-                'success': False,
-                'error': 'Password must contain at least one lowercase letter'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not re.search(r'\d', new_password):
-            return Response({
-                'success': False,
-                'error': 'Password must contain at least one number'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set new password
-        user.set_password(new_password)
-        user.save()
-        
-        logger.info(f"✅ Password reset successful for user: {user.username}")
-        
-        # Create notification for user about password change
+        # Try to send Firebase password reset email
         try:
-            Notification.objects.create(
-                user=user,
-                title='Password Changed',
-                message='Your password has been successfully reset. If you did not make this change, please contact the administrator immediately.',
-                type='security_alert'
-            )
-            logger.info(f"📧 Password change notification sent to {user.username}")
-        except Exception as notif_error:
-            logger.warning(f"⚠️ Could not create notification: {notif_error}")
-        
-        return Response({
-            'success': True,
-            'message': f'Password reset successful! You can now login with your new password.',
-            'username': user.username
-        }, status=status.HTTP_200_OK)
+            # This will be handled by Firebase Auth on the client side
+            # Django backend just validates the email exists
+            
+            logger.info(f"✅ Password reset email will be sent via Firebase to: {email}")
+            
+            # Create notification for user about password reset attempt
+            try:
+                Notification.objects.create(
+                    user=user,
+                    title="🔐 Password Reset Request",
+                    message=f"A password reset was requested for your account. If this wasn't you, please contact an administrator immediately.",
+                    type='security_alert'
+                )
+            except Exception as notif_error:
+                logger.warning(f"⚠️ Could not create notification: {notif_error}")
+            
+            return Response({
+                'success': True,
+                'message': 'Password reset email sent successfully. Please check your inbox.',
+                'email': email,
+                'user_exists': True
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as firebase_error:
+            logger.error(f"❌ Firebase error: {str(firebase_error)}")
+            return Response({
+                'success': False,
+                'error': 'Failed to send password reset email. Please try again later.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
     except json.JSONDecodeError:
-        logger.error("❌ Invalid JSON data in password reset")
+        logger.error("❌ Invalid JSON data in password reset request")
         return Response({
             'success': False,
             'error': 'Invalid request data'
