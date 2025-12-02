@@ -21,7 +21,7 @@ from datetime import datetime
 import traceback
 
 # Import your models (adjust these imports based on your actual models)
-from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings, CounselingLog
+from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, Notification, ViolationType, StudentViolationRecord, StudentViolationTally, StudentSchoolYearHistory, SystemSettings, CounselingLog, LoginAttempt
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -6366,4 +6366,165 @@ Please ensure you arrive on time. Thank you for your cooperation.
         return Response({
             'success': False,
             'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST'])
+def login_view(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        logger.info(f"🔐 Login attempt for username: {username}")
+        
+        if not username or not password:
+            return Response({
+                'success': False,
+                'error': 'Username and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # ✅ SECURITY: Check if user is locked out
+        if LoginAttempt.is_locked_out(username):
+            remaining_time = LoginAttempt.get_lockout_time_remaining(username)
+            failed_count = LoginAttempt.get_failed_attempts_count(username)
+            
+            logger.warning(f"🔒 Account locked: {username} - {failed_count} failed attempts")
+            
+            return Response({
+                'success': False,
+                'error': 'Account temporarily locked',
+                'locked': True,
+                'failed_attempts': failed_count,
+                'lockout_minutes_remaining': remaining_time,
+                'message': f'Too many failed login attempts. Your account is locked for {remaining_time} more minute(s). Please try again later.'
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        
+        # Get client IP address
+        ip_address = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '0.0.0.0'))
+        if ',' in ip_address:
+            ip_address = ip_address.split(',')[0].strip()
+        
+        # Attempt authentication
+        user = authenticate(username=username, password=password)
+        logger.info(f"Authentication result for {username}: {user is not None}")
+        
+        if user:
+            # ✅ SUCCESSFUL LOGIN
+            # Record successful login
+            LoginAttempt.objects.create(
+                username=username,
+                ip_address=ip_address,
+                success=True
+            )
+            
+            # Determine role
+            role = None
+            approval_status = None
+            
+            if hasattr(user, 'student'):
+                role = 'student'
+            elif hasattr(user, 'teacher'):
+                role = 'teacher'
+                teacher = user.teacher
+                approval_status = teacher.approval_status
+                
+                # ✅ Check teacher approval status
+                if not teacher.is_approved:
+                    logger.warning(f"⏳ Teacher login blocked - {approval_status}: {username}")
+                    
+                    # Record failed attempt due to approval status
+                    LoginAttempt.objects.create(
+                        username=username,
+                        ip_address=ip_address,
+                        success=False
+                    )
+                    
+                    return Response({
+                        'success': False,
+                        'error': f'Account {approval_status}',
+                        'approval_status': approval_status,
+                        'message': (
+                            'Your teacher account is pending admin approval. Please wait for approval notification.' 
+                            if approval_status == 'pending' 
+                            else 'Your teacher account application was rejected. Please contact the administrator.'
+                        )
+                    }, status=status.HTTP_403_FORBIDDEN)
+                    
+            elif hasattr(user, 'counselor'):
+                role = 'counselor'
+            else:
+                logger.error(f"❌ User has no role: {username}")
+                LoginAttempt.objects.create(
+                    username=username,
+                    ip_address=ip_address,
+                    success=False
+                )
+                return Response({
+                    'success': False,
+                    'error': 'User role not found'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Generate or get token
+            token, created = Token.objects.get_or_create(user=user)
+            
+            logger.info(f"✅ Login successful: {username} ({role})")
+            
+            return Response({
+                'success': True,
+                'token': token.key,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'email': user.email,
+                    'role': role,
+                },
+                'message': f'Welcome back, {user.first_name or user.username}!'
+            }, status=status.HTTP_200_OK)
+            
+        else:
+            # ✅ FAILED LOGIN
+            # Record failed attempt
+            LoginAttempt.objects.create(
+                username=username,
+                ip_address=ip_address,
+                success=False
+            )
+            
+            # Get current failed attempts count
+            failed_count = LoginAttempt.get_failed_attempts_count(username)
+            remaining_attempts = max(0, 5 - failed_count)
+            
+            logger.warning(f"❌ Failed login: {username} - Attempt {failed_count}/5")
+            
+            error_message = 'Invalid username or password'
+            
+            # Add warning if getting close to lockout
+            if remaining_attempts > 0 and remaining_attempts <= 2:
+                error_message += f'. Warning: {remaining_attempts} attempt(s) remaining before account lockout.'
+            elif remaining_attempts == 0:
+                error_message = 'Account locked due to too many failed attempts. Please try again in 30 minutes.'
+            
+            return Response({
+                'success': False,
+                'error': error_message,
+                'failed_attempts': failed_count,
+                'remaining_attempts': remaining_attempts,
+                'locked': remaining_attempts == 0
+            }, status=status.HTTP_401_UNAUTHORIZED)
+            
+    except json.JSONDecodeError as json_error:
+        logger.error(f"JSON decode error: {str(json_error)}")
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Login error: {str(e)}")
+        logger.error(f"❌ Login traceback: ", exc_info=True)
+        return Response({
+            'success': False,
+            'error': f'Login failed: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

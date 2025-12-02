@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
 
 class Student(models.Model):
     GRADE_CHOICES = [
@@ -1113,3 +1115,68 @@ class SystemSettings(models.Model):
     def delete(self, *args, **kwargs):
         # Prevent deletion
         pass
+
+class LoginAttempt(models.Model):
+    """Track login attempts to prevent brute force attacks"""
+    username = models.CharField(max_length=150, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    attempt_time = models.DateTimeField(auto_now_add=True)
+    success = models.BooleanField(default=False)
+    
+    class Meta:
+        db_table = 'login_attempts'
+        ordering = ['-attempt_time']
+        indexes = [
+            models.Index(fields=['username', '-attempt_time']),
+            models.Index(fields=['ip_address', '-attempt_time']),
+        ]
+    
+    def __str__(self):
+        status = "✅ Success" if self.success else "❌ Failed"
+        return f"{status} - {self.username} at {self.attempt_time}"
+    
+    @classmethod
+    def is_locked_out(cls, username):
+        """Check if username is locked out"""
+        # Get failed attempts in last 30 minutes
+        thirty_mins_ago = timezone.now() - timedelta(minutes=30)
+        failed_attempts = cls.objects.filter(
+            username=username,
+            success=False,
+            attempt_time__gte=thirty_mins_ago
+        ).count()
+        
+        return failed_attempts >= 5
+    
+    @classmethod
+    def get_lockout_time_remaining(cls, username):
+        """Get remaining lockout time in minutes"""
+        thirty_mins_ago = timezone.now() - timedelta(minutes=30)
+        oldest_attempt = cls.objects.filter(
+            username=username,
+            success=False,
+            attempt_time__gte=thirty_mins_ago
+        ).order_by('attempt_time').first()
+        
+        if oldest_attempt:
+            unlock_time = oldest_attempt.attempt_time + timedelta(minutes=30)
+            remaining = (unlock_time - timezone.now()).total_seconds() / 60
+            return max(0, int(remaining))
+        return 0
+    
+    @classmethod
+    def get_failed_attempts_count(cls, username):
+        """Get number of failed attempts in last 30 minutes"""
+        thirty_mins_ago = timezone.now() - timedelta(minutes=30)
+        return cls.objects.filter(
+            username=username,
+            success=False,
+            attempt_time__gte=thirty_mins_ago
+        ).count()
+    
+    @classmethod
+    def clear_old_attempts(cls):
+        """Clear attempts older than 30 minutes"""
+        thirty_mins_ago = timezone.now() - timedelta(minutes=30)
+        deleted_count = cls.objects.filter(attempt_time__lt=thirty_mins_ago).delete()[0]
+        return deleted_count
