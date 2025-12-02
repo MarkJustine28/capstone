@@ -19,8 +19,6 @@ import logging
 from django.db import models
 from datetime import datetime
 import traceback
-import firebase_admin
-from firebase_admin import auth as firebase_auth, credentials
 import os
 
 # Import your models (adjust these imports based on your actual models)
@@ -28,32 +26,6 @@ from .models import Student, Teacher, Counselor, StudentReport, TeacherReport, N
 
 # Set up logging
 logger = logging.getLogger(__name__)
-
-if not firebase_admin._apps:
-    try:
-        # ✅ PRODUCTION: Use environment variable for credentials
-        import json
-        
-        # Get Firebase credentials from environment variable
-        firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
-        
-        if firebase_creds_json:
-            # Parse JSON from environment variable
-            cred_dict = json.loads(firebase_creds_json)
-            cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
-            logger.info("✅ Firebase Admin SDK initialized from environment variable")
-        else:
-            # ✅ FALLBACK: Try to load from file (for local development)
-            cred_path = os.path.join(os.path.dirname(__file__), '..', 'firebase-credentials.json')
-            if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
-                firebase_admin.initialize_app(cred)
-                logger.info("✅ Firebase Admin SDK initialized from file")
-            else:
-                logger.warning("⚠️ Firebase credentials not found. Password reset via Firebase will not work.")
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize Firebase Admin SDK: {e}")
 
 def get_current_school_year():
     """Get current school year from SystemSettings"""
@@ -392,10 +364,7 @@ def register_view(request):
 @permission_classes([AllowAny])
 def forgot_password_view(request):
     """
-    Password reset using Firebase Authentication
-    - Send password reset email via Firebase
-    - User resets password through Firebase
-    - Django automatically syncs on next login
+    Password reset - Firebase disabled for production
     """
     try:
         data = json.loads(request.body)
@@ -410,13 +379,14 @@ def forgot_password_view(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Validate email format
+        import re
         if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
             return Response({
                 'success': False,
                 'error': 'Invalid email format'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if user exists in Django database
+        # Check if user exists
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
@@ -424,41 +394,27 @@ def forgot_password_view(request):
             logger.warning(f"⚠️ Password reset attempted for non-existent email: {email}")
             return Response({
                 'success': True,
-                'message': 'If an account with that email exists, a password reset link has been sent.',
+                'message': 'If an account with that email exists, password reset instructions have been sent.',
                 'email': email
             }, status=status.HTTP_200_OK)
         
-        # Try to send Firebase password reset email
+        # Create notification for user
         try:
-            # This will be handled by Firebase Auth on the client side
-            # Django backend just validates the email exists
-            
-            logger.info(f"✅ Password reset email will be sent via Firebase to: {email}")
-            
-            # Create notification for user about password reset attempt
-            try:
-                Notification.objects.create(
-                    user=user,
-                    title="🔐 Password Reset Request",
-                    message=f"A password reset was requested for your account. If this wasn't you, please contact an administrator immediately.",
-                    type='security_alert'
-                )
-            except Exception as notif_error:
-                logger.warning(f"⚠️ Could not create notification: {notif_error}")
-            
-            return Response({
-                'success': True,
-                'message': 'Password reset email sent successfully. Please check your inbox.',
-                'email': email,
-                'user_exists': True
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as firebase_error:
-            logger.error(f"❌ Firebase error: {str(firebase_error)}")
-            return Response({
-                'success': False,
-                'error': 'Failed to send password reset email. Please try again later.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            Notification.objects.create(
+                user=user,
+                title="🔐 Password Reset Request",
+                message=f"A password reset was requested for your account. Please contact an administrator to reset your password.",
+                type='security_alert'
+            )
+        except Exception as notif_error:
+            logger.warning(f"⚠️ Could not create notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': 'Password reset request received. Please contact administration.',
+            'email': email,
+            'user_exists': True
+        }, status=status.HTTP_200_OK)
         
     except json.JSONDecodeError:
         logger.error("❌ Invalid JSON data in password reset request")
