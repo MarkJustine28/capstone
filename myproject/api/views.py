@@ -31,11 +31,27 @@ logger = logging.getLogger(__name__)
 
 if not firebase_admin._apps:
     try:
-        # Get the path to your Firebase credentials JSON file
-        cred_path = os.path.join(os.path.dirname(__file__), '..', 'firebase-credentials.json')
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        logger.info("✅ Firebase Admin SDK initialized")
+        # ✅ PRODUCTION: Use environment variable for credentials
+        import json
+        
+        # Get Firebase credentials from environment variable
+        firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
+        
+        if firebase_creds_json:
+            # Parse JSON from environment variable
+            cred_dict = json.loads(firebase_creds_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            logger.info("✅ Firebase Admin SDK initialized from environment variable")
+        else:
+            # ✅ FALLBACK: Try to load from file (for local development)
+            cred_path = os.path.join(os.path.dirname(__file__), '..', 'firebase-credentials.json')
+            if os.path.exists(cred_path):
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                logger.info("✅ Firebase Admin SDK initialized from file")
+            else:
+                logger.warning("⚠️ Firebase credentials not found. Password reset via Firebase will not work.")
     except Exception as e:
         logger.error(f"❌ Failed to initialize Firebase Admin SDK: {e}")
 
