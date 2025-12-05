@@ -65,7 +65,9 @@ from .views import (
     update_counseling_session,
     counselor_profile,
     get_high_risk_students,
-    schedule_emergency_counseling
+    schedule_emergency_counseling,
+    sync_firebase_password,
+    change_password
 )
 
 urlpatterns = [
@@ -74,6 +76,10 @@ urlpatterns = [
     path('register/', register_view, name='register'),
     path('forgot-password/', forgot_password_view, name='forgot_password'),
     path('profile/', profile_view, name='profile'),
+    
+    # Password management
+    path('sync-firebase-password/', sync_firebase_password, name='sync_firebase_password'),
+    path('change-password/', change_password, name='change_password'),
     
     # Teacher endpoints
     path('teacher/profile/', teacher_profile, name='teacher_profile'),

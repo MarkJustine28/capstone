@@ -6499,3 +6499,148 @@ def login_view(request):
             'success': False,
             'error': f'Login failed: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def sync_firebase_password(request):
+    """Sync password change from Firebase to Django - called after Firebase password reset"""
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        new_password = data.get('new_password')
+        firebase_uid = data.get('firebase_uid')  # Optional: for extra security
+        
+        if not email or not new_password:
+            return Response({
+                'success': False,
+                'error': 'Email and new password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Find user by email
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update Django password
+        user.set_password(new_password)
+        user.save()
+        
+        # Regenerate auth token
+        Token.objects.filter(user=user).delete()
+        token = Token.objects.create(user=user)
+        
+        logger.info(f"✅ Password synced from Firebase for user: {user.username}")
+        
+        # Send notification to user
+        try:
+            create_notification(
+                user=user,
+                title="🔐 Password Reset Successful",
+                message="Your password has been successfully reset. If you didn't make this change, please contact administration immediately.",
+                notification_type='security_alert'
+            )
+        except Exception as notif_error:
+            logger.warning(f"⚠️ Failed to send notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': 'Password synced successfully',
+            'token': token.key,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except json.JSONDecodeError:
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Password sync error: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    """Change user password while authenticated - updates both Django and Firebase"""
+    try:
+        data = json.loads(request.body)
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        
+        if not current_password or not new_password:
+            return Response({
+                'success': False,
+                'error': 'Both current and new passwords are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user
+        
+        # Verify current password
+        if not user.check_password(current_password):
+            return Response({
+                'success': False,
+                'error': 'Current password is incorrect'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Validate new password strength
+        if len(new_password) < 6:
+            return Response({
+                'success': False,
+                'error': 'New password must be at least 6 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update Django password
+        user.set_password(new_password)
+        user.save()
+        
+        # Regenerate auth token
+        Token.objects.filter(user=user).delete()
+        token = Token.objects.create(user=user)
+        
+        logger.info(f"✅ Password changed for user: {user.username}")
+        
+        # Send notification
+        try:
+            create_notification(
+                user=user,
+                title="🔐 Password Changed",
+                message="Your password has been successfully changed. If you didn't make this change, please contact administration immediately.",
+                notification_type='security_alert'
+            )
+        except Exception as notif_error:
+            logger.warning(f"⚠️ Failed to send notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': 'Password changed successfully',
+            'token': token.key
+        }, status=status.HTTP_200_OK)
+        
+    except json.JSONDecodeError:
+        return Response({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"❌ Password change error: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
