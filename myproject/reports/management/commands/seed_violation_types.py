@@ -11,11 +11,9 @@ class Command(BaseCommand):
         if force:
             ViolationType.objects.all().delete()
             self.stdout.write(self.style.WARNING('🗑️  Cleared existing violation types (--force used)'))
-        elif ViolationType.objects.exists():
-            count = ViolationType.objects.count()
-            self.stdout.write(self.style.WARNING(f'⚠️  Violation types already exist ({count} types). Skipping seed.'))
-            self.stdout.write(self.style.SUCCESS('✅ Use --force flag to reset: python manage.py seed_violation_types --force'))
-            return
+        
+        # ✅ REMOVED the "elif ViolationType.objects.exists()" check
+        # Now it always attempts to seed, creating only missing violations
         
         violation_data = [
             {'id': 1, 'name': 'Tardiness', 'category': 'Attendance', 'severity_level': 'Low'},
@@ -37,6 +35,8 @@ class Command(BaseCommand):
         ]
 
         created_count = 0
+        skipped_count = 0
+        
         for data in violation_data:
             vt, created = ViolationType.objects.get_or_create(
                 id=data['id'],
@@ -52,11 +52,18 @@ class Command(BaseCommand):
                 created_count += 1
             else:
                 self.stdout.write(self.style.WARNING(f"⏭️  Skipped: ID {vt.id:2d} - {vt.name} (already exists)"))
+                skipped_count += 1
 
+        # ✅ Better summary
+        self.stdout.write(self.style.SUCCESS('\n' + '='*60))
         if created_count > 0:
-            self.stdout.write(self.style.SUCCESS(f'\n🎉 Successfully seeded {created_count} new violation types!'))
-        else:
-            self.stdout.write(self.style.SUCCESS(f'\n✅ All {len(violation_data)} violation types already exist!'))
+            self.stdout.write(self.style.SUCCESS(f'🎉 Successfully created {created_count} new violation type(s)!'))
+        if skipped_count > 0:
+            self.stdout.write(self.style.WARNING(f'⏭️  Skipped {skipped_count} existing violation type(s)'))
+        
+        total = ViolationType.objects.count()
+        self.stdout.write(self.style.SUCCESS(f'📊 Total violation types in database: {total}'))
+        self.stdout.write(self.style.SUCCESS('='*60 + '\n'))
 
     def add_arguments(self, parser):
         parser.add_argument(
