@@ -36,6 +36,9 @@ class Command(BaseCommand):
 
             # Absenteeism
             {'name': 'Absenteeism', 'category': 'Absenteeism', 'severity_level': 'Medium', 'description': 'Frequent unexcused absences'},
+
+            # Using Mobile Phones
+            {'name': 'Using Mobile Phones', 'category': 'Using Mobile Phones', 'severity_level': 'Low', 'description': 'Using mobile phones during class hours or prohibited areas'},
         ]
 
         created_count = 0
