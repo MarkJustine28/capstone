@@ -33,6 +33,8 @@ class Command(BaseCommand):
             {'id': 12, 'name': 'Hair Cut', 'category': 'Dress Code', 'severity_level': 'Low'},
             {'id': 13, 'name': 'Not Wearing Proper Uniform/ID', 'category': 'Dress Code', 'severity_level': 'Low'},
             {'id': 14, 'name': 'Using Vape/Cigarette', 'category': 'Substance', 'severity_level': 'High'},
+            # ✅ NEW: Using Mobile Phones
+            {'id': 15, 'name': 'Using Mobile Phones', 'category': 'Behavioral', 'severity_level': 'Low'},
         ]
 
         created_count = 0
