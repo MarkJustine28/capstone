@@ -5,18 +5,17 @@ class Command(BaseCommand):
     help = "Seed initial violation types (only if empty)"
 
     def handle(self, *args, **kwargs):
-        # ✅ Only seed if database is empty
-        if ViolationType.objects.exists():
+        # ✅ Check --force flag FIRST
+        force = kwargs.get('force', False)
+        
+        if force:
+            ViolationType.objects.all().delete()
+            self.stdout.write(self.style.WARNING('🗑️  Cleared existing violation types (--force used)'))
+        elif ViolationType.objects.exists():
             count = ViolationType.objects.count()
             self.stdout.write(self.style.WARNING(f'⚠️  Violation types already exist ({count} types). Skipping seed.'))
             self.stdout.write(self.style.SUCCESS('✅ Use --force flag to reset: python manage.py seed_violation_types --force'))
             return
-        
-        # Add --force option to allow manual reset
-        force = self.options.get('force', False)
-        if force:
-            ViolationType.objects.all().delete()
-            self.stdout.write(self.style.WARNING('🗑️  Cleared existing violation types (--force used)'))
         
         violation_data = [
             {'id': 1, 'name': 'Tardiness', 'category': 'Attendance', 'severity_level': 'Low'},
