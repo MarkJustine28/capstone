@@ -6589,56 +6589,82 @@ def change_password(request):
         data = json.loads(request.body)
         current_password = data.get('current_password')
         new_password = data.get('new_password')
-        
+
         if not current_password or not new_password:
             return Response({
                 'success': False,
                 'error': 'Both current and new passwords are required'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         user = request.user
-        
+
         # Verify current password
         if not user.check_password(current_password):
             return Response({
                 'success': False,
                 'error': 'Current password is incorrect'
             }, status=status.HTTP_401_UNAUTHORIZED)
-        
+
         # Validate new password strength
         if len(new_password) < 6:
             return Response({
                 'success': False,
                 'error': 'New password must be at least 6 characters long'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         # Update Django password
         user.set_password(new_password)
         user.save()
-        
-        # Regenerate auth token
+
+        # Invalidate existing DRF Token(s)
         Token.objects.filter(user=user).delete()
-        token = Token.objects.create(user=user)
-        
-        logger.info(f"✅ Password changed for user: {user.username}")
-        
-        # Send notification
+        new_token = Token.objects.create(user=user)
+
+        # Invalidate server-side sessions for this user
+        try:
+            from django.contrib.sessions.models import Session
+            sessions = Session.objects.filter(expire_date__gte=timezone.now())
+            for s in sessions:
+                session_data = s.get_decoded()
+                if str(session_data.get('_auth_user_id')) == str(user.id):
+                    s.delete()
+            logger.info(f"✅ Cleared Django sessions for user {user.username}")
+        except Exception as sess_err:
+            logger.warning(f"⚠️ Failed to clear sessions: {sess_err}")
+
+        # Revoke Firebase refresh tokens if firebase UID is available
+        try:
+            import firebase_admin
+            from firebase_admin import auth as firebase_auth_admin
+            # initialize if not already
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app()
+            firebase_uid = getattr(user, 'firebase_uid', None) or data.get('firebase_uid')
+            if firebase_uid:
+                firebase_auth_admin.revoke_refresh_tokens(firebase_uid)
+                logger.info(f"✅ Revoked Firebase refresh tokens for uid={firebase_uid}")
+        except Exception as fb_err:
+            logger.warning(f"⚠️ Firebase revoke failed (non-fatal): {fb_err}")
+
+        # Notify user
         try:
             create_notification(
                 user=user,
                 title="🔐 Password Changed",
-                message="Your password has been successfully changed. If you didn't make this change, please contact administration immediately.",
+                message="Your account password was successfully changed. If you did not perform this action, contact the administrator immediately.",
                 notification_type='security_alert'
             )
-        except Exception as notif_error:
-            logger.warning(f"⚠️ Failed to send notification: {notif_error}")
-        
+        except Exception as notif_err:
+            logger.warning(f"⚠️ Failed to create notification: {notif_err}")
+
+        logger.info(f"✅ Password changed for user: {user.username}")
+
         return Response({
             'success': True,
             'message': 'Password changed successfully',
-            'token': token.key
+            'token': new_token.key
         }, status=status.HTTP_200_OK)
-        
+
     except json.JSONDecodeError:
         return Response({
             'success': False,
