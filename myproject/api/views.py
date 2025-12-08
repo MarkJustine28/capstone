@@ -6511,6 +6511,8 @@ def sync_firebase_password(request):
         new_password = data.get('new_password')
         firebase_uid = data.get('firebase_uid')  # Optional: for extra security
         
+        logger.info(f"🔄 Password sync request for email: {email}")
+        
         if not email or not new_password:
             return Response({
                 'success': False,
@@ -6520,7 +6522,9 @@ def sync_firebase_password(request):
         # Find user by email
         try:
             user = User.objects.get(email=email)
+            logger.info(f"✅ Found user: {user.username}")
         except User.DoesNotExist:
+            logger.error(f"❌ User not found with email: {email}")
             return Response({
                 'success': False,
                 'error': 'User not found'
@@ -6530,11 +6534,13 @@ def sync_firebase_password(request):
         user.set_password(new_password)
         user.save()
         
+        logger.info(f"✅ Django password updated for user: {user.username}")
+        
         # Regenerate auth token
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
         
-        logger.info(f"✅ Password synced from Firebase for user: {user.username}")
+        logger.info(f"✅ Auth token regenerated for user: {user.username}")
         
         # Send notification to user
         try:
@@ -6544,6 +6550,7 @@ def sync_firebase_password(request):
                 message="Your password has been successfully reset. If you didn't make this change, please contact administration immediately.",
                 notification_type='security_alert'
             )
+            logger.info(f"✅ Notification sent to user: {user.username}")
         except Exception as notif_error:
             logger.warning(f"⚠️ Failed to send notification: {notif_error}")
         
