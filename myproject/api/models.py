@@ -1052,6 +1052,32 @@ class SystemSettings(models.Model):
         help_text='Official end date of current school year'
     )
     
+    # ✅ NEW: School Year Transition Management
+    allow_school_year_transition = models.BooleanField(
+        default=False,
+        help_text='Enable this to allow starting a new school year (archives current data)'
+    )
+    transition_in_progress = models.BooleanField(
+        default=False,
+        help_text='School year transition is currently in progress'
+    )
+    previous_school_year = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text='Previous school year (for reference)'
+    )
+    transition_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Date when school year was transitioned'
+    )
+    transition_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Notes about the school year transition'
+    )
+    
     # System Status
     is_system_active = models.BooleanField(
         default=True,
@@ -1079,6 +1105,65 @@ class SystemSettings(models.Model):
     def __str__(self):
         status = "ACTIVE" if self.is_system_active else "FROZEN"
         return f"System Settings - S.Y. {self.current_school_year} ({status})"
+    
+    # ✅ NEW: Check if school year has ended
+    def has_school_year_ended(self):
+        """Check if current school year has ended"""
+        if self.school_year_end_date:
+            from django.utils import timezone
+            return timezone.now().date() >= self.school_year_end_date
+        return False
+    
+    # ✅ NEW: Get days remaining in school year
+    def get_days_remaining(self):
+        """Get number of days remaining in school year"""
+        if self.school_year_end_date:
+            from django.utils import timezone
+            today = timezone.now().date()
+            if today < self.school_year_end_date:
+                return (self.school_year_end_date - today).days
+        return None
+    
+    # ✅ NEW: Get next school year
+    def get_next_school_year(self):
+        """Generate next school year string based on current"""
+        if '-' in self.current_school_year:
+            try:
+                start_year = int(self.current_school_year.split('-')[0])
+                return f"{start_year + 1}-{start_year + 2}"
+            except (ValueError, IndexError):
+                return None
+        return None
+    
+    # ✅ NEW: Check if transition is allowed
+    def can_start_transition(self):
+        """Check if school year transition can be started"""
+        return (
+            self.allow_school_year_transition and 
+            not self.transition_in_progress and 
+            self.has_school_year_ended()
+        )
+    
+    # ✅ NEW: Get school year status
+    def get_school_year_status(self):
+        """Get current status of school year"""
+        if self.transition_in_progress:
+            return 'transition_in_progress'
+        elif self.has_school_year_ended():
+            return 'ended'
+        else:
+            return 'active'
+    
+    # ✅ NEW: Get status display
+    def get_status_display_html(self):
+        """Get HTML status badge"""
+        status = self.get_school_year_status()
+        badges = {
+            'active': '<span style="color: green; font-weight: bold;">🟢 Active</span>',
+            'ended': '<span style="color: red; font-weight: bold;">🔴 Ended</span>',
+            'transition_in_progress': '<span style="color: orange; font-weight: bold;">⏳ Transition in Progress</span>',
+        }
+        return badges.get(status, '')
     
     @classmethod
     def get_current_settings(cls):
