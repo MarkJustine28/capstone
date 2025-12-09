@@ -1209,7 +1209,7 @@ def student_reports(request):
                 'error': f'Failed to submit report: {str(e)}'
             }, status=500)
     
-    elif request.method == 'GET':
+elif request.method == 'GET':
     # Handle fetching student's reports - ONLY REPORTS THEY SUBMITTED
     try:
         if not hasattr(request.user, 'student'):
