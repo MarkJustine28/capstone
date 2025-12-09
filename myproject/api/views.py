@@ -1226,15 +1226,6 @@ def student_reports(request):
                 reporter_student=student
             ).select_related('violation_type', 'assigned_counselor', 'reported_student__user')
             
-            # Get reports where student is reported
-            student_reports_as_reported = StudentReport.objects.filter(
-                reported_student=student
-            ).exclude(reporter_student=student).select_related('violation_type', 'assigned_counselor', 'reporter_student__user')
-            
-            teacher_reports = TeacherReport.objects.filter(
-                reported_student=student
-            ).select_related('violation_type', 'assigned_counselor', 'reporter_teacher__user')
-            
             reports_data = []
             
             # Add reports where this student is the reporter
