@@ -6669,3 +6669,164 @@ def change_password(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# ✅ NEW: Update Student Profile
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def update_student_profile(request):
+    """Update student profile information"""
+    try:
+        if not hasattr(request.user, 'student'):
+            return Response({
+                'success': False,
+                'error': 'Student profile not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        student = request.user.student
+        user = request.user
+        data = request.data
+        
+        logger.info(f"📝 Updating profile for student: {user.username}")
+        
+        with transaction.atomic():
+            # Update User fields
+            if 'first_name' in data:
+                user.first_name = data['first_name'].strip()
+            
+            if 'last_name' in data:
+                user.last_name = data['last_name'].strip()
+            
+            if 'email' in data:
+                email = data['email'].strip()
+                # Check if email is already taken by another user
+                if email and User.objects.filter(email=email).exclude(id=user.id).exists():
+                    return Response({
+                        'success': False,
+                        'error': 'Email already in use by another account'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                user.email = email
+            
+            user.save()
+            
+            # Update Student fields
+            if 'contact_number' in data:
+                student.contact_number = data['contact_number'].strip()
+            
+            if 'guardian_name' in data:
+                student.guardian_name = data['guardian_name'].strip()
+            
+            if 'guardian_contact' in data:
+                student.guardian_contact = data['guardian_contact'].strip()
+            
+            student.save()
+        
+        logger.info(f"✅ Profile updated successfully for {user.username}")
+        
+        # Return updated profile
+        return Response({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'student': {
+                'id': student.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'full_name': f"{user.first_name} {user.last_name}".strip(),
+                'email': user.email,
+                'contact_number': student.contact_number,
+                'guardian_name': student.guardian_name,
+                'guardian_contact': student.guardian_contact,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating student profile: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': f'Failed to update profile: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ✅ NEW: Get Student Privacy Settings
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_student_privacy_settings(request):
+    """Get student privacy settings"""
+    try:
+        if not hasattr(request.user, 'student'):
+            return Response({
+                'success': False,
+                'error': 'Student profile not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        student = request.user.student
+        
+        # Get or create privacy settings (you may need to add these fields to Student model)
+        privacy_settings = {
+            'show_reports_to_others': getattr(student, 'show_reports_to_others', True),
+            'allow_peer_reports': getattr(student, 'allow_peer_reports', True),
+            'share_contact_info': getattr(student, 'share_contact_info', False),
+        }
+        
+        return Response({
+            'success': True,
+            'privacy_settings': privacy_settings
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting privacy settings: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ✅ NEW: Update Student Privacy Settings
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def update_student_privacy_settings(request):
+    """Update student privacy settings"""
+    try:
+        if not hasattr(request.user, 'student'):
+            return Response({
+                'success': False,
+                'error': 'Student profile not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        student = request.user.student
+        data = request.data
+        
+        logger.info(f"🔒 Updating privacy settings for student: {request.user.username}")
+        
+        # Update privacy settings (add these fields to Student model if they don't exist)
+        if 'show_reports_to_others' in data:
+            student.show_reports_to_others = data['show_reports_to_others']
+        
+        if 'allow_peer_reports' in data:
+            student.allow_peer_reports = data['allow_peer_reports']
+        
+        if 'share_contact_info' in data:
+            student.share_contact_info = data['share_contact_info']
+        
+        student.save()
+        
+        logger.info(f"✅ Privacy settings updated for {request.user.username}")
+        
+        return Response({
+            'success': True,
+            'message': 'Privacy settings updated successfully',
+            'privacy_settings': {
+                'show_reports_to_others': student.show_reports_to_others,
+                'allow_peer_reports': student.allow_peer_reports,
+                'share_contact_info': student.share_contact_info,
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating privacy settings: {str(e)}")
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': f'Failed to update privacy settings: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

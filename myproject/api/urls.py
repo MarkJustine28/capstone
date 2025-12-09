@@ -171,4 +171,9 @@ urlpatterns = [
     path('counseling-logs/', get_counseling_logs, name='get_counseling_logs'),
     path('counseling-logs/create/', log_counseling_action, name='log_counseling_action'),
     path('counseling-logs/<int:session_id>/update/', update_counseling_session, name='update_counseling_session'),
+
+    # ✅ NEW: Student Profile & Privacy Settings
+    path('student/profile/update/', views.update_student_profile, name='update_student_profile'),
+    path('student/privacy/', views.get_student_privacy_settings, name='get_student_privacy_settings'),
+    path('student/privacy/update/', views.update_student_privacy_settings, name='update_student_privacy_settings'),
 ]
