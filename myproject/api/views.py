@@ -588,6 +588,7 @@ def teacher_advising_students(request):
                 'username': student.user.username,
                 'email': student.user.email or '',
                 'student_id': getattr(student, 'student_id', '') or f"STU-{student.id:04d}",
+                'lrn': getattr(student, 'lrn', '') or '',  # ✅ NEW: Add LRN field
                 'grade_level': getattr(student, 'grade_level', '') or '',
                 'strand': getattr(student, 'strand', '') or '',
                 'section': student.section or '',
@@ -1319,13 +1320,13 @@ def student_reports(request):
 def get_students_list(request):
     """Get students list with optional school year filter"""
     try:
-        # ✅ NEW: Get school year from query params
+        # ✅ Get school year from query params
         school_year = request.GET.get('school_year', None)
         
         # Base query
         students_query = Student.objects.select_related('user').filter(is_archived=False)
         
-        # ✅ NEW: Filter by school year if provided
+        # ✅ Filter by school year if provided
         if school_year and school_year != 'all':
             students_query = students_query.filter(school_year=school_year)
             logger.info(f"📅 Filtering students by school year: {school_year}")
@@ -1337,6 +1338,7 @@ def get_students_list(request):
             students_data.append({
                 'id': student.id,
                 'student_id': student.student_id,
+                'lrn': getattr(student, 'lrn', '') or '',  # ✅ NEW: Add LRN
                 'username': student.user.username,
                 'first_name': student.user.first_name,
                 'last_name': student.user.last_name,
@@ -1344,7 +1346,7 @@ def get_students_list(request):
                 'grade_level': student.grade_level,
                 'section': student.section,
                 'strand': student.strand,
-                'school_year': student.school_year,  # ✅ Include school year
+                'school_year': student.school_year,
                 'contact_number': student.contact_number,
                 'guardian_name': student.guardian_name,
                 'guardian_contact': student.guardian_contact,
