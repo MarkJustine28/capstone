@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .views_import_dummy import import_dummy_reports
 
 # Import all the view functions explicitly if needed
 from .views import (
@@ -171,4 +172,6 @@ urlpatterns = [
     path('counseling-logs/', get_counseling_logs, name='get_counseling_logs'),
     path('counseling-logs/create/', log_counseling_action, name='log_counseling_action'),
     path('counseling-logs/<int:session_id>/update/', update_counseling_session, name='update_counseling_session'),
+
+    path("admin/import-dummy-reports/", import_dummy_reports),
 ]

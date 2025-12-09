@@ -9,4 +9,5 @@ gunicorn
 psycopg2-binary
 django-otp==1.5.4
 pyotp==2.9.0
-firebase-admin==6.4.0
+firebase-admin==6.4.0faker>=20.0.0
+faker>=20.0.0

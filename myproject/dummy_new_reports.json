@@ -1,0 +1,1902 @@
+[
+    {
+        "model": "api.studentreport",
+        "pk": 1000,
+        "fields": {
+            "title": "Student Report 1000",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 4,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "low",
+            "incident_date": "2025-08-09T09:33:00",
+            "created_at": "2025-08-09T09:33:00",
+            "updated_at": "2025-08-09T09:33:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1001,
+        "fields": {
+            "title": "Incident Report 1001",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "high",
+            "incident_date": "2025-08-26T16:39:00",
+            "created_at": "2025-08-26T16:39:00",
+            "updated_at": "2025-08-26T16:39:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1002,
+        "fields": {
+            "title": "Incident Report 1002",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "low",
+            "incident_date": "2025-08-09T12:15:00",
+            "created_at": "2025-08-09T12:15:00",
+            "updated_at": "2025-08-09T12:15:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1003,
+        "fields": {
+            "title": "Student Report 1003",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "critical",
+            "incident_date": "2025-08-25T14:22:00",
+            "created_at": "2025-08-25T14:22:00",
+            "updated_at": "2025-08-25T14:22:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1004,
+        "fields": {
+            "title": "Incident Report 1004",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 2,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 8,
+            "severity": "high",
+            "incident_date": "2025-08-16T16:42:00",
+            "created_at": "2025-08-16T16:42:00",
+            "updated_at": "2025-08-16T16:42:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1005,
+        "fields": {
+            "title": "Incident Report 1005",
+            "description": "Auto-generated dummy teacher report",
+            "status": "verified",
+            "reporter_teacher": 2,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "medium",
+            "incident_date": "2025-08-04T12:47:00",
+            "created_at": "2025-08-04T12:47:00",
+            "updated_at": "2025-08-04T12:47:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1006,
+        "fields": {
+            "title": "Student Report 1006",
+            "description": "Auto-generated dummy student report",
+            "status": "under_review",
+            "reporter_student": 5,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "low",
+            "incident_date": "2025-08-05T11:32:00",
+            "created_at": "2025-08-05T11:32:00",
+            "updated_at": "2025-08-05T11:32:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1007,
+        "fields": {
+            "title": "Student Report 1007",
+            "description": "Auto-generated dummy student report",
+            "status": "under_review",
+            "reporter_student": 5,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "critical",
+            "incident_date": "2025-08-18T08:54:00",
+            "created_at": "2025-08-18T08:54:00",
+            "updated_at": "2025-08-18T08:54:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1008,
+        "fields": {
+            "title": "Student Report 1008",
+            "description": "Auto-generated dummy student report",
+            "status": "verified",
+            "reporter_student": 3,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "low",
+            "incident_date": "2025-08-22T14:10:00",
+            "created_at": "2025-08-22T14:10:00",
+            "updated_at": "2025-08-22T14:10:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1009,
+        "fields": {
+            "title": "Student Report 1009",
+            "description": "Auto-generated dummy student report",
+            "status": "under_investigation",
+            "reporter_student": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "critical",
+            "incident_date": "2025-08-03T15:11:00",
+            "created_at": "2025-08-03T15:11:00",
+            "updated_at": "2025-08-03T15:11:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1010,
+        "fields": {
+            "title": "Student Report 1010",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "high",
+            "incident_date": "2025-08-22T16:23:00",
+            "created_at": "2025-08-22T16:23:00",
+            "updated_at": "2025-08-22T16:23:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1011,
+        "fields": {
+            "title": "Student Report 1011",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 5,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "low",
+            "incident_date": "2025-08-21T15:51:00",
+            "created_at": "2025-08-21T15:51:00",
+            "updated_at": "2025-08-21T15:51:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1012,
+        "fields": {
+            "title": "Student Report 1012",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 3,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-08-02T09:00:00",
+            "created_at": "2025-08-02T09:00:00",
+            "updated_at": "2025-08-02T09:00:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1013,
+        "fields": {
+            "title": "Incident Report 1013",
+            "description": "Auto-generated dummy teacher report",
+            "status": "resolved",
+            "reporter_teacher": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "medium",
+            "incident_date": "2025-08-03T15:21:00",
+            "created_at": "2025-08-03T15:21:00",
+            "updated_at": "2025-08-03T15:21:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1014,
+        "fields": {
+            "title": "Incident Report 1014",
+            "description": "Auto-generated dummy teacher report",
+            "status": "dismissed",
+            "reporter_teacher": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "medium",
+            "incident_date": "2025-08-14T14:43:00",
+            "created_at": "2025-08-14T14:43:00",
+            "updated_at": "2025-08-14T14:43:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1015,
+        "fields": {
+            "title": "Incident Report 1015",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 1,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "low",
+            "incident_date": "2025-08-15T10:28:00",
+            "created_at": "2025-08-15T10:28:00",
+            "updated_at": "2025-08-15T10:28:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1016,
+        "fields": {
+            "title": "Incident Report 1016",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 3,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "high",
+            "incident_date": "2025-08-03T15:44:00",
+            "created_at": "2025-08-03T15:44:00",
+            "updated_at": "2025-08-03T15:44:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1017,
+        "fields": {
+            "title": "Incident Report 1017",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-08-07T12:34:00",
+            "created_at": "2025-08-07T12:34:00",
+            "updated_at": "2025-08-07T12:34:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1018,
+        "fields": {
+            "title": "Incident Report 1018",
+            "description": "Auto-generated dummy teacher report",
+            "status": "dismissed",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "low",
+            "incident_date": "2025-08-13T14:20:00",
+            "created_at": "2025-08-13T14:20:00",
+            "updated_at": "2025-08-13T14:20:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1019,
+        "fields": {
+            "title": "Student Report 1019",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 2,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "high",
+            "incident_date": "2025-08-24T11:08:00",
+            "created_at": "2025-08-24T11:08:00",
+            "updated_at": "2025-08-24T11:08:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1020,
+        "fields": {
+            "title": "Student Report 1020",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 2,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-09-24T08:15:00",
+            "created_at": "2025-09-24T08:15:00",
+            "updated_at": "2025-09-24T08:15:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1021,
+        "fields": {
+            "title": "Incident Report 1021",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_review",
+            "reporter_teacher": 1,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "critical",
+            "incident_date": "2025-09-07T09:01:00",
+            "created_at": "2025-09-07T09:01:00",
+            "updated_at": "2025-09-07T09:01:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1022,
+        "fields": {
+            "title": "Incident Report 1022",
+            "description": "Auto-generated dummy teacher report",
+            "status": "verified",
+            "reporter_teacher": 3,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "high",
+            "incident_date": "2025-09-20T11:40:00",
+            "created_at": "2025-09-20T11:40:00",
+            "updated_at": "2025-09-20T11:40:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1023,
+        "fields": {
+            "title": "Student Report 1023",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 5,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "low",
+            "incident_date": "2025-09-07T15:34:00",
+            "created_at": "2025-09-07T15:34:00",
+            "updated_at": "2025-09-07T15:34:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1024,
+        "fields": {
+            "title": "Incident Report 1024",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 1,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "high",
+            "incident_date": "2025-09-23T12:09:00",
+            "created_at": "2025-09-23T12:09:00",
+            "updated_at": "2025-09-23T12:09:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1025,
+        "fields": {
+            "title": "Incident Report 1025",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 8,
+            "severity": "medium",
+            "incident_date": "2025-09-01T13:30:00",
+            "created_at": "2025-09-01T13:30:00",
+            "updated_at": "2025-09-01T13:30:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1026,
+        "fields": {
+            "title": "Student Report 1026",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "high",
+            "incident_date": "2025-09-23T10:56:00",
+            "created_at": "2025-09-23T10:56:00",
+            "updated_at": "2025-09-23T10:56:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1027,
+        "fields": {
+            "title": "Student Report 1027",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 1,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "high",
+            "incident_date": "2025-09-26T15:59:00",
+            "created_at": "2025-09-26T15:59:00",
+            "updated_at": "2025-09-26T15:59:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1028,
+        "fields": {
+            "title": "Incident Report 1028",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 2,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "low",
+            "incident_date": "2025-09-27T16:16:00",
+            "created_at": "2025-09-27T16:16:00",
+            "updated_at": "2025-09-27T16:16:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1029,
+        "fields": {
+            "title": "Student Report 1029",
+            "description": "Auto-generated dummy student report",
+            "status": "under_investigation",
+            "reporter_student": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "low",
+            "incident_date": "2025-09-21T15:31:00",
+            "created_at": "2025-09-21T15:31:00",
+            "updated_at": "2025-09-21T15:31:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1030,
+        "fields": {
+            "title": "Student Report 1030",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 2,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "medium",
+            "incident_date": "2025-09-13T13:16:00",
+            "created_at": "2025-09-13T13:16:00",
+            "updated_at": "2025-09-13T13:16:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1031,
+        "fields": {
+            "title": "Student Report 1031",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "high",
+            "incident_date": "2025-09-25T08:17:00",
+            "created_at": "2025-09-25T08:17:00",
+            "updated_at": "2025-09-25T08:17:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1032,
+        "fields": {
+            "title": "Incident Report 1032",
+            "description": "Auto-generated dummy teacher report",
+            "status": "verified",
+            "reporter_teacher": 2,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "medium",
+            "incident_date": "2025-09-02T13:22:00",
+            "created_at": "2025-09-02T13:22:00",
+            "updated_at": "2025-09-02T13:22:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1033,
+        "fields": {
+            "title": "Incident Report 1033",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 1,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "high",
+            "incident_date": "2025-09-05T15:06:00",
+            "created_at": "2025-09-05T15:06:00",
+            "updated_at": "2025-09-05T15:06:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1034,
+        "fields": {
+            "title": "Student Report 1034",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 3,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-09-02T14:42:00",
+            "created_at": "2025-09-02T14:42:00",
+            "updated_at": "2025-09-02T14:42:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1035,
+        "fields": {
+            "title": "Student Report 1035",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 5,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "critical",
+            "incident_date": "2025-09-07T13:17:00",
+            "created_at": "2025-09-07T13:17:00",
+            "updated_at": "2025-09-07T13:17:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1036,
+        "fields": {
+            "title": "Incident Report 1036",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "low",
+            "incident_date": "2025-09-08T14:35:00",
+            "created_at": "2025-09-08T14:35:00",
+            "updated_at": "2025-09-08T14:35:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1037,
+        "fields": {
+            "title": "Incident Report 1037",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 2,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "critical",
+            "incident_date": "2025-09-22T08:53:00",
+            "created_at": "2025-09-22T08:53:00",
+            "updated_at": "2025-09-22T08:53:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1038,
+        "fields": {
+            "title": "Incident Report 1038",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 3,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "low",
+            "incident_date": "2025-09-25T11:24:00",
+            "created_at": "2025-09-25T11:24:00",
+            "updated_at": "2025-09-25T11:24:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1039,
+        "fields": {
+            "title": "Incident Report 1039",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 1,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "low",
+            "incident_date": "2025-09-03T12:46:00",
+            "created_at": "2025-09-03T12:46:00",
+            "updated_at": "2025-09-03T12:46:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1040,
+        "fields": {
+            "title": "Student Report 1040",
+            "description": "Auto-generated dummy student report",
+            "status": "verified",
+            "reporter_student": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "medium",
+            "incident_date": "2025-10-08T09:21:00",
+            "created_at": "2025-10-08T09:21:00",
+            "updated_at": "2025-10-08T09:21:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1041,
+        "fields": {
+            "title": "Student Report 1041",
+            "description": "Auto-generated dummy student report",
+            "status": "under_review",
+            "reporter_student": 4,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "medium",
+            "incident_date": "2025-10-19T12:58:00",
+            "created_at": "2025-10-19T12:58:00",
+            "updated_at": "2025-10-19T12:58:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1042,
+        "fields": {
+            "title": "Incident Report 1042",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "low",
+            "incident_date": "2025-10-16T11:36:00",
+            "created_at": "2025-10-16T11:36:00",
+            "updated_at": "2025-10-16T11:36:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1043,
+        "fields": {
+            "title": "Student Report 1043",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 5,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "high",
+            "incident_date": "2025-10-05T13:59:00",
+            "created_at": "2025-10-05T13:59:00",
+            "updated_at": "2025-10-05T13:59:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1044,
+        "fields": {
+            "title": "Student Report 1044",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 5,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "low",
+            "incident_date": "2025-10-05T08:57:00",
+            "created_at": "2025-10-05T08:57:00",
+            "updated_at": "2025-10-05T08:57:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1045,
+        "fields": {
+            "title": "Incident Report 1045",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 3,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "medium",
+            "incident_date": "2025-10-10T08:43:00",
+            "created_at": "2025-10-10T08:43:00",
+            "updated_at": "2025-10-10T08:43:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1046,
+        "fields": {
+            "title": "Student Report 1046",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "high",
+            "incident_date": "2025-10-16T09:01:00",
+            "created_at": "2025-10-16T09:01:00",
+            "updated_at": "2025-10-16T09:01:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1047,
+        "fields": {
+            "title": "Student Report 1047",
+            "description": "Auto-generated dummy student report",
+            "status": "under_investigation",
+            "reporter_student": 1,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "high",
+            "incident_date": "2025-10-19T15:15:00",
+            "created_at": "2025-10-19T15:15:00",
+            "updated_at": "2025-10-19T15:15:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1048,
+        "fields": {
+            "title": "Student Report 1048",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 8,
+            "severity": "low",
+            "incident_date": "2025-10-15T10:55:00",
+            "created_at": "2025-10-15T10:55:00",
+            "updated_at": "2025-10-15T10:55:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1049,
+        "fields": {
+            "title": "Student Report 1049",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 3,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "critical",
+            "incident_date": "2025-10-15T11:43:00",
+            "created_at": "2025-10-15T11:43:00",
+            "updated_at": "2025-10-15T11:43:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1050,
+        "fields": {
+            "title": "Incident Report 1050",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 3,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "low",
+            "incident_date": "2025-10-03T14:32:00",
+            "created_at": "2025-10-03T14:32:00",
+            "updated_at": "2025-10-03T14:32:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1051,
+        "fields": {
+            "title": "Incident Report 1051",
+            "description": "Auto-generated dummy teacher report",
+            "status": "verified",
+            "reporter_teacher": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "critical",
+            "incident_date": "2025-10-01T10:44:00",
+            "created_at": "2025-10-01T10:44:00",
+            "updated_at": "2025-10-01T10:44:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1052,
+        "fields": {
+            "title": "Student Report 1052",
+            "description": "Auto-generated dummy student report",
+            "status": "verified",
+            "reporter_student": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "medium",
+            "incident_date": "2025-10-03T11:32:00",
+            "created_at": "2025-10-03T11:32:00",
+            "updated_at": "2025-10-03T11:32:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1053,
+        "fields": {
+            "title": "Incident Report 1053",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 1,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "low",
+            "incident_date": "2025-10-12T16:50:00",
+            "created_at": "2025-10-12T16:50:00",
+            "updated_at": "2025-10-12T16:50:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1054,
+        "fields": {
+            "title": "Incident Report 1054",
+            "description": "Auto-generated dummy teacher report",
+            "status": "verified",
+            "reporter_teacher": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "critical",
+            "incident_date": "2025-10-02T09:42:00",
+            "created_at": "2025-10-02T09:42:00",
+            "updated_at": "2025-10-02T09:42:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1055,
+        "fields": {
+            "title": "Student Report 1055",
+            "description": "Auto-generated dummy student report",
+            "status": "dismissed",
+            "reporter_student": 1,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "medium",
+            "incident_date": "2025-10-02T12:00:00",
+            "created_at": "2025-10-02T12:00:00",
+            "updated_at": "2025-10-02T12:00:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1056,
+        "fields": {
+            "title": "Incident Report 1056",
+            "description": "Auto-generated dummy teacher report",
+            "status": "dismissed",
+            "reporter_teacher": 2,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-10-13T16:03:00",
+            "created_at": "2025-10-13T16:03:00",
+            "updated_at": "2025-10-13T16:03:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1057,
+        "fields": {
+            "title": "Student Report 1057",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 4,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "high",
+            "incident_date": "2025-10-28T13:05:00",
+            "created_at": "2025-10-28T13:05:00",
+            "updated_at": "2025-10-28T13:05:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1058,
+        "fields": {
+            "title": "Incident Report 1058",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "low",
+            "incident_date": "2025-10-15T10:27:00",
+            "created_at": "2025-10-15T10:27:00",
+            "updated_at": "2025-10-15T10:27:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1059,
+        "fields": {
+            "title": "Student Report 1059",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 4,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "medium",
+            "incident_date": "2025-10-28T12:49:00",
+            "created_at": "2025-10-28T12:49:00",
+            "updated_at": "2025-10-28T12:49:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1060,
+        "fields": {
+            "title": "Incident Report 1060",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 3,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "high",
+            "incident_date": "2025-11-07T12:06:00",
+            "created_at": "2025-11-07T12:06:00",
+            "updated_at": "2025-11-07T12:06:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1061,
+        "fields": {
+            "title": "Student Report 1061",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 5,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "high",
+            "incident_date": "2025-11-20T11:20:00",
+            "created_at": "2025-11-20T11:20:00",
+            "updated_at": "2025-11-20T11:20:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1062,
+        "fields": {
+            "title": "Student Report 1062",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "low",
+            "incident_date": "2025-11-03T11:44:00",
+            "created_at": "2025-11-03T11:44:00",
+            "updated_at": "2025-11-03T11:44:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1063,
+        "fields": {
+            "title": "Student Report 1063",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 5,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-11-15T13:07:00",
+            "created_at": "2025-11-15T13:07:00",
+            "updated_at": "2025-11-15T13:07:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1064,
+        "fields": {
+            "title": "Student Report 1064",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "high",
+            "incident_date": "2025-11-03T12:09:00",
+            "created_at": "2025-11-03T12:09:00",
+            "updated_at": "2025-11-03T12:09:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1065,
+        "fields": {
+            "title": "Incident Report 1065",
+            "description": "Auto-generated dummy teacher report",
+            "status": "resolved",
+            "reporter_teacher": 2,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "high",
+            "incident_date": "2025-11-20T16:08:00",
+            "created_at": "2025-11-20T16:08:00",
+            "updated_at": "2025-11-20T16:08:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1066,
+        "fields": {
+            "title": "Incident Report 1066",
+            "description": "Auto-generated dummy teacher report",
+            "status": "resolved",
+            "reporter_teacher": 1,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "high",
+            "incident_date": "2025-11-16T16:31:00",
+            "created_at": "2025-11-16T16:31:00",
+            "updated_at": "2025-11-16T16:31:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1067,
+        "fields": {
+            "title": "Student Report 1067",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 3,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "low",
+            "incident_date": "2025-11-19T10:51:00",
+            "created_at": "2025-11-19T10:51:00",
+            "updated_at": "2025-11-19T10:51:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1068,
+        "fields": {
+            "title": "Student Report 1068",
+            "description": "Auto-generated dummy student report",
+            "status": "summons_sent",
+            "reporter_student": 5,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "high",
+            "incident_date": "2025-11-18T14:32:00",
+            "created_at": "2025-11-18T14:32:00",
+            "updated_at": "2025-11-18T14:32:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1069,
+        "fields": {
+            "title": "Incident Report 1069",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 3,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "critical",
+            "incident_date": "2025-11-05T16:27:00",
+            "created_at": "2025-11-05T16:27:00",
+            "updated_at": "2025-11-05T16:27:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1070,
+        "fields": {
+            "title": "Incident Report 1070",
+            "description": "Auto-generated dummy teacher report",
+            "status": "dismissed",
+            "reporter_teacher": 3,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "medium",
+            "incident_date": "2025-11-23T14:11:00",
+            "created_at": "2025-11-23T14:11:00",
+            "updated_at": "2025-11-23T14:11:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1071,
+        "fields": {
+            "title": "Student Report 1071",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 5,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "medium",
+            "incident_date": "2025-11-04T10:38:00",
+            "created_at": "2025-11-04T10:38:00",
+            "updated_at": "2025-11-04T10:38:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1072,
+        "fields": {
+            "title": "Incident Report 1072",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "critical",
+            "incident_date": "2025-11-22T11:11:00",
+            "created_at": "2025-11-22T11:11:00",
+            "updated_at": "2025-11-22T11:11:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1073,
+        "fields": {
+            "title": "Student Report 1073",
+            "description": "Auto-generated dummy student report",
+            "status": "escalated",
+            "reporter_student": 5,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "critical",
+            "incident_date": "2025-11-23T12:25:00",
+            "created_at": "2025-11-23T12:25:00",
+            "updated_at": "2025-11-23T12:25:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1074,
+        "fields": {
+            "title": "Incident Report 1074",
+            "description": "Auto-generated dummy teacher report",
+            "status": "resolved",
+            "reporter_teacher": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "medium",
+            "incident_date": "2025-11-24T16:43:00",
+            "created_at": "2025-11-24T16:43:00",
+            "updated_at": "2025-11-24T16:43:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1075,
+        "fields": {
+            "title": "Incident Report 1075",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 1,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "critical",
+            "incident_date": "2025-11-15T12:30:00",
+            "created_at": "2025-11-15T12:30:00",
+            "updated_at": "2025-11-15T12:30:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1076,
+        "fields": {
+            "title": "Incident Report 1076",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-11-18T15:32:00",
+            "created_at": "2025-11-18T15:32:00",
+            "updated_at": "2025-11-18T15:32:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1077,
+        "fields": {
+            "title": "Incident Report 1077",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_review",
+            "reporter_teacher": 2,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "low",
+            "incident_date": "2025-11-10T10:46:00",
+            "created_at": "2025-11-10T10:46:00",
+            "updated_at": "2025-11-10T10:46:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1078,
+        "fields": {
+            "title": "Incident Report 1078",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "low",
+            "incident_date": "2025-11-11T11:24:00",
+            "created_at": "2025-11-11T11:24:00",
+            "updated_at": "2025-11-11T11:24:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1079,
+        "fields": {
+            "title": "Incident Report 1079",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_review",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "low",
+            "incident_date": "2025-11-21T16:02:00",
+            "created_at": "2025-11-21T16:02:00",
+            "updated_at": "2025-11-21T16:02:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1080,
+        "fields": {
+            "title": "Incident Report 1080",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 3,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "high",
+            "incident_date": "2025-12-21T10:20:00",
+            "created_at": "2025-12-21T10:20:00",
+            "updated_at": "2025-12-21T10:20:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1081,
+        "fields": {
+            "title": "Student Report 1081",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 5,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "critical",
+            "incident_date": "2025-12-14T12:27:00",
+            "created_at": "2025-12-14T12:27:00",
+            "updated_at": "2025-12-14T12:27:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1082,
+        "fields": {
+            "title": "Student Report 1082",
+            "description": "Auto-generated dummy student report",
+            "status": "dismissed",
+            "reporter_student": 4,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "low",
+            "incident_date": "2025-12-09T13:34:00",
+            "created_at": "2025-12-09T13:34:00",
+            "updated_at": "2025-12-09T13:34:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1083,
+        "fields": {
+            "title": "Incident Report 1083",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 1,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 8,
+            "severity": "medium",
+            "incident_date": "2025-12-07T16:46:00",
+            "created_at": "2025-12-07T16:46:00",
+            "updated_at": "2025-12-07T16:46:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1084,
+        "fields": {
+            "title": "Incident Report 1084",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 2,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "low",
+            "incident_date": "2025-12-03T08:42:00",
+            "created_at": "2025-12-03T08:42:00",
+            "updated_at": "2025-12-03T08:42:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1085,
+        "fields": {
+            "title": "Student Report 1085",
+            "description": "Auto-generated dummy student report",
+            "status": "under_investigation",
+            "reporter_student": 4,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "critical",
+            "incident_date": "2025-12-28T12:09:00",
+            "created_at": "2025-12-28T12:09:00",
+            "updated_at": "2025-12-28T12:09:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1086,
+        "fields": {
+            "title": "Student Report 1086",
+            "description": "Auto-generated dummy student report",
+            "status": "resolved",
+            "reporter_student": 4,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "low",
+            "incident_date": "2025-12-17T09:44:00",
+            "created_at": "2025-12-17T09:44:00",
+            "updated_at": "2025-12-17T09:44:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1087,
+        "fields": {
+            "title": "Student Report 1087",
+            "description": "Auto-generated dummy student report",
+            "status": "under_investigation",
+            "reporter_student": 2,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 5,
+            "severity": "low",
+            "incident_date": "2025-12-10T13:05:00",
+            "created_at": "2025-12-10T13:05:00",
+            "updated_at": "2025-12-10T13:05:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1088,
+        "fields": {
+            "title": "Student Report 1088",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 2,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "high",
+            "incident_date": "2025-12-23T11:10:00",
+            "created_at": "2025-12-23T11:10:00",
+            "updated_at": "2025-12-23T11:10:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1089,
+        "fields": {
+            "title": "Incident Report 1089",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 2,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 2,
+            "severity": "critical",
+            "incident_date": "2025-12-17T11:35:00",
+            "created_at": "2025-12-17T11:35:00",
+            "updated_at": "2025-12-17T11:35:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1090,
+        "fields": {
+            "title": "Incident Report 1090",
+            "description": "Auto-generated dummy teacher report",
+            "status": "pending",
+            "reporter_teacher": 1,
+            "reported_student": 5,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "critical",
+            "incident_date": "2025-12-17T14:36:00",
+            "created_at": "2025-12-17T14:36:00",
+            "updated_at": "2025-12-17T14:36:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1091,
+        "fields": {
+            "title": "Incident Report 1091",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_investigation",
+            "reporter_teacher": 2,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 3,
+            "severity": "critical",
+            "incident_date": "2025-12-27T09:17:00",
+            "created_at": "2025-12-27T09:17:00",
+            "updated_at": "2025-12-27T09:17:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1092,
+        "fields": {
+            "title": "Incident Report 1092",
+            "description": "Auto-generated dummy teacher report",
+            "status": "resolved",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 10,
+            "severity": "critical",
+            "incident_date": "2025-12-21T10:13:00",
+            "created_at": "2025-12-21T10:13:00",
+            "updated_at": "2025-12-21T10:13:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1093,
+        "fields": {
+            "title": "Incident Report 1093",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_review",
+            "reporter_teacher": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 11,
+            "severity": "critical",
+            "incident_date": "2025-12-14T12:16:00",
+            "created_at": "2025-12-14T12:16:00",
+            "updated_at": "2025-12-14T12:16:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1094,
+        "fields": {
+            "title": "Incident Report 1094",
+            "description": "Auto-generated dummy teacher report",
+            "status": "escalated",
+            "reporter_teacher": 1,
+            "reported_student": 2,
+            "assigned_counselor": 1,
+            "violation_type": 7,
+            "severity": "medium",
+            "incident_date": "2025-12-05T13:10:00",
+            "created_at": "2025-12-05T13:10:00",
+            "updated_at": "2025-12-05T13:10:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1095,
+        "fields": {
+            "title": "Incident Report 1095",
+            "description": "Auto-generated dummy teacher report",
+            "status": "under_review",
+            "reporter_teacher": 3,
+            "reported_student": 4,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "medium",
+            "incident_date": "2025-12-12T13:04:00",
+            "created_at": "2025-12-12T13:04:00",
+            "updated_at": "2025-12-12T13:04:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.teacherreport",
+        "pk": 1096,
+        "fields": {
+            "title": "Incident Report 1096",
+            "description": "Auto-generated dummy teacher report",
+            "status": "summons_sent",
+            "reporter_teacher": 3,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 9,
+            "severity": "low",
+            "incident_date": "2025-12-09T16:56:00",
+            "created_at": "2025-12-09T16:56:00",
+            "updated_at": "2025-12-09T16:56:00",
+            "school_year": "2025-2026",
+            "location": "Room 201"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1097,
+        "fields": {
+            "title": "Student Report 1097",
+            "description": "Auto-generated dummy student report",
+            "status": "dismissed",
+            "reporter_student": 1,
+            "reported_student": null,
+            "assigned_counselor": 1,
+            "violation_type": 1,
+            "severity": "critical",
+            "incident_date": "2025-12-09T15:43:00",
+            "created_at": "2025-12-09T15:43:00",
+            "updated_at": "2025-12-09T15:43:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1098,
+        "fields": {
+            "title": "Student Report 1098",
+            "description": "Auto-generated dummy student report",
+            "status": "verified",
+            "reporter_student": 4,
+            "reported_student": 1,
+            "assigned_counselor": 1,
+            "violation_type": 6,
+            "severity": "high",
+            "incident_date": "2025-12-12T08:26:00",
+            "created_at": "2025-12-12T08:26:00",
+            "updated_at": "2025-12-12T08:26:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    },
+    {
+        "model": "api.studentreport",
+        "pk": 1099,
+        "fields": {
+            "title": "Student Report 1099",
+            "description": "Auto-generated dummy student report",
+            "status": "pending",
+            "reporter_student": 2,
+            "reported_student": 3,
+            "assigned_counselor": 1,
+            "violation_type": 4,
+            "severity": "medium",
+            "incident_date": "2025-12-03T16:57:00",
+            "created_at": "2025-12-03T16:57:00",
+            "updated_at": "2025-12-03T16:57:00",
+            "school_year": "2025-2026",
+            "location": "School Grounds"
+        }
+    }
+]
