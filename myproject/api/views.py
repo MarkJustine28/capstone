@@ -1210,100 +1210,99 @@ def student_reports(request):
             }, status=500)
     
     elif request.method == 'GET':
-        # Handle fetching student's reports - ALREADY UPDATED IN PREVIOUS RESPONSE
-        try:
-            if not hasattr(request.user, 'student'):
-                logger.error(f"❌ User {request.user.username} is not a student")
-                return Response({
-                    'success': False,
-                    'error': 'Only students can view reports'
-                }, status=status.HTTP_403_FORBIDDEN)
-            
-            student = request.user.student
-            
-            # Get reports where student is the reporter
-            student_reports_as_reporter = StudentReport.objects.filter(
-                reporter_student=student
-            ).select_related('violation_type', 'assigned_counselor', 'reported_student__user')
-            
-            reports_data = []
-            
-            # Add reports where this student is the reporter
-            for report in student_reports_as_reporter:
-                reports_data.append({
-                    'id': report.id,
-                    'report_type': 'student_report',
-                    'title': report.title,
-                    'description': report.description,
-                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
-                    'severity': report.severity,
-                    'status': report.status,
-                    'verification_status': report.verification_status,
-                    'school_year': report.school_year,
-                    'role_in_report': 'reporter',
-                    'reporter': student.user.get_full_name() or student.user.username,
-                    'reported_student': (
-                        report.reported_student.user.get_full_name() or report.reported_student.user.username
-                    ) if report.reported_student else 'Self-Report',
-                    'created_at': report.created_at.isoformat(),
-                })
-            
-            # Add reports where this student is reported (by other students)
-            for report in student_reports_as_reported:
-                reports_data.append({
-                    'id': report.id,
-                    'report_type': 'student_report',
-                    'title': report.title,
-                    'description': report.description,
-                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
-                    'severity': report.severity,
-                    'status': report.status,
-                    'verification_status': report.verification_status,
-                    'school_year': report.school_year,
-                    'role_in_report': 'reported',
-                    'reporter': (
-                        report.reporter_student.user.get_full_name() or report.reporter_student.user.username
-                    ),
-                    'reported_student': student.user.get_full_name() or student.user.username,
-                    'created_at': report.created_at.isoformat(),
-                })
-            
-            # Add teacher reports
-            for report in teacher_reports:
-                reports_data.append({
-                    'id': report.id,
-                    'report_type': 'teacher_report',
-                    'title': report.title,
-                    'description': report.description,
-                    'violation_type': report.violation_type.name if report.violation_type else report.custom_violation,
-                    'severity': report.severity,
-                    'status': report.status,
-                    'verification_status': report.verification_status,
-                    'school_year': report.school_year,
-                    'role_in_report': 'reported',
-                    'reporter': (
-                        report.reporter_teacher.user.get_full_name() or report.reporter_teacher.user.username
-                    ),
-                    'reporter_type': 'teacher',
-                    'reported_student': student.user.get_full_name() or student.user.username,
-                    'created_at': report.created_at.isoformat(),
-                })
-            
-            # Sort by created_at descending
-            reports_data.sort(key=lambda x: x['created_at'], reverse=True)
-            
-            return Response({
-                'success': True,
-                'reports': reports_data,
-                'total': len(reports_data),
-            })
-            
-        except Exception as e:
-            logger.error(f"❌ Error fetching reports: {str(e)}")
+    # Handle fetching student's reports - ONLY REPORTS THEY SUBMITTED
+    try:
+        if not hasattr(request.user, 'student'):
+            logger.error(f"❌ User {request.user.username} is not a student")
             return Response({
                 'success': False,
-                'error': str(e)
-            }, status=500)
+                'error': 'Only students can view reports'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        student = request.user.student
+        
+        logger.info(f"📋 Fetching reports for student ID: {student.id}, User: {request.user.username}")
+        
+        # ✅ Get ONLY reports where this student is the REPORTER
+        student_reports_as_reporter = StudentReport.objects.filter(
+            reporter_student=student  # Only reports submitted BY this student
+        ).select_related('violation_type', 'assigned_counselor', 'reported_student__user').order_by('-created_at')
+        
+        logger.info(f"📊 Found {student_reports_as_reporter.count()} reports submitted by student {student.id}")
+        
+        reports_data = []
+        
+        # Add reports where this student is the reporter
+        for report in student_reports_as_reporter:
+            # Determine if it's a self-report or peer-report
+            is_self_report = (report.reported_student and 
+                            report.reported_student.id == student.id)
+            
+            # Get reported student name
+            if report.reported_student:
+                reported_student_name = (
+                    report.reported_student.user.get_full_name() or 
+                    report.reported_student.user.username
+                )
+            else:
+                reported_student_name = 'Unknown'
+            
+            report_dict = {
+                'id': report.id,
+                'report_type': 'self_report' if is_self_report else 'peer_report',
+                'title': report.title,
+                'description': report.description,
+                'content': report.description,
+                'violation_type': (
+                    report.violation_type.name 
+                    if report.violation_type 
+                    else report.custom_violation
+                ),
+                'custom_violation': report.custom_violation,
+                'severity': report.severity,
+                'status': report.status,
+                'verification_status': report.verification_status,
+                'school_year': report.school_year,
+                'location': report.location or '',
+                'category': report.violation_type.category if report.violation_type else None,
+                'role_in_report': 'reporter',
+                'reporter': student.user.get_full_name() or student.user.username,
+                'reported_student': reported_student_name,
+                'is_self_report': is_self_report,
+                'created_at': report.created_at.isoformat(),
+                'incident_date': report.incident_date.isoformat() if report.incident_date else None,
+                
+                # ✅ CRITICAL: Add reporter info for frontend filtering
+                'reported_by_id': student.user.id,
+                'reported_by_student_id': student.id,
+                'reported_by_name': student.user.get_full_name() or student.user.username,
+            }
+            
+            reports_data.append(report_dict)
+            
+            # ✅ DEBUG: Print each report being added
+            logger.info(f"   📄 Report ID {report.id}: Type={report_dict['report_type']}, Title={report.title}, Reporter ID={student.id}")
+        
+        logger.info(f"✅ Returning {len(reports_data)} reports for student {student.id}")
+        
+        return Response({
+            'success': True,
+            'reports': reports_data,
+            'total': len(reports_data),
+            'student_id': student.id,
+            'student_name': f"{request.user.first_name} {request.user.last_name}",
+            'note': 'Only showing reports you submitted (self-reports and peer-reports)'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching reports: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e),
+            'reports': []
+        }, status=500)
 
 # General utility views (existing ones)
 @api_view(['GET'])
