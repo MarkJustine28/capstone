@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../config/env.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -20,6 +20,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController emailController = TextEditingController();
   
   // Student-specific controllers
+  final TextEditingController lrnController = TextEditingController();
   final TextEditingController contactNumberController = TextEditingController();
   final TextEditingController guardianNameController = TextEditingController();
   final TextEditingController guardianContactController = TextEditingController();
@@ -140,182 +141,228 @@ class _RegisterPageState extends State<RegisterPage> {
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Icon(Icons.person_add, size: 80, color: Colors.blue.shade700),
-              const SizedBox(height: 16),
-              Text(
-                "Create Account",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue.shade700),
-              ),
-              const SizedBox(height: 32),
-
-              // Role Selection - ✅ Only Student and Teacher
-              const Text("Select Role *", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: selectedRole,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.work_outline),
-                ),
-                items: const [
-                  DropdownMenuItem(value: "student", child: Text("Student")),
-                  DropdownMenuItem(value: "teacher", child: Text("Teacher")),
-                  // ✅ REMOVED: Counselor option
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    selectedRole = value!;
-                    selectedGradeLevel = null;
-                    selectedAdvisingGrade = null;
-                    selectedStrand = null;
-                    selectedSection = "";
-                    isAdviser = false;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Basic Information
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: firstNameController,
-                      decoration: InputDecoration(
-                        labelText: "First Name*",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.person),
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/bg.jpg'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.black.withOpacity(0.3),
+              BlendMode.darken,
+            ),
+          ),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(  
+                    children: [
+                      Icon(Icons.person_add, size: 80, color: Colors.blue.shade700),
+                      const SizedBox(height: 16),
+                      Text(
+                        "Create Account",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue.shade700),
                       ),
-                      validator: (value) => value?.trim().isEmpty == true ? "Required" : null,
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: lastNameController,
-                      decoration: InputDecoration(
-                        labelText: "Last Name *",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.person),
+                ),
+                const SizedBox(height: 32),
+
+                // Form content wrapper with semi-transparent background
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Role Selection - ✅ Only Student and Teacher
+                      const Text("Select Role *", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: selectedRole,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.work_outline),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: "student", child: Text("Student")),
+                          DropdownMenuItem(value: "teacher", child: Text("Teacher")),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            selectedRole = value!;
+                            selectedGradeLevel = null;
+                            selectedAdvisingGrade = null;
+                            selectedStrand = null;
+                            selectedSection = "";
+                            isAdviser = false;
+                          });
+                        },
                       ),
-                      validator: (value) => value?.trim().isEmpty == true ? "Required" : null,
-                    ),
+                      const SizedBox(height: 16),
+
+                      // Basic Information
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: firstNameController,
+                              decoration: InputDecoration(
+                                labelText: "First Name*",
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                prefixIcon: const Icon(Icons.person),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                              validator: (value) => value?.trim().isEmpty == true ? "Required" : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: lastNameController,
+                              decoration: InputDecoration(
+                                labelText: "Last Name *",
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                prefixIcon: const Icon(Icons.person),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                              validator: (value) => value?.trim().isEmpty == true ? "Required" : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: usernameController,
+                        decoration: InputDecoration(
+                          labelText: "Username *",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.account_circle),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        validator: (value) => value?.trim().isEmpty == true ? "Username is required" : null,
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: "Email *",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.email),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        validator: (value) {
+                          if (value?.trim().isEmpty == true) return "Email is required";
+                          if (!value!.contains('@')) return "Enter a valid email";
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Password fields
+                      TextFormField(
+                        controller: passwordController,
+                        obscureText: obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: "Password *",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.lock),
+                          filled: true,
+                          fillColor: Colors.white,
+                          suffixIcon: IconButton(
+                            icon: Icon(obscurePassword ? Icons.visibility : Icons.visibility_off),
+                            onPressed: () => setState(() => obscurePassword = !obscurePassword),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value?.isEmpty == true) return "Password is required";
+                          if (value!.length < 6) return "Password must be at least 6 characters";
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: confirmPasswordController,
+                        obscureText: obscureConfirmPassword,
+                        decoration: InputDecoration(
+                          labelText: "Confirm Password *",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          filled: true,
+                          fillColor: Colors.white,
+                          suffixIcon: IconButton(
+                            icon: Icon(obscureConfirmPassword ? Icons.visibility : Icons.visibility_off),
+                            onPressed: () => setState(() => obscureConfirmPassword = !obscureConfirmPassword),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value != passwordController.text) return "Passwords do not match";
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Role-specific fields
+                      if (selectedRole == "student") ..._buildStudentFields(),
+                      if (selectedRole == "teacher") ..._buildTeacherFields(),
+
+                      const SizedBox(height: 32),
+
+                      // Register Button
+                      SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: isLoading ? null : registerUser,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade700,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: isLoading
+                              ? const CircularProgressIndicator(color: Colors.white)
+                              : const Text("Register", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Login link
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text("Already have an account? "),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Text("Login here", style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: usernameController,
-                decoration: InputDecoration(
-                  labelText: "Username *",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.account_circle),
                 ),
-                validator: (value) => value?.trim().isEmpty == true ? "Username is required" : null,
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: "Email *",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.email),
-                ),
-                validator: (value) {
-                  if (value?.trim().isEmpty == true) return "Email is required";
-                  if (!value!.contains('@')) return "Enter a valid email";
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Password fields
-              TextFormField(
-                controller: passwordController,
-                obscureText: obscurePassword,
-                decoration: InputDecoration(
-                  labelText: "Password *",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.lock),
-                  suffixIcon: IconButton(
-                    icon: Icon(obscurePassword ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () => setState(() => obscurePassword = !obscurePassword),
-                  ),
-                ),
-                validator: (value) {
-                  if (value?.isEmpty == true) return "Password is required";
-                  if (value!.length < 6) return "Password must be at least 6 characters";
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: confirmPasswordController,
-                obscureText: obscureConfirmPassword,
-                decoration: InputDecoration(
-                  labelText: "Confirm Password *",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(obscureConfirmPassword ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () => setState(() => obscureConfirmPassword = !obscureConfirmPassword),
-                  ),
-                ),
-                validator: (value) {
-                  if (value != passwordController.text) return "Passwords do not match";
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-
-              // Role-specific fields
-              if (selectedRole == "student") ..._buildStudentFields(),
-              if (selectedRole == "teacher") ..._buildTeacherFields(),
-              // ✅ REMOVED: counselor fields
-
-              const SizedBox(height: 32),
-
-              // Register Button
-              SizedBox(
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : registerUser,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Register", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Login link
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text("Already have an account? "),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Text("Login here", style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -327,7 +374,28 @@ class _RegisterPageState extends State<RegisterPage> {
     const Text("Student Information", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
     const SizedBox(height: 16),
     
-    // ✅ NEW: School Year Dropdown
+    // ✅ NEW: LRN Field
+      TextFormField(
+        controller: lrnController,
+        keyboardType: TextInputType.number,
+        maxLength: 12,
+        decoration: InputDecoration(
+          labelText: "LRN (Learner Reference Number) *",
+          hintText: "Enter 12-digit LRN",
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          prefixIcon: const Icon(Icons.badge),
+          helperText: "Example: 123456789012",
+          counterText: "",
+        ),
+        validator: (value) {
+          if (value?.trim().isEmpty == true) return "LRN is required";
+          if (value!.length != 12) return "LRN must be 12 digits";
+          if (!RegExp(r'^[0-9]+$').hasMatch(value)) return "LRN must contain only numbers";
+          return null;
+        },
+      ),
+      const SizedBox(height: 16),
+
     DropdownButtonFormField<String>(
       value: selectedSchoolYear,
       decoration: InputDecoration(
@@ -339,7 +407,7 @@ class _RegisterPageState extends State<RegisterPage> {
       ),
       items: availableSchoolYears.map((year) => DropdownMenuItem(
         value: year,
-        child: Text(year),
+        child: Text(year), 
       )).toList(),
       onChanged: (value) => setState(() => selectedSchoolYear = value),
       validator: (value) => value == null ? "School year is required" : null,
@@ -495,82 +563,86 @@ class _RegisterPageState extends State<RegisterPage> {
       ),
 
       if (isAdviser) ...[
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.blue.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.blue.shade200),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Advisory Class Information',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue.shade900,
-                      ),
-                    ),
-                  ),
-                ],
+  const SizedBox(height: 8),
+  Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.blue.shade50,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.blue.shade200),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Advisory Class Information',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade900,
+                ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: selectedAdvisingGrade,
-                      decoration: InputDecoration(
-                        labelText: "Advising Grade *",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.school),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      items: grades.map((grade) => DropdownMenuItem(
-                        value: grade,
-                        child: Text("Grade $grade"),
-                      )).toList(),
-                      onChanged: (value) => setState(() {
-                        selectedAdvisingGrade = value;
-                        advisingSectionController.clear();
-                      }),
-                      validator: (value) => isAdviser && value == null ? "Required" : null,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: advisingSectionController.text.isEmpty ? null : advisingSectionController.text,
-                      decoration: InputDecoration(
-                        labelText: "Section *",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.class_),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      items: availableAdvisingSections.map((section) => DropdownMenuItem(
-                        value: section,
-                        child: Text(section),
-                      )).toList(),
-                      onChanged: (value) => setState(() => advisingSectionController.text = value ?? ""),
-                      validator: (value) => isAdviser && value == null ? "Required" : null,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        
+        // ✅ FIXED: Stack vertically for better mobile support
+        DropdownButtonFormField<String>(
+          value: selectedAdvisingGrade,
+          decoration: InputDecoration(
+            labelText: "Grade *", // ✅ Shortened label
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixIcon: const Icon(Icons.school, size: 20),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), // ✅ Reduced padding
+            isDense: true, // ✅ Makes field more compact
+          ),
+          items: grades.map((grade) => DropdownMenuItem(
+            value: grade,
+            child: Text("Grade $grade", style: const TextStyle(fontSize: 14)),
+          )).toList(),
+          onChanged: (value) => setState(() {
+            selectedAdvisingGrade = value;
+            advisingSectionController.clear();
+          }),
+          validator: (value) => isAdviser && value == null ? "Required" : null,
+        ),
+        const SizedBox(height: 12),
+        
+        DropdownButtonFormField<String>(
+          value: advisingSectionController.text.isEmpty ? null : advisingSectionController.text,
+          decoration: InputDecoration(
+            labelText: "Section *",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixIcon: const Icon(Icons.class_, size: 20),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), // ✅ Reduced padding
+            isDense: true, // ✅ Makes field more compact
+          ),
+          isExpanded: true, // ✅ Prevents overflow with long section names
+          items: availableAdvisingSections.map((section) => DropdownMenuItem(
+            value: section,
+            child: Text(
+              section,
+              style: const TextStyle(fontSize: 14),
+              overflow: TextOverflow.ellipsis, // ✅ Handle long text
+            ),
+          )).toList(),
+          onChanged: (value) => setState(() => advisingSectionController.text = value ?? ""),
+          validator: (value) => isAdviser && value == null ? "Required" : null,
+        ),
       ],
+    ),
+  ),
+  const SizedBox(height: 16),
+],
     ];
   }
 
@@ -579,84 +651,85 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> registerUser() async {
   if (!_formKey.currentState!.validate()) return;
 
-  final serverIp = dotenv.env['SERVER_IP'];
-  if (serverIp == null || serverIp.isEmpty) {
+  final serverIp = Env.serverIp; // ✅ Use Env class instead of dotenv
+  if (serverIp.isEmpty) {
     _showErrorSnackBar("Server IP not configured");
     return;
   }
 
-  setState(() => isLoading = true);
+    setState(() => isLoading = true);
 
-  try {
-    String baseUrl = serverIp;
-    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-      baseUrl = 'http://$baseUrl';
-    }
-
-    final url = Uri.parse("$baseUrl/api/register/");
-    debugPrint("🌐 Attempting registration to: $url");
-
-    final Map<String, dynamic> requestData = {
-      "username": usernameController.text.trim(),
-      "password": passwordController.text.trim(),
-      "role": selectedRole,
-      "first_name": firstNameController.text.trim(),
-      "last_name": lastNameController.text.trim(),
-      "email": emailController.text.trim(),
-    };
-
-    if (selectedRole == "student") {
-      requestData.addAll({
-        "school_year": selectedSchoolYear, // ✅ Added school year
-        "grade_level": selectedGradeLevel,
-        "strand": hasStrands ? selectedStrand : null,
-        "section": selectedSection,
-        "contact_number": contactNumberController.text.trim(),
-        "guardian_name": guardianNameController.text.trim(),
-        "guardian_contact": guardianContactController.text.trim(),
-      });
-    } else if (selectedRole == "teacher") {
-      requestData.addAll({
-        "employee_id": employeeIdController.text.trim(),
-        "department": departmentController.text.trim(),
-        "specialization": specializationController.text.trim(),
-        "advising_grade": isAdviser ? selectedAdvisingGrade : null,
-        "advising_section": isAdviser ? advisingSectionController.text.trim() : null,
-      });
-    }
-
-    final response = await http.post(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode(requestData),
-    );
-
-    final data = jsonDecode(response.body);
-
-    if (response.statusCode == 201 && data['success'] == true) {
-      if (mounted) {
-        if (selectedRole == "teacher" && data['approval_status'] == 'pending') {
-          _showTeacherPendingDialog();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message'] ?? "Registration successful!"),
-              backgroundColor: Colors.green,
-            ),
-          );
-          Navigator.pop(context);
-        }
+    try {
+      String baseUrl = serverIp;
+      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = 'http://$baseUrl';
       }
-    } else {
-      _showErrorSnackBar(data['error'] ?? "Registration failed");
+
+      final url = Uri.parse("$baseUrl/api/register/");
+      debugPrint("🌐 Attempting registration to: $url");
+
+      final Map<String, dynamic> requestData = {
+        "username": usernameController.text.trim(),
+        "password": passwordController.text.trim(),
+        "role": selectedRole,
+        "first_name": firstNameController.text.trim(),
+        "last_name": lastNameController.text.trim(),
+        "email": emailController.text.trim(),
+      };
+
+      if (selectedRole == "student") {
+        requestData.addAll({
+          "lrn": lrnController.text.trim(), // ✅ NEW
+          "school_year": selectedSchoolYear,
+          "grade_level": selectedGradeLevel,
+          "strand": hasStrands ? selectedStrand : null,
+          "section": selectedSection,
+          "contact_number": contactNumberController.text.trim(),
+          "guardian_name": guardianNameController.text.trim(),
+          "guardian_contact": guardianContactController.text.trim(),
+        });
+      } else if (selectedRole == "teacher") {
+        requestData.addAll({
+          "employee_id": employeeIdController.text.trim(),
+          "department": departmentController.text.trim(),
+          "specialization": specializationController.text.trim(),
+          "advising_grade": isAdviser ? selectedAdvisingGrade : null,
+          "advising_section": isAdviser ? advisingSectionController.text.trim() : null,
+        });
+      }
+
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(requestData),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201 && data['success'] == true) {
+        if (mounted) {
+          if (selectedRole == "teacher" && data['approval_status'] == 'pending') {
+            _showTeacherPendingDialog();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(data['message'] ?? "Registration successful!"),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.pop(context);
+          }
+        }
+      } else {
+        _showErrorSnackBar(data['error'] ?? "Registration failed");
+      }
+    } catch (e) {
+      debugPrint("❌ Registration error: $e");
+      _showErrorSnackBar("Network error: $e");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
-  } catch (e) {
-    debugPrint("❌ Registration error: $e");
-    _showErrorSnackBar("Network error: $e");
-  } finally {
-    if (mounted) setState(() => isLoading = false);
   }
-}
 
   void _showTeacherPendingDialog() {
     showDialog(
@@ -774,6 +847,7 @@ class _RegisterPageState extends State<RegisterPage> {
     firstNameController.dispose();
     lastNameController.dispose();
     emailController.dispose();
+    lrnController.dispose();
     contactNumberController.dispose();
     guardianNameController.dispose();
     guardianContactController.dispose();

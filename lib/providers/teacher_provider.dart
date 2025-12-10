@@ -1,13 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/env.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// ✅ ADD: Exception class for system frozen
+class SystemFrozenException implements Exception {
+  final String message;
+  final String? schoolYear;
+  
+  SystemFrozenException(this.message, {this.schoolYear});
+  
+  @override
+  String toString() => message;
+}
 
 class TeacherProvider with ChangeNotifier {
   String? _token;
   bool _isLoading = false;
   String? _error;
   
+  // ✅ ADD: System settings fields
+  String? _systemSchoolYear;
+  bool _isSystemActive = true;
+  String? _systemMessage;
+  
+  String _selectedSchoolYear = '';
+  List<String> _availableSchoolYears = [];
+
+  String get selectedSchoolYear => _selectedSchoolYear;
+  List<String> get availableSchoolYears => _availableSchoolYears;
+
   // Data
   Map<String, dynamic>? _teacherProfile;
   List<Map<String, dynamic>> _advisingStudents = [];
@@ -26,14 +49,19 @@ class TeacherProvider with ChangeNotifier {
   List<Map<String, dynamic>> get notifications => _notifications;
   List<Map<String, dynamic>> get violationTypes => _violationTypes;
 
+  // ✅ ADD: System settings getters
+  String? get systemSchoolYear => _systemSchoolYear;
+  bool get isSystemActive => _isSystemActive;
+  String? get systemMessage => _systemMessage;
+
   // Base URL helper
   String get _baseUrl {
-    final serverIp = dotenv.env['SERVER_IP'] ?? '';
-    if (serverIp.isEmpty) {
-      throw Exception('SERVER_IP not configured in .env file');
-    }
-    return serverIp.startsWith('http') ? serverIp : 'http://$serverIp';
+  final serverIp = Env.serverIp; // ✅ Use Env class
+  if (serverIp.isEmpty) {
+    throw Exception('SERVER_IP not configured');
   }
+  return serverIp.startsWith('http') ? serverIp : 'http://$serverIp';
+}
 
   // Set token
   void setToken(String token) {
@@ -53,7 +81,188 @@ class TeacherProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Fetch teacher profile
+  void setSelectedSchoolYear(String schoolYear) {
+  _selectedSchoolYear = schoolYear;
+  debugPrint('📅 Selected school year changed to: $schoolYear');
+  notifyListeners();
+  fetchAdvisingStudents(schoolYear: schoolYear);
+}
+
+  // ✅ ADD: Helper method to make authenticated requests with system check
+  Future<http.Response> _makeAuthenticatedRequest(
+    String endpoint, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+  }) async {
+    if (_token == null) {
+      throw Exception('No authentication token available');
+    }
+
+    final uri = Uri.parse('$_baseUrl$endpoint');
+    final headers = {
+      'Authorization': 'Token $_token',
+      'Content-Type': 'application/json',
+    };
+
+    http.Response response;
+    
+    try {
+      switch (method.toUpperCase()) {
+        case 'POST':
+          response = await http.post(
+            uri, 
+            headers: headers, 
+            body: body != null ? jsonEncode(body) : null,
+          ).timeout(const Duration(seconds: 15));
+          break;
+        case 'PUT':
+          response = await http.put(
+            uri, 
+            headers: headers, 
+            body: body != null ? jsonEncode(body) : null,
+          ).timeout(const Duration(seconds: 15));
+          break;
+        case 'PATCH':
+          response = await http.patch(
+            uri, 
+            headers: headers, 
+            body: body != null ? jsonEncode(body) : null,
+          ).timeout(const Duration(seconds: 15));
+          break;
+        case 'DELETE':
+          response = await http.delete(uri, headers: headers)
+            .timeout(const Duration(seconds: 10));
+          break;
+        default:
+          response = await http.get(uri, headers: headers)
+            .timeout(const Duration(seconds: 10));
+      }
+      
+      // ✅ Check if system is frozen
+      if (response.statusCode == 503) {
+        final data = jsonDecode(response.body);
+        if (data['error'] == 'system_frozen') {
+          _systemMessage = data['message'];
+          _isSystemActive = false;
+          notifyListeners();
+          
+          throw SystemFrozenException(
+            data['message'] ?? 'System is currently frozen',
+            schoolYear: data['current_school_year'],
+          );
+        }
+      }
+      
+      return response;
+      
+    } catch (e) {
+      if (e is SystemFrozenException) {
+        rethrow;
+      }
+      debugPrint('❌ Request error: $e');
+      rethrow;
+    }
+  }
+
+  // ✅ ADD: Fetch system settings
+  Future<void> fetchSystemSettings() async {
+    try {
+      debugPrint('🔍 Fetching system settings...');
+      
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/system/settings/'),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        if (data['success'] == true) {
+          _systemSchoolYear = data['settings']['current_school_year'];
+          _isSystemActive = data['settings']['is_system_active'] ?? true;
+          _systemMessage = data['settings']['system_message'];
+          
+          debugPrint('✅ System settings loaded:');
+          debugPrint('   Current S.Y.: $_systemSchoolYear');
+          debugPrint('   System Active: $_isSystemActive');
+          
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error fetching system settings: $e');
+    }
+  }
+
+  // ✅ ADD: Initialize provider with system check
+  Future<void> initializeProvider() async {
+    try {
+      debugPrint('🚀 Initializing TeacherProvider...');
+      
+      // Load token
+      await _loadToken();
+      
+      if (_token == null) {
+        debugPrint('⚠️ No token found, skipping data fetch');
+        return;
+      }
+      
+      // ✅ FIRST: Fetch system settings to check if system is active
+      await fetchSystemSettings();
+      
+      // ✅ If system is frozen, stop here
+      if (!_isSystemActive) {
+        debugPrint('🔒 System is frozen. User will see frozen dialog.');
+        return;
+      }
+      
+      // THEN: Fetch all other data
+      await Future.wait([
+        fetchProfile(),
+        fetchAdvisingStudents(),
+        fetchReports(),
+        fetchNotifications(),
+        fetchViolationTypes(),
+      ]);
+      
+      debugPrint('✅ TeacherProvider initialized successfully');
+      
+    } on SystemFrozenException catch (e) {
+      debugPrint('🔒 System frozen: ${e.message}');
+      // Don't throw - just leave system in frozen state
+      return;
+    } catch (e) {
+      debugPrint('❌ Error initializing provider: $e');
+    }
+  }
+
+  // ✅ ADD: Load token from SharedPreferences
+  Future<void> _loadToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _token = prefs.getString('auth_token');
+      if (_token != null) {
+        debugPrint('✅ Token loaded from storage');
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading token: $e');
+    }
+  }
+
+  // ✅ ADD: Logout method
+  Future<void> logout() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('auth_token');
+      
+      clearData();
+      
+      debugPrint('✅ User logged out successfully');
+    } catch (e) {
+      debugPrint('❌ Error during logout: $e');
+    }
+  }
+
+  // ✅ UPDATE: Fetch teacher profile with system check
   Future<void> fetchProfile() async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -64,14 +273,7 @@ class TeacherProvider with ChangeNotifier {
     _setError(null);
 
     try {
-      final url = Uri.parse('$_baseUrl/api/teacher/profile/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
+      final response = await _makeAuthenticatedRequest('/api/teacher/profile/');
 
       debugPrint('🔍 Profile response: ${response.statusCode}');
       debugPrint('🔍 Profile body: ${response.body}');
@@ -92,6 +294,8 @@ class TeacherProvider with ChangeNotifier {
       } else {
         _setError('Failed to load profile: ${response.statusCode}');
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Profile fetch error: $e');
       _setError('Network error: $e');
@@ -120,58 +324,69 @@ class TeacherProvider with ChangeNotifier {
     return combined;
   }
 
-  // Fetch advising students
-  Future<void> fetchAdvisingStudents() async {
-    if (_token == null) {
-      _setError('Authentication token not found');
-      return;
-    }
-
-    _setLoading(true);
-    _setError(null);
-
-    try {
-      final url = Uri.parse('$_baseUrl/api/teacher/advisory-section/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
-
-      debugPrint('🔍 Advising students response: ${response.statusCode}');
-      debugPrint('🔍 Response body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          _advisingStudents = List<Map<String, dynamic>>.from(data['students'] ?? []);
-          debugPrint('✅ Advising students loaded: ${_advisingStudents.length} students');
-          
-          // Log violation data for debugging
-          for (var student in _advisingStudents) {
-            if (student['violations_all_time'] != null && student['violations_all_time'] > 0) {
-              debugPrint('📊 ${student['first_name']} ${student['last_name']}: '
-                  '${student['violations_current_year']} current, '
-                  '${student['violations_all_time']} all-time');
-            }
-          }
-        } else {
-          _setError(data['error'] ?? 'Failed to load advising students');
-        }
-      } else {
-        _setError('Failed to load advising students: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('❌ Advising students fetch error: $e');
-      _setError('Network error: $e');
-    } finally {
-      _setLoading(false);
-    }
+  // ✅ UPDATE: Fetch advising students with system check
+  Future<void> fetchAdvisingStudents({String? schoolYear}) async {
+  if (_token == null) {
+    _setError('Authentication token not found');
+    return;
   }
 
-  // ✅ NEW: Update student information
+  _setLoading(true);
+  _setError(null);
+
+  try {
+    String endpoint = '/api/teacher/advising-students/';
+    // Remove schoolYear param unless your backend supports it
+
+    final response = await _makeAuthenticatedRequest(endpoint);
+
+    debugPrint('🔍 Advising students response: ${response.statusCode}');
+    debugPrint('🔍 Response body: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        _advisingStudents = List<Map<String, dynamic>>.from(data['students'] ?? []);
+        debugPrint('✅ Advising students loaded: ${_advisingStudents.length} students');
+      } else {
+        _setError(data['error'] ?? 'Failed to load advising students');
+      }
+    } else {
+      _setError('Failed to load advising students: ${response.statusCode}');
+    }
+  } on SystemFrozenException {
+    rethrow;
+  } catch (e) {
+    debugPrint('❌ Advising students fetch error: $e');
+    _setError('Network error: $e');
+  } finally {
+    _setLoading(false);
+  }
+}
+
+  Future<void> fetchAvailableSchoolYears() async {
+  try {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/api/system/school-years/'),
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true && data['school_years'] is List) {
+        _availableSchoolYears = List<String>.from(data['school_years']);
+        // Default to latest school year if not set
+        if (_selectedSchoolYear.isEmpty && _availableSchoolYears.isNotEmpty) {
+          _selectedSchoolYear = _availableSchoolYears.last;
+        }
+        notifyListeners();
+      }
+    }
+  } catch (e) {
+    debugPrint('❌ Error fetching school years: $e');
+  }
+}
+
+  // ✅ UPDATE: Update student information with system check
   Future<bool> updateStudentInfo({
     required int studentId,
     required String gradeLevel,
@@ -184,8 +399,6 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/teacher/advisory-section/');
-      
       final updateData = {
         'updates': [
           {
@@ -199,13 +412,10 @@ class TeacherProvider with ChangeNotifier {
 
       debugPrint('🔄 Updating student info: $updateData');
 
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-        body: jsonEncode(updateData),
+      final response = await _makeAuthenticatedRequest(
+        '/api/teacher/advisory-section/',
+        method: 'POST',
+        body: updateData,
       );
 
       debugPrint('📡 Update response: ${response.statusCode}');
@@ -236,6 +446,8 @@ class TeacherProvider with ChangeNotifier {
         _setError('Failed to update student info: ${response.statusCode}');
         return false;
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Update student info error: $e');
       _setError('Network error: $e');
@@ -243,7 +455,7 @@ class TeacherProvider with ChangeNotifier {
     }
   }
 
-  // ✅ NEW: Batch update multiple students
+  // ✅ UPDATE: Batch update multiple students with system check
   Future<bool> batchUpdateStudents(List<Map<String, dynamic>> updates) async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -251,19 +463,14 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/teacher/advisory-section/');
-      
       final updateData = {'updates': updates};
 
       debugPrint('🔄 Batch updating ${updates.length} students');
 
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-        body: jsonEncode(updateData),
+      final response = await _makeAuthenticatedRequest(
+        '/api/teacher/advisory-section/',
+        method: 'POST',
+        body: updateData,
       );
 
       debugPrint('📡 Batch update response: ${response.statusCode}');
@@ -285,6 +492,8 @@ class TeacherProvider with ChangeNotifier {
         _setError('Failed to batch update students: ${response.statusCode}');
         return false;
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Batch update error: $e');
       _setError('Network error: $e');
@@ -292,7 +501,7 @@ class TeacherProvider with ChangeNotifier {
     }
   }
 
-  // ✅ NEW: Fetch student violation history across all school years
+  // ✅ UPDATE: Fetch student violation history with system check
   Future<Map<String, dynamic>?> fetchStudentViolationHistory(int studentId) async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -300,16 +509,10 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/students/$studentId/violation-history/');
-      
       debugPrint('🔄 Fetching violation history for student $studentId');
 
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
+      final response = await _makeAuthenticatedRequest(
+        '/api/students/$studentId/violation-history/',
       );
 
       debugPrint('📡 Violation history response: ${response.statusCode}');
@@ -328,6 +531,8 @@ class TeacherProvider with ChangeNotifier {
         _setError('Failed to load violation history: ${response.statusCode}');
         return null;
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Violation history fetch error: $e');
       _setError('Network error: $e');
@@ -335,7 +540,7 @@ class TeacherProvider with ChangeNotifier {
     }
   }
 
-  // Fetch all students (for reporting)
+  // ✅ UPDATE: Fetch all students with system check
   Future<void> fetchStudents() async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -343,14 +548,7 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/students-list/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
+      final response = await _makeAuthenticatedRequest('/api/students-list/');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -363,6 +561,8 @@ class TeacherProvider with ChangeNotifier {
       } else {
         _setError('Failed to load students: ${response.statusCode}');
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Students fetch error: $e');
       _setError('Network error: $e');
@@ -370,42 +570,48 @@ class TeacherProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Fetch teacher reports
+  // ✅ UPDATE: Fetch teacher reports with system check
   Future<void> fetchReports() async {
-    if (_token == null) {
-      _setError('Authentication token not found');
-      return;
-    }
-
-    try {
-      final url = Uri.parse('$_baseUrl/api/teacher/reports/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          _reports = List<Map<String, dynamic>>.from(data['reports'] ?? []);
-          debugPrint('✅ Reports loaded: ${_reports.length} reports');
-        } else {
-          _setError(data['error'] ?? 'Failed to load reports');
-        }
-      } else {
-        _setError('Failed to load reports: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('❌ Reports fetch error: $e');
-      _setError('Network error: $e');
-    }
-    notifyListeners();
+  if (_token == null) {
+    _setError('Authentication token not found');
+    return;
   }
 
-  // Fetch notifications
+  try {
+    final response = await _makeAuthenticatedRequest('/api/teacher/reports/');
+
+    debugPrint('📋 Reports response status: ${response.statusCode}');
+    debugPrint('📋 Reports response body: ${response.body}'); // ✅ Add this line
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        _reports = List<Map<String, dynamic>>.from(data['reports'] ?? []);
+        
+        // ✅ Debug each report to see what fields are available
+        for (int i = 0; i < _reports.length; i++) {
+          debugPrint('📋 Report $i fields: ${_reports[i].keys.toList()}');
+          debugPrint('📋 Report $i description: "${_reports[i]['description']}"');
+          debugPrint('📋 Report $i content: "${_reports[i]['content']}"');
+        }
+        
+        debugPrint('✅ Reports loaded: ${_reports.length} reports');
+      } else {
+        _setError(data['error'] ?? 'Failed to load reports');
+      }
+    } else {
+      _setError('Failed to load reports: ${response.statusCode}');
+    }
+  } on SystemFrozenException {
+    rethrow;
+  } catch (e) {
+    debugPrint('❌ Reports fetch error: $e');
+    _setError('Network error: $e');
+  }
+  notifyListeners();
+}
+
+  // ✅ UPDATE: Fetch notifications with system check
   Future<void> fetchNotifications() async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -413,14 +619,7 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/teacher/notifications/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
+      final response = await _makeAuthenticatedRequest('/api/teacher/notifications/');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -433,6 +632,8 @@ class TeacherProvider with ChangeNotifier {
       } else {
         _setError('Failed to load notifications: ${response.statusCode}');
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Notifications fetch error: $e');
       _setError('Network error: $e');
@@ -440,7 +641,7 @@ class TeacherProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Fetch violation types
+  // ✅ UPDATE: Fetch violation types with system check
   Future<void> fetchViolationTypes() async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -448,14 +649,7 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/violation-types/');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-      );
+      final response = await _makeAuthenticatedRequest('/api/violation-types/');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -468,6 +662,8 @@ class TeacherProvider with ChangeNotifier {
       } else {
         _setError('Failed to load violation types: ${response.statusCode}');
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Violation types fetch error: $e');
       _setError('Network error: $e');
@@ -475,7 +671,7 @@ class TeacherProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Submit student report
+  // ✅ UPDATE: Submit student report with system check
   Future<bool> submitStudentReport(Map<String, dynamic> reportData) async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -483,18 +679,13 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/teacher/reports/');
-      
-      debugPrint('🔄 Submitting teacher report to: $url');
+      debugPrint('🔄 Submitting teacher report');
       debugPrint('🔄 Report data: $reportData');
       
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
-        body: jsonEncode(reportData),
+      final response = await _makeAuthenticatedRequest(
+        '/api/teacher/reports/',
+        method: 'POST',
+        body: reportData,
       );
 
       debugPrint('📡 Submit report response: ${response.statusCode}');
@@ -519,6 +710,8 @@ class TeacherProvider with ChangeNotifier {
         }
         return false;
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Submit report error: $e');
       _setError('Network error: $e');
@@ -526,7 +719,7 @@ class TeacherProvider with ChangeNotifier {
     }
   }
 
-  // Mark notification as read
+  // ✅ UPDATE: Mark notification as read with system check
   Future<void> markNotificationAsRead(int notificationId) async {
     if (_token == null) {
       _setError('Authentication token not found');
@@ -534,13 +727,9 @@ class TeacherProvider with ChangeNotifier {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/api/notifications/mark-read/$notificationId/');
-      final response = await http.put(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Token $_token',
-        },
+      final response = await _makeAuthenticatedRequest(
+        '/api/notifications/mark-read/$notificationId/',
+        method: 'PUT',
       );
 
       debugPrint('🔍 Mark notification read response: ${response.statusCode}');
@@ -562,6 +751,8 @@ class TeacherProvider with ChangeNotifier {
       } else {
         _setError('Failed to mark notification as read: ${response.statusCode}');
       }
+    } on SystemFrozenException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Mark notification read error: $e');
       _setError('Network error: $e');
@@ -602,6 +793,10 @@ class TeacherProvider with ChangeNotifier {
     _violationTypes.clear();
     _isLoading = false;
     _error = null;
+    // ✅ Reset system settings
+    _systemSchoolYear = null;
+    _isSystemActive = true;
+    _systemMessage = null;
     notifyListeners();
   }
 }

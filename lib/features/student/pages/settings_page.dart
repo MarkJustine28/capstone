@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../../../providers/auth_provider.dart';
 import '../../../providers/student_provider.dart';
 import '../../../config/routes.dart';
+import '../../../config/env.dart'; // ✅ Use existing Env class
 
 class StudentSettingsPage extends StatefulWidget {
   const StudentSettingsPage({super.key});
@@ -70,23 +73,14 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // ✅ School Year Information Section
                   _buildSchoolYearSection(studentProvider),
                   const SizedBox(height: 16),
-
-                  // Profile Section
                   _buildProfileSection(context, authProvider, studentProvider),
                   const SizedBox(height: 16),
-
-                  // Account Section
                   _buildAccountSection(context, authProvider),
                   const SizedBox(height: 16),
-
-                  // App Settings Section
                   _buildAppSection(context),
                   const SizedBox(height: 24),
-
-                  // Logout Button
                   _buildLogoutButton(context, authProvider),
                 ],
               ),
@@ -94,7 +88,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     );
   }
 
-  // ✅ School Year Section
   Widget _buildSchoolYearSection(StudentProvider provider) {
     final schoolYear = provider.currentSchoolYear;
     final grade = provider.gradeLevel;
@@ -126,17 +119,12 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
                 const SizedBox(width: 12),
                 const Text(
                   'Academic Information',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ),
           const Divider(height: 1),
-          
-          // School Year
           ListTile(
             leading: const Icon(Icons.school, color: Color(0xFF4CAF50)),
             title: const Text('School Year'),
@@ -161,23 +149,17 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
               ),
             ),
           ),
-          
-          // Grade Level
           ListTile(
             leading: const Icon(Icons.grade, color: Color(0xFF4CAF50)),
             title: const Text('Grade Level'),
             subtitle: Text(grade != 'N/A' ? 'Grade $grade' : 'Not Set'),
           ),
-          
-          // Strand (for Grade 11 & 12)
           if (strand != null && strand.isNotEmpty && (grade == '11' || grade == '12'))
             ListTile(
               leading: const Icon(Icons.category, color: Color(0xFF4CAF50)),
               title: const Text('Strand'),
               subtitle: Text(strand),
             ),
-          
-          // Section
           ListTile(
             leading: const Icon(Icons.group, color: Color(0xFF4CAF50)),
             title: const Text('Section'),
@@ -197,7 +179,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     return schoolYear == currentSY;
   }
 
-  // Profile Section
   Widget _buildProfileSection(
     BuildContext context,
     AuthProvider authProvider,
@@ -219,20 +200,10 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
                     color: Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.blue,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.person, color: Colors.blue, size: 20),
                 ),
                 const SizedBox(width: 12),
-                const Text(
-                  'Profile',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                const Text('Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -251,35 +222,30 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             ),
             title: Text(
               authProvider.displayName,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             subtitle: Text(authProvider.username ?? 'N/A'),
             trailing: const Icon(Icons.edit, size: 20),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Profile editing coming soon!'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
+            onTap: () => _showEditProfileDialog(context, authProvider, studentProvider),
           ),
-          
-          // Student ID
-          if (studentProvider.studentInfo != null &&
-              studentProvider.studentInfo!['student_id'] != null)
+          if (studentProvider.studentInfo != null && studentProvider.studentInfo!['lrn'] != null)
             ListTile(
               leading: const Icon(Icons.badge, color: Colors.blue),
-              title: const Text('Student ID'),
-              subtitle: Text(
-                studentProvider.studentInfo?['student_id']?.toString() ?? 'N/A',
+              title: const Text('LRN'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    studentProvider.studentInfo?['lrn']?.toString() ?? 'N/A',
+                    style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                  ),
+                  const Text(
+                    'Learner Reference Number',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
               ),
             ),
-          
-          // Contact Number
           if (studentProvider.studentInfo?['contact_number'] != null &&
               (studentProvider.studentInfo!['contact_number'] as String).isNotEmpty)
             ListTile(
@@ -287,8 +253,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
               title: const Text('Contact Number'),
               subtitle: Text(studentProvider.studentInfo?['contact_number'] ?? 'N/A'),
             ),
-          
-          // Guardian Info
           if (studentProvider.studentInfo?['guardian_name'] != null &&
               (studentProvider.studentInfo!['guardian_name'] as String).isNotEmpty)
             ListTile(
@@ -312,7 +276,173 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     );
   }
 
-  // Account Section
+  void _showEditProfileDialog(
+    BuildContext context,
+    AuthProvider authProvider,
+    StudentProvider studentProvider,
+  ) {
+    final firstNameController = TextEditingController(text: authProvider.firstName ?? '');
+    final lastNameController = TextEditingController(text: authProvider.lastName ?? '');
+    final contactController = TextEditingController(
+      text: studentProvider.studentInfo?['contact_number'] ?? '',
+    );
+    final guardianNameController = TextEditingController(
+      text: studentProvider.studentInfo?['guardian_name'] ?? '',
+    );
+    final guardianContactController = TextEditingController(
+      text: studentProvider.studentInfo?['guardian_contact'] ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Profile'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstNameController,
+                decoration: const InputDecoration(
+                  labelText: 'First Name',
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Last Name',
+                  prefixIcon: Icon(Icons.person_outline),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: contactController,
+                decoration: const InputDecoration(
+                  labelText: 'Contact Number',
+                  prefixIcon: Icon(Icons.phone),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: guardianNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Guardian Name',
+                  prefixIcon: Icon(Icons.family_restroom),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: guardianContactController,
+                decoration: const InputDecoration(
+                  labelText: 'Guardian Contact',
+                  prefixIcon: Icon(Icons.phone_in_talk),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (firstNameController.text.trim().isEmpty ||
+                  lastNameController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('First name and last name are required'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              try {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const Center(child: CircularProgressIndicator()),
+                );
+
+                // ✅ Use Env.serverIp from existing config
+                final serverIp = Env.serverIp;
+
+                final response = await http.put(
+                  Uri.parse('$serverIp/api/student/profile/update/'),
+                  headers: {
+                    'Authorization': 'Token ${authProvider.token}',
+                    'Content-Type': 'application/json',
+                  },
+                  body: json.encode({
+                    'first_name': firstNameController.text.trim(),
+                    'last_name': lastNameController.text.trim(),
+                    'contact_number': contactController.text.trim(),
+                    'guardian_name': guardianNameController.text.trim(),
+                    'guardian_contact': guardianContactController.text.trim(),
+                  }),
+                );
+
+                Navigator.of(context).pop();
+
+                if (response.statusCode == 200) {
+                  final data = json.decode(response.body);
+
+                  if (data['success'] == true) {
+                    await studentProvider.fetchStudentInfo(authProvider.token!);
+                    Navigator.pop(context);
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Profile updated successfully!'),
+                        backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+
+                    await _loadStudentInfo();
+                  } else {
+                    throw Exception(data['error'] ?? 'Failed to update profile');
+                  }
+                } else {
+                  throw Exception('Server error: ${response.statusCode}');
+                }
+              } catch (e) {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating profile: $e'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4CAF50),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAccountSection(BuildContext context, AuthProvider authProvider) {
     return Card(
       elevation: 2,
@@ -330,20 +460,10 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
                     color: Colors.orange.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
-                    Icons.account_circle,
-                    color: Colors.orange,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.account_circle, color: Colors.orange, size: 20),
                 ),
                 const SizedBox(width: 12),
-                const Text(
-                  'Account',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                const Text('Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -352,19 +472,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             leading: const Icon(Icons.person_outline, color: Colors.orange),
             title: const Text('Username'),
             subtitle: Text(authProvider.username ?? 'N/A'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.lock_outline, color: Colors.orange),
-            title: const Text('Change Password'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Password change coming soon!'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
           ),
           ListTile(
             leading: const Icon(Icons.admin_panel_settings, color: Colors.orange),
@@ -376,7 +483,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     );
   }
 
-  // App Settings Section
   Widget _buildAppSection(BuildContext context) {
     return Card(
       elevation: 2,
@@ -394,51 +500,14 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
                     color: Colors.purple.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
-                    Icons.settings,
-                    color: Colors.purple,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.settings, color: Colors.purple, size: 20),
                 ),
                 const SizedBox(width: 12),
-                const Text(
-                  'App Settings',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                const Text('App Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
           const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.notifications_outlined, color: Colors.purple),
-            title: const Text('Notifications'),
-            subtitle: const Text('Manage notification preferences'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notification settings coming soon!'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined, color: Colors.purple),
-            title: const Text('Privacy'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Privacy settings coming soon!'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.info_outline, color: Colors.purple),
             title: const Text('About'),
@@ -446,16 +515,12 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
             onTap: () {
               showAboutDialog(
                 context: context,
-                applicationName: 'Guidance Tracker',
+                applicationName: 'InciTrack',
                 applicationVersion: '1.0.0',
-                applicationIcon: const Icon(
-                  Icons.school,
-                  size: 50,
-                  color: Color(0xFF4CAF50),
-                ),
+                applicationIcon: const Icon(Icons.school, size: 50, color: Color(0xFF4CAF50)),
                 children: [
                   const Text(
-                    'A comprehensive student guidance and reporting system.',
+                    'A comprehensive incident tracking and student guidance system for Aldresto T. Sandoval Memorial National High School.',
                   ),
                 ],
               );
@@ -466,7 +531,6 @@ class _StudentSettingsPageState extends State<StudentSettingsPage> {
     );
   }
 
-  // Logout Button
   Widget _buildLogoutButton(BuildContext context, AuthProvider authProvider) {
     return Card(
       elevation: 2,

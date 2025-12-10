@@ -3,30 +3,24 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// ✅ FIXED: Use only Env class
+import '../config/env.dart';
 
 class ApiService {
   // Private constructor for singleton pattern
   ApiService._privateConstructor();
   static final ApiService instance = ApiService._privateConstructor();
 
-  // 🌍 Determine environment from .env
-  static String get environment => dotenv.env['ENV'] ?? 'local';
+  // ✅ FIXED: Use Env.env (works for web via env.js and for mobile via dotenv)
+  static String get environment => Env.env;
 
-  // 🌐 Dynamic base URL based on environment
+  // ✅ FIXED: Build baseUrl using Env.serverIp only
   static String get baseUrl {
-    if (environment == 'production') {
-      final serverIp = dotenv.env['SERVER_IP'] ?? 'https://guidance-tracker-backend.onrender.com';
-      // Remove trailing slash if present
-      final cleanUrl = serverIp.endsWith('/') ? serverIp.substring(0, serverIp.length - 1) : serverIp;
-      return '$cleanUrl/api';
-    } else {
-      final localIp = dotenv.env['LOCAL_SERVER_IP'] ?? '192.168.11.152:8000';
-      // Add http:// if not present
-      final cleanIp = localIp.startsWith('http') ? localIp : 'http://$localIp';
-      return '$cleanIp/api';
-    }
+    final serverIp = Env.serverIp;
+    final cleanUrl = serverIp.endsWith('/') ? serverIp.substring(0, serverIp.length - 1) : serverIp;
+    return '$cleanUrl/api';
   }
 
   // 🔐 Get stored token from SharedPreferences
@@ -436,9 +430,38 @@ class ApiService {
     required int notificationId,
   }) async {
     return patch(
-      endpoint: '/notifications/$notificationId/read/',
+      endpoint: '/notifications/$notificationId/mark-read/', // ✅ Changed from /read/ to /mark-read/
+      token: token,
+      data: {'is_read': true}, // ✅ Added data payload
+    );
+  }
+
+  Future<Map<String, dynamic>> markAllNotificationsAsRead({
+    required String token,
+  }) async {
+    return post(
+      endpoint: '/notifications/mark-all-read/',
       token: token,
       data: {},
+    );
+  }
+
+  Future<Map<String, dynamic>> deleteNotification({
+    required String token,
+    required int notificationId,
+  }) async {
+    return delete(
+      endpoint: '/notifications/$notificationId/delete/',
+      token: token,
+    );
+  }
+
+  Future<Map<String, dynamic>> getUnreadNotificationCount({
+    required String token,
+  }) async {
+    return get(
+      endpoint: '/notifications/unread-count/',
+      token: token,
     );
   }
 

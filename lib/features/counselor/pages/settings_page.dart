@@ -634,18 +634,25 @@ class _CounselorSettingsPageState extends State<CounselorSettingsPage> {
                 ),
               ),
               Text(
-                profile?['username'] ?? 'No username',
-                style: const TextStyle(
+                '@${profile?['username'] ?? 'No username'}',
+                style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey,
+                  color: Colors.grey.shade600,
+                  fontStyle: FontStyle.italic,
                 ),
               ),
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 8),
-              // ✅ REMOVED: Department field
               _buildProfileRow('Role', 'Guidance Counselor'),
-              _buildProfileRow('User ID', profile?['user_id']?.toString() ?? 'N/A'),
+              _buildProfileRow(
+                'Employee ID', 
+                profile?['employee_id']?.toString() ?? 'Not set'
+              ),
+              _buildProfileRow(
+                'Email',
+                profile?['email']?.toString() ?? 'Not set'
+              ),
             ],
           ),
         ),

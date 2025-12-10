@@ -162,7 +162,7 @@ IconData _getStatusIcon(String status) {
     return;
   }
 
-  // Mark as under_review (valid) - ✅ Changed from 'reviewed' to 'under_review'
+  // ✅ FIX: Mark as "reviewed" (ready for tallying) instead of "under_review"
   setState(() {
     _loadingReports.add(report['id']);
   });
@@ -170,7 +170,7 @@ IconData _getStatusIcon(String status) {
   try {
     final success = await counselorProvider.updateTeacherReportStatus(
       report['id'],
-      'under_review',  // ✅ Changed from 'reviewed' to 'under_review'
+      'reviewed',  // ✅ Changed from 'under_review' to 'reviewed'
     );
 
     if (mounted) {
@@ -185,10 +185,19 @@ IconData _getStatusIcon(String status) {
                 const Icon(Icons.check_circle, color: Colors.white),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    "✅ Report marked as valid and under review!\n"
-                    "You can now manually record violations in Students Management.",
-                    style: const TextStyle(color: Colors.white),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "✅ Teacher Report Validated!",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const Text(
+                        "Report is now ready for tallying in the Tally Report tab",
+                        style: TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -755,7 +764,7 @@ IconData _getStatusIcon(String status) {
                         children: [
                           _buildFilterChip('All', 'all', Colors.grey),
                           _buildFilterChip('Pending', 'pending', Colors.orange),
-                          _buildFilterChip('Under Review', 'under_review', Colors.blue),
+                          _buildFilterChip('Reviewed', 'reviewed', Colors.green),
                           _buildFilterChip('Resolved', 'resolved', Colors.green),
                           _buildFilterChip('Dismissed', 'dismissed', Colors.red),
                         ],

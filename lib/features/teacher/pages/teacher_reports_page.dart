@@ -132,96 +132,170 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
     );
   }
 
+  void _debugReport(Map<String, dynamic> report) {
+  debugPrint('🐛 Report data:');
+  report.forEach((key, value) {
+    debugPrint('  $key: $value');
+  });
+}
+
   Widget _buildReportCard(Map<String, dynamic> report) {
-    final status = report['status'] ?? 'pending';
-    final statusColor = _getStatusColor(status);
-    final title = report['title'] ?? 'No Title';
-    final content = report['content'] ?? '';
-    final date = report['created_at'] ?? report['date'] ?? '';
+  _debugReport(report);
+  final status = report['status'] ?? 'pending';
+  final statusColor = _getStatusColor(status);
+  final title = report['title'] ?? 'No Title';
+  final content = report['content'] ?? 
+               report['description'] ?? 
+               report['details'] ?? 
+               report['report_content'] ?? 
+               report['incident_description'] ?? 
+               '';
+  final date = report['created_at'] ?? report['date'] ?? '';
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      child: InkWell(
-        onTap: () => _showReportDetails(report),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with status
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: statusColor.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      status.toUpperCase(),
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+  // ✅ FIXED: Extract student name properly with better error handling
+String studentName = 'Unknown Student';
 
-              const SizedBox(height: 8),
+debugPrint('🔍 DEBUG: reported_student type: ${report['reported_student'].runtimeType}');
+debugPrint('🔍 DEBUG: reported_student data: ${report['reported_student']}');
 
-              // Content preview
-              if (content.isNotEmpty)
-                Text(
-                  content,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
+if (report['reported_student'] != null) {
+  if (report['reported_student'] is Map) {
+    final reportedStudent = report['reported_student'] as Map<String, dynamic>;
+    
+    // Try different possible field names
+    studentName = reportedStudent['name']?.toString() ?? 
+                  reportedStudent['full_name']?.toString() ?? 
+                  reportedStudent['student_name']?.toString() ?? 
+                  'Unknown Student';
+    
+    // If still empty, try combining first_name and last_name
+    if (studentName == 'Unknown Student') {
+      final firstName = reportedStudent['first_name']?.toString() ?? '';
+      final lastName = reportedStudent['last_name']?.toString() ?? '';
+      if (firstName.isNotEmpty || lastName.isNotEmpty) {
+        studentName = '$firstName $lastName'.trim();
+      }
+    }
+    
+    debugPrint('✅ Extracted student name: "$studentName"');
+  } else if (report['reported_student'] is String) {
+    // If it's already a string, use it directly
+    studentName = report['reported_student'].toString();
+    debugPrint('✅ Student name from string: "$studentName"');
+  }
+} else if (report['student_name'] != null) {
+  // Fallback to student_name field
+  studentName = report['student_name'].toString();
+  debugPrint('✅ Student name from student_name field: "$studentName"');
+}
+
+debugPrint('📝 Final student name: "$studentName"');
+  
+  return Card(
+    margin: const EdgeInsets.only(bottom: 12),
+    elevation: 2,
+    child: InkWell(
+      onTap: () => _showReportDetails(report),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with status
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                 ),
-
-              const SizedBox(height: 12),
-
-              // Date and action
-              Row(
-                children: [
-                  Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      _formatDate(date),
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 12,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusColor.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Icon(Icons.chevron_right, color: Colors.grey[400]),
-                ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // ✅ NEW: Display student name
+            Row(
+              children: [
+                Icon(Icons.person, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    studentName,
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // Content preview
+            if (content.isNotEmpty)
+              Text(
+                content,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
+
+            const SizedBox(height: 12),
+
+            // Date and action
+            Row(
+              children: [
+                Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    _formatDate(date),
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _showReportDetails(Map<String, dynamic> report) {
     showDialog(

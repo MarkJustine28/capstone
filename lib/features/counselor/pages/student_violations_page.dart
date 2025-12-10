@@ -4,6 +4,11 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/counselor_provider.dart';
 import '../widgets/tally_violation_dialog.dart';
 import '../../../widgets/school_year_banner.dart';
+import '../../../core/constants/app_breakpoints.dart';
+import '../../../config/routes.dart';
+import '../pages/counseling_sessions_page.dart';
+import 'dart:convert';
+import 'package:universal_html/html.dart' as html;
 
 class StudentViolationsPage extends StatefulWidget {
   const StudentViolationsPage({super.key});
@@ -130,11 +135,33 @@ class _StudentViolationsPageState extends State<StudentViolationsPage> {
 
   // Helper method to get sections for selected grade
   List<String> get availableSections {
-    if (_selectedGrade == 'All') {
-      return allSections;
+  if (_selectedGrade == 'All') {
+    // Show all sections from all grades and strands
+    Set<String> sections = {'All'};
+    for (String grade in grades.where((g) => g != 'All')) {
+      sections.addAll(gradeSections[grade] ?? []);
+      if (strandSections.containsKey(grade)) {
+        for (var strand in strandSections[grade]!.values) {
+          sections.addAll(strand);
+        }
+      }
     }
-    return ['All', ...gradeSections[_selectedGrade] ?? []];
+    return sections.toList()..sort();
   }
+  // For grades 7-10
+  if (gradeSections.containsKey(_selectedGrade)) {
+    return ['All', ...gradeSections[_selectedGrade]!];
+  }
+  // For grades 11-12, flatten all strand sections
+  if (strandSections.containsKey(_selectedGrade)) {
+    Set<String> sections = {'All'};
+    for (var strand in strandSections[_selectedGrade]!.values) {
+      sections.addAll(strand);
+    }
+    return sections.toList()..sort();
+  }
+  return ['All'];
+}
 
   List<String> _generateSchoolYears() {
   final currentYear = DateTime.now().year;
@@ -198,6 +225,8 @@ void initState() {
   }
 }
 
+final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
 Widget build(BuildContext context) {
   return Consumer<CounselorProvider>(
@@ -221,36 +250,28 @@ Widget build(BuildContext context) {
       
       // ✅ THEN apply other filters (search, grade, section)
       final filteredStudents = yearFilteredStudents.where((student) {
-        final matchesSearch = _searchQuery.isEmpty ||
-            (student['name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
-            (student['student_id']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
-            (student['first_name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
-            (student['last_name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
-        
-        final matchesGrade = _selectedGrade == 'All' || 
-            student['grade_level']?.toString() == _selectedGrade;
-        
-        final matchesSection = _selectedSection == 'All' || 
-            student['section']?.toString() == _selectedSection;
+  final matchesGrade = _selectedGrade == 'All' || student['grade_level']?.toString() == _selectedGrade;
+  final matchesSection = _selectedSection == 'All' || student['section']?.toString() == _selectedSection;
+  final matchesSearch = _searchQuery.isEmpty ||
+      (student['name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+      (student['student_id']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+      (student['first_name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+      (student['last_name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
 
-        // Filter by violation status if needed
-        if (_showOnlyWithViolations) {
-          final studentViolations = provider.studentViolations.where((v) {
-            final violationStudentId = v['student_id']?.toString() ?? 
-                                       v['student']?['id']?.toString();
-            final currentStudentId = student['id']?.toString();
-            final violationSchoolYear = v['school_year']?.toString() ?? '';
-            
-            // ✅ FIX: Also filter violations by school year
-            final matchesYear = selectedSchoolYear == 'all' || violationSchoolYear == selectedSchoolYear;
-            
-            return violationStudentId == currentStudentId && matchesYear;
-          }).toList();
-          return matchesSearch && matchesGrade && matchesSection && studentViolations.isNotEmpty;
-        }
-        
-        return matchesSearch && matchesGrade && matchesSection;
-      }).toList();
+  // Filter by violation status if needed
+  if (_showOnlyWithViolations) {
+    final studentViolations = provider.studentViolations.where((v) {
+      final violationStudentId = v['student_id']?.toString() ?? v['student']?['id']?.toString();
+      final currentStudentId = student['id']?.toString();
+      final violationSchoolYear = v['school_year']?.toString() ?? '';
+      final matchesYear = selectedSchoolYear == 'all' || violationSchoolYear == selectedSchoolYear;
+      return violationStudentId == currentStudentId && matchesYear;
+    }).toList();
+    return matchesSearch && matchesGrade && matchesSection && studentViolations.isNotEmpty;
+  }
+
+  return matchesSearch && matchesGrade && matchesSection;
+}).toList();
 
       // Sort students by grade and section
       filteredStudents.sort((a, b) {
@@ -260,259 +281,615 @@ Widget build(BuildContext context) {
       });
 
       return Scaffold(
-        appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          key: _scaffoldKey, // ✅ ADD: Assign key
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            title: LayoutBuilder(
+              builder: (context, constraints) {
+                final screenWidth = MediaQuery.of(context).size.width;
+                final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+                final isTablet = AppBreakpoints.isTablet(screenWidth);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Students Management",
+                      style: TextStyle(fontSize: isDesktop ? 20 : 18),
+                    ),
+                    Text(
+                      '${filteredStudents.length} students • S.Y. $selectedSchoolYear',
+                      style: TextStyle(
+                        fontSize: isDesktop ? 13 : 12,
+                        fontWeight: FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            backgroundColor: Colors.blue.shade700,
+            foregroundColor: Colors.white,
+            actions: [
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final screenWidth = MediaQuery.of(context).size.width;
+          final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+          final iconSize = isDesktop ? 24.0 : 20.0;
+
+          return Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                "Students Management",
-                style: TextStyle(fontSize: 18),
+              // Summoned Students Button
+              IconButton(
+                icon: Icon(Icons.notifications_active, size: iconSize),
+                tooltip: 'Summoned Students',
+                onPressed: () => _showSendGuidanceNoticeDialog(),
               ),
-              Text(
-                '${filteredStudents.length} students • S.Y. $selectedSchoolYear', // ✅ Show filtered count
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.normal,
-                ),
+              
+              // Tally Report Button  
+              IconButton(
+                icon: Icon(Icons.assignment, size: iconSize),
+                tooltip: 'Tally Report',
+                onPressed: () => _showTallyReportDialog(context),
               ),
-            ],
-          ),
-          backgroundColor: Colors.blue.shade700,
-          foregroundColor: Colors.white,
-          actions: [
-            // ... existing actions ...
-          ],
-        ),
-        body: Column(
-          children: [
-            // School Year Banner
-            const SchoolYearBanner(),
-            
-            // Search and Filter Section
-            Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.grey.shade50,
-              child: Column(
-                children: [
-                  // ✅ ADD: School year info banner if specific year selected
-                  if (selectedSchoolYear != 'all')
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.filter_list, size: 16, color: Colors.blue.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Showing students enrolled in S.Y. $selectedSchoolYear only',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue.shade700,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+              
+              // Menu with more options
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, size: iconSize),
+                offset: const Offset(0, 50),
+                onSelected: (value) {
+                  switch (value) {
+                    case 'add_student':
+                      _showAddStudentDialog(context);
+                      break;
+                    case 'bulk_add':
+                      _showBulkAddDialog();
+                      break;
+                    case 'export':
+                      _exportStudentsList();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'add_student',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_add, size: 20),
+                        SizedBox(width: 12),
+                        Text('Add Student'),
+                      ],
                     ),
-                  
-                  // Search bar
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: "Search by student name or ID...",
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                    onChanged: (value) => setState(() => _searchQuery = value),
                   ),
-                  const SizedBox(height: 12),
-                  
-                  // ... rest of existing filter UI ...
+                  const PopupMenuItem(
+                    value: 'bulk_add',
+                    child: Row(
+                      children: [
+                        Icon(Icons.group_add, size: 20),
+                        SizedBox(width: 12),
+                        Text('Bulk Add Students'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'export',
+                    child: Row(
+                      children: [
+                        Icon(Icons.download, size: 20),
+                        SizedBox(width: 12),
+                        Text('Export List'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-            
-            // Students List
-            Expanded(
-              child: provider.isLoadingStudentsList
-                  ? const Center(child: CircularProgressIndicator())
-                  : filteredStudents.isEmpty
-                      ? Center(
+            ],
+          );
+        },
+      ),
+    ],
+  ),
+
+  drawer: _buildNavigationDrawer(),
+
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    // School Year Banner
+                    const SchoolYearBanner(),
+
+                    // Search and Filter Section - RESPONSIVE
+                    LayoutBuilder(
+                      builder: (context, innerConstraints) {
+                        final screenWidth = innerConstraints.maxWidth;
+                        final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+                        final isTablet = AppBreakpoints.isTablet(screenWidth);
+                        final padding = AppBreakpoints.getPadding(screenWidth);
+
+                        return Container(
+                          padding: EdgeInsets.all(padding),
+                          color: Colors.grey.shade50,
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.person_off, size: 64, color: Colors.grey),
-                              const SizedBox(height: 16),
-                              Text(
-                                _searchQuery.isNotEmpty 
-                                    ? "No students found matching your search" 
-                                    : "No students enrolled in S.Y. $selectedSchoolYear", // ✅ Show school year
-                                style: const TextStyle(fontSize: 16, color: Colors.grey),
-                                textAlign: TextAlign.center,
+                              // School year filter info banner
+                              if (selectedSchoolYear != 'all')
+                                Container(
+                                  margin: EdgeInsets.only(bottom: isDesktop ? 16 : 12),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isDesktop ? 16 : 12,
+                                    vertical: isDesktop ? 10 : 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+                                    border: Border.all(color: Colors.blue.shade200),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.filter_list,
+                                        size: isDesktop ? 20 : 16,
+                                        color: Colors.blue.shade700,
+                                      ),
+                                      SizedBox(width: isDesktop ? 12 : 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Showing students enrolled in S.Y. $selectedSchoolYear only',
+                                          style: TextStyle(
+                                            fontSize: isDesktop ? 14 : 12,
+                                            color: Colors.blue.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                              // Search bar
+                              TextField(
+                                decoration: InputDecoration(
+                                  hintText: "Search by student name or ID...",
+                                  hintStyle: TextStyle(fontSize: isDesktop ? 16 : 14),
+                                  prefixIcon: Icon(Icons.search, size: isDesktop ? 24 : 20),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(isDesktop ? 12 : 10),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: padding,
+                                    vertical: isDesktop ? 16 : 12,
+                                  ),
+                                ),
+                                style: TextStyle(fontSize: isDesktop ? 16 : 14),
+                                onChanged: (value) => setState(() => _searchQuery = value),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                selectedSchoolYear == 'all'
-                                    ? 'No students found across all years'
-                                    : 'Add students or change school year filter',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: () => _showAddStudentDialog(context),
-                                icon: const Icon(Icons.person_add),
-                                label: const Text("Add Student"),
-                              ),
+                              SizedBox(height: isDesktop ? 16 : 12),
+
+                              // Filters - RESPONSIVE LAYOUT
+                              if (isDesktop || isTablet)
+                                // Desktop/Tablet: Single row
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: _buildGradeDropdown(isDesktop: isDesktop),
+                                    ),
+                                    SizedBox(width: padding),
+                                    Expanded(
+                                      flex: 2,
+                                      child: _buildSectionDropdown(isDesktop: isDesktop),
+                                    ),
+                                    SizedBox(width: padding),
+                                    Expanded(
+                                      flex: 3,
+                                      child: _buildViolationToggle(isDesktop: isDesktop),
+                                    ),
+                                  ],
+                                )
+                              else
+                                // Mobile: Stacked layout
+                                Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(child: _buildGradeDropdown(isDesktop: false)),
+                                        const SizedBox(width: 12),
+                                        Expanded(child: _buildSectionDropdown(isDesktop: false)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildViolationToggle(isDesktop: false),
+                                  ],
+                                ),
                             ],
                           ),
-                        )
-                      : _showFolderView
-                          ? _buildFolderView(filteredStudents, provider)
-                          : _buildListView(filteredStudents, provider),
-            ),
-          ],
+                        );
+                      },
+                    ),
+
+                    // Students List - keep your existing code
+                    provider.isLoadingStudentsList
+                        ? const Center(child: CircularProgressIndicator())
+                        : filteredStudents.isEmpty
+                            ? LayoutBuilder(
+                                builder: (context, innerConstraints) {
+                                  final isDesktop = AppBreakpoints.isDesktop(innerConstraints.maxWidth);
+                                  return Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(isDesktop ? 32 : 24),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.person_off,
+                                            size: isDesktop ? 80 : 64,
+                                            color: Colors.grey,
+                                          ),
+                                          SizedBox(height: isDesktop ? 24 : 16),
+                                          Text(
+                                            _searchQuery.isNotEmpty
+                                                ? "No students found matching your search"
+                                                : "No students enrolled in S.Y. $selectedSchoolYear",
+                                            style: TextStyle(
+                                              fontSize: isDesktop ? 18 : 16,
+                                              color: Colors.grey,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                          SizedBox(height: isDesktop ? 12 : 8),
+                                          Text(
+                                            selectedSchoolYear == 'all'
+                                                ? 'No students found across all years'
+                                                : 'Add students or change school year filter',
+                                            style: TextStyle(
+                                              fontSize: isDesktop ? 14 : 12,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                          SizedBox(height: isDesktop ? 24 : 16),
+                                          ElevatedButton.icon(
+                                            onPressed: () => _showAddStudentDialog(context),
+                                            icon: Icon(Icons.person_add, size: isDesktop ? 20 : 18),
+                                            label: Text(
+                                              "Add Student",
+                                              style: TextStyle(fontSize: isDesktop ? 16 : 14),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: isDesktop ? 24 : 20,
+                                                vertical: isDesktop ? 16 : 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            : LayoutBuilder(
+                                builder: (context, innerConstraints) {
+                                  return _showFolderView
+                                      ? _buildFolderView(filteredStudents, provider)
+                                      : _buildListView(filteredStudents, provider);
+                                },
+                              ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       );
     },
   );
 }
 
+
+Widget _buildGradeDropdown({required bool isDesktop}) {
+  return DropdownButtonFormField<String>(
+    value: _selectedGrade,
+    decoration: InputDecoration(
+      labelText: 'Grade',
+      labelStyle: TextStyle(fontSize: isDesktop ? 14 : 12),
+      border: const OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 16 : 12,
+        vertical: isDesktop ? 16 : 12,
+      ),
+    ),
+    style: TextStyle(fontSize: isDesktop ? 14 : 12, color: Colors.black),
+    isExpanded: true,
+    items: grades.map((grade) => DropdownMenuItem(
+      value: grade,
+      child: Text(
+        grade == 'All' ? 'All Grades' : 'Grade $grade',
+        style: TextStyle(fontSize: isDesktop ? 14 : 12),
+      ),
+    )).toList(),
+    onChanged: (value) => setState(() {
+      _selectedGrade = value ?? 'All';
+      _selectedSection = 'All';
+    }),
+  );
+}
+
+// Helper widget for Section dropdown
+Widget _buildSectionDropdown({required bool isDesktop}) {
+  return DropdownButtonFormField<String>(
+    value: _selectedSection,
+    decoration: InputDecoration(
+      labelText: 'Section',
+      labelStyle: TextStyle(fontSize: isDesktop ? 14 : 12),
+      border: const OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 16 : 12,
+        vertical: isDesktop ? 16 : 12,
+      ),
+    ),
+    style: TextStyle(fontSize: isDesktop ? 14 : 12, color: Colors.black),
+    isExpanded: true,
+    items: availableSections.map((section) => DropdownMenuItem(
+      value: section,
+      child: Text(
+        section,
+        style: TextStyle(fontSize: isDesktop ? 14 : 12),
+        overflow: TextOverflow.ellipsis,
+      ),
+    )).toList(),
+    onChanged: (value) => setState(() => _selectedSection = value ?? 'All'),
+  );
+}
+
+// Helper widget for Violation toggle
+Widget _buildViolationToggle({required bool isDesktop}) {
+  return Container(
+    padding: EdgeInsets.symmetric(
+      horizontal: isDesktop ? 16 : 12,
+      vertical: isDesktop ? 8 : 6,
+    ),
+    decoration: BoxDecoration(
+      color: _showOnlyWithViolations ? Colors.orange.shade50 : Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+      border: Border.all(
+        color: _showOnlyWithViolations ? Colors.orange.shade200 : Colors.grey.shade300,
+      ),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Switch(
+          value: _showOnlyWithViolations,
+          onChanged: (value) => setState(() => _showOnlyWithViolations = value),
+          activeColor: Colors.orange,
+        ),
+        SizedBox(width: isDesktop ? 12 : 8),
+        Expanded(
+          child: Text(
+            'Show only students with violations',
+            style: TextStyle(
+              fontSize: isDesktop ? 14 : 12,
+              fontWeight: _showOnlyWithViolations ? FontWeight.w600 : FontWeight.normal,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
   // NEW: List View - Simple table-like structure
   Widget _buildListView(List<Map<String, dynamic>> students, CounselorProvider provider) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: students.length,
-      itemBuilder: (context, index) {
-        final student = students[index];
-        final primaryStudentId = student['id']?.toString();
-        
-        // Get ONLY tallied violations (with related_report)
-        final studentViolations = provider.studentViolations
-            .where((violation) {
-              final violationStudentId = violation['student_id']?.toString() ??
-                                        violation['student']?['id']?.toString();
-              
-              if (violationStudentId != primaryStudentId) {
-                return false;
-              }
-              
-              // ONLY count tallied violations
-              return violation['related_report_id'] != null || 
-                     violation['related_report'] != null;
-            })
-            .toList();
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final screenWidth = constraints.maxWidth;
+      final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+      final isTablet = AppBreakpoints.isTablet(screenWidth);
+      final padding = AppBreakpoints.getPadding(screenWidth);
 
-        final talliedCount = studentViolations.length;
-        final activeTallied = studentViolations
-            .where((v) => v['status']?.toString().toLowerCase() == 'active' ||
-                         v['status']?.toString().toLowerCase() == 'pending')
-            .length;
+      return ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.all(padding),
+        itemCount: students.length,
+        itemBuilder: (context, index) {
+          final student = students[index];
+          final primaryStudentId = student['id']?.toString();
+          
+          // Get ONLY tallied violations (with related_report)
+          final studentViolations = provider.studentViolations
+              .where((violation) {
+                final violationStudentId = violation['student_id']?.toString() ??
+                                          violation['student']?['id']?.toString();
+                
+                if (violationStudentId != primaryStudentId) {
+                  return false;
+                }
+                
+                // ONLY count tallied violations
+                return violation['related_report_id'] != null || 
+                       violation['related_report'] != null;
+              })
+              .toList();
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: _getTalliedViolationColor(talliedCount),
-              child: Text(
-                talliedCount.toString(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
+          final talliedCount = studentViolations.length;
+          final activeTallied = studentViolations
+              .where((v) => v['status']?.toString().toLowerCase() == 'active' ||
+                           v['status']?.toString().toLowerCase() == 'pending')
+              .length;
+
+          return Card(
+            margin: EdgeInsets.only(bottom: isDesktop ? 12 : 8),
+            elevation: isDesktop ? 3 : 2,
+            child: ListTile(
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 20 : 12,
+                vertical: isDesktop ? 12 : 8,
               ),
-            ),
-            title: Text(
-              student['name']?.toString() ?? 'Unknown Student',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('ID: ${student['student_id'] ?? 'N/A'} • Grade ${student['grade_level']} ${student['section']}'),
-                if (student['email']?.toString().isNotEmpty == true)
-                  Text(
-                    student['email'].toString(),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                const SizedBox(height: 4),
-                Row(
+              leading: CircleAvatar(
+                backgroundColor: _getTalliedViolationColor(talliedCount),
+                radius: isDesktop ? 28 : 24,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (talliedCount > 0) ...[
-                      _buildChip('Tallied: $talliedCount', Colors.blue),
-                      const SizedBox(width: 4),
-                      if (activeTallied > 0)
-                        _buildChip('Active: $activeTallied', Colors.orange),
-                    ] else
-                      _buildChip('No tallied violations', Colors.grey),
+                    Text(
+                      talliedCount.toString(),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: isDesktop ? 16 : 14,
+                      ),
+                    ),
+                    if (isDesktop)
+                      const Text(
+                        'tallied',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                        ),
+                      ),
                   ],
                 ),
-              ],
-            ),
-            trailing: PopupMenuButton<String>(
-              onSelected: (value) {
-                switch (value) {
-                  case 'add_violation':
-                    _showAddViolationDialog(student);
-                    break;
-                  case 'edit_student':
-                    _showEditStudentDialog(student);
-                    break;
-                  case 'view_history':
-                    _showViolationHistoryDialog(student, studentViolations);
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'add_violation',
-                  child: Row(
+              ),
+              title: Text(
+                student['name']?.toString() ?? 'Unknown Student',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: isDesktop ? 16 : 14,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ID: ${student['student_id'] ?? 'N/A'} • Grade ${student['grade_level']} ${student['section']}',
+                    style: TextStyle(fontSize: isDesktop ? 14 : 13),
+                  ),
+                  if (student['email']?.toString().isNotEmpty == true && (isDesktop || isTablet))
+                    Text(
+                      student['email'].toString(),
+                      style: TextStyle(
+                        fontSize: isDesktop ? 13 : 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  SizedBox(height: isDesktop ? 6 : 4),
+                  Wrap(
+                    spacing: isDesktop ? 6 : 4,
+                    runSpacing: 4,
                     children: [
-                      Icon(Icons.add_alert, color: Colors.orange),
-                      SizedBox(width: 8),
-                      Text('Add Violation'),
+                      if (talliedCount > 0) ...[
+                        _buildChip(
+                          'Tallied: $talliedCount',
+                          Colors.blue,
+                          fontSize: isDesktop ? 12 : 11,
+                        ),
+                        if (activeTallied > 0)
+                          _buildChip(
+                            'Active: $activeTallied',
+                            Colors.orange,
+                            fontSize: isDesktop ? 12 : 11,
+                          ),
+                      ] else
+                        _buildChip(
+                          'No tallied violations',
+                          Colors.grey,
+                          fontSize: isDesktop ? 12 : 11,
+                        ),
                     ],
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'edit_student',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit, color: Colors.blue),
-                      SizedBox(width: 8),
-                      Text('Edit Student'),
-                    ],
-                  ),
-                ),
-                if (talliedCount > 0)
-                  const PopupMenuItem(
-                    value: 'view_history',
-                    child: Row(
+                ],
+              ),
+              trailing: isDesktop
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.history, color: Colors.green),
-                        SizedBox(width: 8),
-                        Text('View History'),
+                        IconButton(
+                          icon: const Icon(Icons.add_alert),
+                          color: Colors.orange,
+                          tooltip: 'Add Violation',
+                          onPressed: () => _showAddViolationDialog(student),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit),
+                          color: Colors.blue,
+                          tooltip: 'Edit Student',
+                          onPressed: () => _showEditStudentDialog(student),
+                        ),
+                        if (talliedCount > 0)
+                          IconButton(
+                            icon: const Icon(Icons.history),
+                            color: Colors.green,
+                            tooltip: 'View History',
+                            onPressed: () => _showViolationHistoryDialog(student, studentViolations),
+                          ),
+                      ],
+                    )
+                  : PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'add_violation':
+                            _showAddViolationDialog(student);
+                            break;
+                          case 'edit_student':
+                            _showEditStudentDialog(student);
+                            break;
+                          case 'view_history':
+                            _showViolationHistoryDialog(student, studentViolations);
+                            break;
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'add_violation',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_alert, color: Colors.orange, size: 20),
+                              SizedBox(width: 8),
+                              Text('Add Violation'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'edit_student',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, color: Colors.blue, size: 20),
+                              SizedBox(width: 8),
+                              Text('Edit Student'),
+                            ],
+                          ),
+                        ),
+                        if (talliedCount > 0)
+                          const PopupMenuItem(
+                            value: 'view_history',
+                            child: Row(
+                              children: [
+                                Icon(Icons.history, color: Colors.green, size: 20),
+                                SizedBox(width: 8),
+                                Text('View History'),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
-                  ),
-              ],
             ),
-          ),
-        );
-      },
-    );
-  }
+          );
+        },
+      );
+    },
+  );
+}
 
   // Helper to get canonical sections for a grade (includes strandSections for 11/12)
   List<String> _sectionsForGrade(String grade) {
@@ -538,94 +915,141 @@ Widget build(BuildContext context) {
 
   // NEW: Folder View - ensure sections display even when empty
   Widget _buildFolderView(List<Map<String, dynamic>> students, CounselorProvider provider) {
-    // Group students by grade and section
-    final Map<String, Map<String, List<Map<String, dynamic>>>> gradeGroups = {};
-    
-    // Initialize all grades and sections (even if empty)
-    for (final grade in ['7', '8', '9', '10', '11', '12']) {
-      gradeGroups[grade] = {};
-      final sections = _sectionsForGrade(grade);
-      for (final section in sections) {
-        gradeGroups[grade]![section] = [];
-      }
-    }
-    
-    // Add students to their respective groups
-    for (final student in students) {
-      final grade = student['grade_level']?.toString() ?? 'Unknown';
-      final section = student['section']?.toString() ?? 'Unknown';
-      
-      // Ensure container structures exist
-      if (!gradeGroups.containsKey(grade)) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final screenWidth = constraints.maxWidth;
+      final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+      final isTablet = AppBreakpoints.isTablet(screenWidth);
+      final padding = AppBreakpoints.getPadding(screenWidth);
+
+      // Group students by grade and section
+      final Map<String, Map<String, List<Map<String, dynamic>>>> gradeGroups = {};
+
+      // Initialize all grades and sections (even if empty)
+      for (final grade in ['7', '8', '9', '10', '11', '12']) {
         gradeGroups[grade] = {};
+        final sections = _sectionsForGrade(grade);
+        for (final section in sections) {
+          gradeGroups[grade]![section] = [];
+        }
       }
-      if (!gradeGroups[grade]!.containsKey(section)) {
-        gradeGroups[grade]![section] = [];
-      }
-      
-      gradeGroups[grade]![section]!.add(student);
-    }
 
-    // Sort grades in ascending order (7, 8, 9, 10, 11, 12, Unknown)
-    final sortedGrades = gradeGroups.keys.toList()..sort((a, b) {
-      if (a == 'Unknown') return 1;
-      if (b == 'Unknown') return -1;
-      
-      try {
-        final gradeA = int.parse(a);
-        final gradeB = int.parse(b);
-        return gradeA.compareTo(gradeB);
-      } catch (e) {
-        return a.compareTo(b);
-      }
-    });
+      // Add students to their respective groups
+      for (final student in students) {
+        final grade = student['grade_level']?.toString() ?? 'Unknown';
+        final section = student['section']?.toString() ?? 'Unknown';
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: sortedGrades.length,
-      itemBuilder: (context, gradeIndex) {
-        final grade = sortedGrades[gradeIndex];
-        final sections = gradeGroups[grade]!;
-        final totalStudentsInGrade = sections.values.fold<int>(0, (sum, students) => sum + students.length);
-        
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              leading: Icon(
-                Icons.folder,
-                color: totalStudentsInGrade > 0 ? Colors.blue.shade700 : Colors.grey.shade400,
-                size: 32,
-              ),
-              title: Text(
-                'Grade $grade',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: totalStudentsInGrade > 0 ? Colors.black : Colors.grey.shade600,
+        if (!gradeGroups.containsKey(grade)) {
+          gradeGroups[grade] = {};
+        }
+        if (!gradeGroups[grade]!.containsKey(section)) {
+          gradeGroups[grade]![section] = [];
+        }
+
+        gradeGroups[grade]![section]!.add(student);
+      }
+
+      // Filter grades and sections based on selected filters
+      List<String> gradesToShow;
+      if (_selectedGrade != 'All') {
+        gradesToShow = [_selectedGrade];
+      } else {
+        gradesToShow = gradeGroups.keys.toList()..sort((a, b) {
+          if (a == 'Unknown') return 1;
+          if (b == 'Unknown') return -1;
+          try {
+            final gradeA = int.parse(a);
+            final gradeB = int.parse(b);
+            return gradeA.compareTo(gradeB);
+          } catch (e) {
+            return a.compareTo(b);
+          }
+        });
+      }
+
+      return ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.all(padding),
+        itemCount: gradesToShow.length,
+        itemBuilder: (context, gradeIndex) {
+          final grade = gradesToShow[gradeIndex];
+          final sections = gradeGroups[grade]!;
+
+          // Filter sections if a specific section is selected
+          List<String> sectionsToShow;
+          if (_selectedSection != 'All') {
+            sectionsToShow = sections.keys.where((s) => s == _selectedSection).toList();
+          } else {
+            sectionsToShow = sections.keys.toList()..sort();
+          }
+
+          // Count students in shown sections
+          final totalStudentsInGrade = sectionsToShow.fold<int>(
+            0, 
+            (sum, section) => sum + sections[section]!.length,
+          );
+
+          return Card(
+            margin: EdgeInsets.only(bottom: isDesktop ? 12 : 8),
+            elevation: isDesktop ? 3 : 2,
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                leading: Icon(
+                  Icons.folder,
+                  color: totalStudentsInGrade > 0 
+                      ? Colors.blue.shade700 
+                      : Colors.grey.shade400,
+                  size: isDesktop ? 36 : 32,
                 ),
-              ),
-              subtitle: Text(
-                totalStudentsInGrade > 0
-                    ? '$totalStudentsInGrade students • ${sections.length} sections'
-                    : 'Empty • ${sections.length} sections',
-                style: TextStyle(
-                  color: totalStudentsInGrade > 0 ? Colors.grey : Colors.grey.shade500,
+                title: Text(
+                  'Grade $grade',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: isDesktop ? 20 : 18,
+                    color: totalStudentsInGrade > 0 
+                        ? Colors.black 
+                        : Colors.grey.shade600,
+                  ),
                 ),
-              ),
-              children: [
-                Container(
-                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                  child: _buildSectionsForGrade(sections, provider, grade),
+                subtitle: Text(
+                  totalStudentsInGrade > 0
+                      ? '$totalStudentsInGrade students • ${sectionsToShow.length} sections'
+                      : 'Empty • ${sectionsToShow.length} sections',
+                  style: TextStyle(
+                    fontSize: isDesktop ? 14 : 13,
+                    color: totalStudentsInGrade > 0 
+                        ? Colors.grey 
+                        : Colors.grey.shade500,
+                  ),
                 ),
-              ],
+                children: [
+                  Container(
+                    padding: EdgeInsets.only(
+                      left: isDesktop ? 20 : 16,
+                      right: isDesktop ? 20 : 16,
+                      bottom: isDesktop ? 20 : 16,
+                    ),
+                    child: _buildSectionsForGrade(
+                      Map.fromEntries(
+                        sectionsToShow.map(
+                          (section) => MapEntry(section, sections[section]!),
+                        ),
+                      ),
+                      provider,
+                      grade,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
-    );
-  }
+          );
+        },
+      );
+    },
+  );
+}
 
   // Update _buildSectionsForGrade to use canonical sections list so empty sections show
   Widget _buildSectionsForGrade(Map<String, List<Map<String, dynamic>>> sections, CounselorProvider provider, String grade) {
@@ -784,325 +1208,332 @@ Widget build(BuildContext context) {
   }
 
   // Compact student card for folder view
-  Widget _buildCompactStudentCard(Map<String, dynamic> student, CounselorProvider provider, {bool isPlaceholder = false}) {
-    final studentName = student['name']?.toString() ?? 
-                       student['full_name']?.toString() ?? 
-                       (() {
-                         final firstName = student['first_name']?.toString() ?? '';
-                         final lastName = student['last_name']?.toString() ?? '';
-                         final fullName = '$firstName $lastName'.trim();
-                         return fullName.isNotEmpty ? fullName : (student['username']?.toString() ?? 'Unknown Student');
-                       })();
-    
-    // Get the primary student ID for matching
-    final primaryStudentId = student['id']?.toString();
-    
-    if (primaryStudentId == null && !isPlaceholder) {
-      print('⚠️ Warning: Student has no ID: $studentName');
-    }
-    
-    // DEBUG: Print to see what we're working with
-    if (!isPlaceholder) {
-      print('🔍 DEBUG - Student: $studentName (ID: $primaryStudentId)');
-      print('📊 Total violations in provider: ${provider.studentViolations.length}');
-    }
-    
-    // Count ALL violations for this student first
-    final allStudentViolations = provider.studentViolations.where((violation) {
-      final violationStudentId = violation['student_id']?.toString() ??
-                                violation['student']?['id']?.toString();
+  Widget _buildCompactStudentCard(
+  Map<String, dynamic> student,
+  CounselorProvider provider, {
+  bool isPlaceholder = false,
+}) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final screenWidth = constraints.maxWidth;
+      final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+      final isTablet = AppBreakpoints.isTablet(screenWidth);
+
+      final studentName = student['name']?.toString() ?? 
+                         student['full_name']?.toString() ?? 
+                         (() {
+                           final firstName = student['first_name']?.toString() ?? '';
+                           final lastName = student['last_name']?.toString() ?? '';
+                           final fullName = '$firstName $lastName'.trim();
+                           return fullName.isNotEmpty 
+                               ? fullName 
+                               : (student['username']?.toString() ?? 'Unknown Student');
+                         })();
       
-      if (!isPlaceholder && violationStudentId == primaryStudentId) {
-        print('  ✓ Found violation: ${violation['violation_type']?['name'] ?? 'Unknown'}');
-        print('    - Has related_report_id: ${violation['related_report_id']}');
-        print('    - Has related_report: ${violation['related_report']}');
-        print('    - Full violation data: $violation');
+      final primaryStudentId = student['id']?.toString();
+      
+      if (primaryStudentId == null && !isPlaceholder) {
+        print('⚠️ Warning: Student has no ID: $studentName');
       }
       
-      return violationStudentId == primaryStudentId;
-    }).toList();
-    
-    if (!isPlaceholder) {
-      print('📝 Total violations for this student: ${allStudentViolations.length}');
-    }
-    
-    // For now, show ALL violations (we'll filter in next update after confirming data)
-    final studentViolations = allStudentViolations;
+      final allStudentViolations = provider.studentViolations.where((violation) {
+        final violationStudentId = violation['student_id']?.toString() ??
+                                  violation['student']?['id']?.toString();
+        return violationStudentId == primaryStudentId;
+      }).toList();
+      
+      final studentViolations = allStudentViolations;
 
-    // Safely get student properties with multiple fallbacks
-    final studentId = student['student_id']?.toString() ?? 
-                     student['id']?.toString() ?? 
-                     'No ID';
-    
-    final gradeSection = 'Grade ${student['grade_level'] ?? 'Unknown'} ${student['section'] ?? 'Unknown'}';
-    final email = student['email']?.toString() ?? '';
-    final isActive = student['is_active'] == true || student['status']?.toString() == 'active';
+      final studentId = student['student_id']?.toString() ?? 
+                       student['id']?.toString() ?? 
+                       'No ID';
+      
+      final gradeSection = 'Grade ${student['grade_level'] ?? 'Unknown'} ${student['section'] ?? 'Unknown'}';
+      final email = student['email']?.toString() ?? '';
+      final isActive = student['is_active'] == true || 
+                      student['status']?.toString() == 'active';
 
-    // Calculate violation summary
-    final totalViolations = studentViolations.length;
-    final activeViolations = studentViolations
-        .where((v) => v['status']?.toString().toLowerCase() == 'active' ||
-                     v['status']?.toString().toLowerCase() == 'pending')
-        .length;
-    
-    final resolvedViolations = studentViolations
-        .where((v) => v['status']?.toString().toLowerCase() == 'resolved' ||
-                     v['status']?.toString().toLowerCase() == 'closed')
-        .length;
+      // Calculate violation summary
+      final totalViolations = studentViolations.length;
+      final activeViolations = studentViolations
+          .where((v) => v['status']?.toString().toLowerCase() == 'active' ||
+                       v['status']?.toString().toLowerCase() == 'pending')
+          .length;
+      
+      final resolvedViolations = studentViolations
+          .where((v) => v['status']?.toString().toLowerCase() == 'resolved' ||
+                       v['status']?.toString().toLowerCase() == 'closed')
+          .length;
 
-    final highSeverityViolations = studentViolations
-        .where((v) {
-          final severity = v['severity']?.toString().toLowerCase() ?? 
-                          v['severity_level']?.toString().toLowerCase() ?? 
-                          v['violation_type']?['severity_level']?.toString().toLowerCase() ?? '';
-          return severity == 'high' || severity == 'critical';
-        })
-        .length;
+      final highSeverityViolations = studentViolations
+          .where((v) {
+            final severity = v['severity']?.toString().toLowerCase() ?? 
+                            v['severity_level']?.toString().toLowerCase() ?? 
+                            v['violation_type']?['severity_level']?.toString().toLowerCase() ?? '';
+            return severity == 'high' || severity == 'critical';
+          })
+          .length;
 
-    // Determine if student needs attention
-    final needsAttention = totalViolations >= 3 || highSeverityViolations >= 1;
-    final criticalAttention = totalViolations >= 5 || highSeverityViolations >= 2;
+      final needsAttention = totalViolations >= 3 || highSeverityViolations >= 1;
+      final criticalAttention = totalViolations >= 5 || highSeverityViolations >= 2;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      elevation: 2,
-      // Add colored border for students needing attention
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: criticalAttention 
-              ? Colors.red 
-              : needsAttention 
-                  ? Colors.orange 
-                  : Colors.transparent,
-          width: criticalAttention ? 3 : 2,
+      return Card(
+        margin: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 6 : 4,
+          vertical: isDesktop ? 4 : 2,
         ),
-      ),
-      child: ExpansionTile(
-        leading: Stack(
-          children: [
-            CircleAvatar(
-              backgroundColor: _getTalliedViolationColor(totalViolations),
-              radius: 24,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    totalViolations.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const Text(
-                    'tallied',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Alert badge for critical cases
-            if (criticalAttention)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.priority_high,
-                    color: Colors.white,
-                    size: 12,
-                  ),
-                ),
-              ),
-          ],
+        elevation: isDesktop ? 3 : 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+          side: BorderSide(
+            color: criticalAttention 
+                ? Colors.red 
+                : needsAttention 
+                    ? Colors.orange 
+                    : Colors.transparent,
+            width: criticalAttention ? 3 : 2,
+          ),
         ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                studentName,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: isActive ? Colors.black : Colors.grey,
-                ),
-              ),
-            ),
-            // Attention badge
-            if (needsAttention)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: criticalAttention ? Colors.red : Colors.orange,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+        child: ExpansionTile(
+          leading: Stack(
+            children: [
+              CircleAvatar(
+                backgroundColor: _getTalliedViolationColor(totalViolations),
+                radius: isDesktop ? 28 : 24,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      criticalAttention ? Icons.warning : Icons.info,
-                      color: Colors.white,
-                      size: 12,
-                    ),
-                    const SizedBox(width: 4),
                     Text(
-                      criticalAttention ? 'URGENT' : 'ATTENTION',
-                      style: const TextStyle(
+                      totalViolations.toString(),
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 10,
                         fontWeight: FontWeight.bold,
+                        fontSize: isDesktop ? 18 : 16,
                       ),
                     ),
+                    if (isDesktop || isTablet)
+                      const Text(
+                        'tallied',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                        ),
+                      ),
                   ],
                 ),
               ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'ID: $studentId • $gradeSection',
-              style: const TextStyle(fontSize: 12),
-            ),
-            if (email.isNotEmpty)
-              Text(
-                email,
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            const SizedBox(height: 4),
-            // Prominent violation summary
-            Container(
-  padding: const EdgeInsets.all(8),
-  decoration: BoxDecoration(
-    color: _getTalliedViolationColor(totalViolations).withOpacity(0.1),
-    borderRadius: BorderRadius.circular(8),
-    border: Border.all(
-      color: _getTalliedViolationColor(totalViolations).withOpacity(0.3),
-    ),
-  ),
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Icon(
-            Icons.assignment_turned_in,
-            size: 16,
-            color: _getTalliedViolationColor(totalViolations),
+              if (criticalAttention)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: EdgeInsets.all(isDesktop ? 5 : 4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.priority_high,
+                      color: Colors.white,
+                      size: isDesktop ? 14 : 12,
+                    ),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(width: 6),
-          // ✅ FIX: Wrap text in Expanded to prevent overflow
-          Expanded(
-            child: Text(
-              '$totalViolations Tallied Violation${totalViolations != 1 ? 's' : ''}',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: _getTalliedViolationColor(totalViolations),
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
-        ],
-      ),
-      if (totalViolations > 0) ...[
-        const SizedBox(height: 4),
-        // ✅ FIX: Use Column instead of Wrap to prevent overflow
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (activeViolations > 0)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: _buildChip('Active: $activeViolations', Colors.orange),
-              ),
-            if (resolvedViolations > 0)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: _buildChip('Resolved: $resolvedViolations', Colors.green),
-              ),
-            if (highSeverityViolations > 0)
-              _buildChip('High Severity: $highSeverityViolations', Colors.red),
-          ],
-        ),
-      ],
-      // Action recommendation
-      if (needsAttention) ...[
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: criticalAttention 
-                ? Colors.red.withOpacity(0.1) 
-                : Colors.orange.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
+          title: Row(
             children: [
-              Icon(
-                criticalAttention ? Icons.phone : Icons.notifications_active,
-                size: 14,
-                color: criticalAttention ? Colors.red : Colors.orange,
-              ),
-              const SizedBox(width: 6),
-              // ✅ FIX: Wrap text in Expanded
               Expanded(
                 child: Text(
-                  criticalAttention 
-                      ? '⚠️ Requires immediate counselor intervention'
-                      : '📞 Consider calling student for counseling',
+                  studentName,
                   style: TextStyle(
-                    fontSize: 11,
-                    color: criticalAttention ? Colors.red : Colors.orange,
-                    fontWeight: FontWeight.w500,
+                    fontSize: isDesktop ? 16 : 14,
+                    fontWeight: FontWeight.w600,
+                    color: isActive ? Colors.black : Colors.grey,
                   ),
-                  maxLines: 2, // Allow 2 lines
+                  maxLines: isDesktop ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (needsAttention)
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 10 : 8,
+                    vertical: isDesktop ? 5 : 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: criticalAttention ? Colors.red : Colors.orange,
+                    borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        criticalAttention ? Icons.warning : Icons.info,
+                        color: Colors.white,
+                        size: isDesktop ? 14 : 12,
+                      ),
+                      SizedBox(width: isDesktop ? 5 : 4),
+                      Text(
+                        criticalAttention ? 'URGENT' : 'ATTENTION',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: isDesktop ? 11 : 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ID: $studentId • $gradeSection',
+                style: TextStyle(fontSize: isDesktop ? 13 : 12),
+              ),
+              if (email.isNotEmpty && (isDesktop || isTablet))
+                Text(
+                  email,
+                  style: TextStyle(
+                    fontSize: isDesktop ? 12 : 11,
+                    color: Colors.grey,
+                  ),
+                ),
+              SizedBox(height: isDesktop ? 6 : 4),
+              
+              // Violation summary with responsive sizing
+              Container(
+                padding: EdgeInsets.all(isDesktop ? 10 : 8),
+                decoration: BoxDecoration(
+                  color: _getTalliedViolationColor(totalViolations).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+                  border: Border.all(
+                    color: _getTalliedViolationColor(totalViolations).withOpacity(0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.assignment_turned_in,
+                          size: isDesktop ? 18 : 16,
+                          color: _getTalliedViolationColor(totalViolations),
+                        ),
+                        SizedBox(width: isDesktop ? 8 : 6),
+                        Expanded(
+                          child: Text(
+                            '$totalViolations Tallied Violation${totalViolations != 1 ? 's' : ''}',
+                            style: TextStyle(
+                              fontSize: isDesktop ? 14 : 13,
+                              fontWeight: FontWeight.bold,
+                              color: _getTalliedViolationColor(totalViolations),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (totalViolations > 0) ...[
+                      SizedBox(height: isDesktop ? 6 : 4),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (activeViolations > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: _buildChip(
+                                'Active: $activeViolations',
+                                Colors.orange,
+                                fontSize: isDesktop ? 12 : 11,
+                              ),
+                            ),
+                          if (resolvedViolations > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: _buildChip(
+                                'Resolved: $resolvedViolations',
+                                Colors.green,
+                                fontSize: isDesktop ? 12 : 11,
+                              ),
+                            ),
+                          if (highSeverityViolations > 0)
+                            _buildChip(
+                              'High Severity: $highSeverityViolations',
+                              Colors.red,
+                              fontSize: isDesktop ? 12 : 11,
+                            ),
+                        ],
+                      ),
+                    ],
+                    
+                    // Action recommendation
+                    if (needsAttention) ...[
+                      SizedBox(height: isDesktop ? 8 : 6),
+                      Container(
+                        padding: EdgeInsets.all(isDesktop ? 8 : 6),
+                        decoration: BoxDecoration(
+                          color: criticalAttention 
+                              ? Colors.red.withOpacity(0.1) 
+                              : Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(isDesktop ? 8 : 6),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(width: isDesktop ? 8 : 6),
+                            Expanded(
+                              child: Text(
+                                criticalAttention 
+                                    ? 'Requires immediate counselor intervention'
+                                    : 'Consider calling student for counseling',
+                                style: TextStyle(
+                                  fontSize: isDesktop ? 12 : 11,
+                                  color: criticalAttention ? Colors.red : Colors.orange,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],
           ),
-        ),
-      ],
-    ],
-  ),
-),
+          children: [
+            Padding(
+              padding: EdgeInsets.all(isDesktop ? 20 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Student Details
+                  _buildStudentDetailsSection(student),
+                  SizedBox(height: isDesktop ? 20 : 16),
+                  
+                  // Tallied Violations List
+                  _buildStudentViolationsSection(studentViolations),
+                  SizedBox(height: isDesktop ? 20 : 16),
+                  
+                  // Action Buttons
+                  _buildStudentActionButtons(student, needsAttention),
+                ],
+              ),
+            ),
           ],
         ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Student Details
-                _buildStudentDetailsSection(student),
-                const SizedBox(height: 16),
-                
-                // Tallied Violations List
-                _buildStudentViolationsSection(studentViolations),
-                const SizedBox(height: 16),
-                
-                // Action Buttons
-                _buildStudentActionButtons(student, needsAttention),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+      );
+    },
+  );
+}
 
   // Helper method to get color based on tallied violation count
   Color _getStatusColor(int count) {
@@ -1116,24 +1547,26 @@ Widget build(BuildContext context) {
   Color _getTalliedViolationColor(int count) => _getStatusColor(count);
 
   // Small utility to build a colored chip-like widget used across the UI
-  Widget _buildChip(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+  Widget _buildChip(String label, Color color, {double fontSize = 12}) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: color.withOpacity(0.2)),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: fontSize,
+        color: color,
+        fontWeight: FontWeight.w600,
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+    ),
+  );
+}
 
   // Helper method to get severity color
   Color _getSeverityColor(String severity) {
@@ -1168,64 +1601,212 @@ Widget build(BuildContext context) {
 
   // Helper method to build student details section
   Widget _buildStudentDetailsSection(Map<String, dynamic> student) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Student Details',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          _buildDetailRow('Full Name', student['name']?.toString() ?? 'N/A'),
-          _buildDetailRow('Student ID', student['student_id']?.toString() ?? student['id']?.toString() ?? 'N/A'),
-          _buildDetailRow('Grade & Section', 'Grade ${student['grade_level'] ?? 'Unknown'} ${student['section'] ?? 'Unknown'}'),
-          _buildDetailRow('Email', student['email']?.toString() ?? 'N/A'),
-          _buildDetailRow('Contact', student['contact_number']?.toString() ?? student['phone']?.toString() ?? 'N/A'),
-          _buildDetailRow('Guardian', student['guardian_name']?.toString() ?? student['parent_name']?.toString() ?? 'N/A'),
-          _buildDetailRow('Guardian Contact', student['guardian_contact']?.toString() ?? student['parent_contact']?.toString() ?? 'N/A'),
-        ],
-      ),
-    );
+  // ✅ FIX: Build full name from available fields with proper fallbacks
+  String getFullName() {
+    // Try different field combinations to get the full name
+    
+    // Option 1: Direct 'name' field
+    if (student['name']?.toString().isNotEmpty == true) {
+      return student['name'].toString();
+    }
+    
+    // Option 2: Direct 'full_name' field
+    if (student['full_name']?.toString().isNotEmpty == true) {
+      return student['full_name'].toString();
+    }
+    
+    // Option 3: Combine first_name and last_name
+    final firstName = student['first_name']?.toString() ?? '';
+    final lastName = student['last_name']?.toString() ?? '';
+    if (firstName.isNotEmpty || lastName.isNotEmpty) {
+      return '$firstName $lastName'.trim();
+    }
+    
+    // Option 4: Try user nested object (if student data comes from User model)
+    if (student['user'] != null) {
+      final user = student['user'] as Map<String, dynamic>;
+      final userFirstName = user['first_name']?.toString() ?? '';
+      final userLastName = user['last_name']?.toString() ?? '';
+      if (userFirstName.isNotEmpty || userLastName.isNotEmpty) {
+        return '$userFirstName $userLastName'.trim();
+      }
+      
+      // Try user's full_name
+      if (user['full_name']?.toString().isNotEmpty == true) {
+        return user['full_name'].toString();
+      }
+    }
+    
+    // Option 5: Fall back to username
+    if (student['username']?.toString().isNotEmpty == true) {
+      return student['username'].toString();
+    }
+    
+    // Option 6: Fall back to user's username
+    if (student['user']?['username']?.toString().isNotEmpty == true) {
+      return student['user']['username'].toString();
+    }
+    
+    // Final fallback
+    return 'Unknown Student';
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  // ✅ NEW: Get LRN with proper fallbacks
+  String getLRN() {
+    // Try different LRN field names
+    final lrnFields = [
+      'lrn', 'LRN', 'learner_reference_number', 'learners_reference_number'
+    ];
+    
+    for (final field in lrnFields) {
+      if (student[field]?.toString().isNotEmpty == true) {
+        return student[field].toString();
+      }
+    }
+    
+    // Try user nested object
+    if (student['user'] != null) {
+      for (final field in lrnFields) {
+        if (student['user'][field]?.toString().isNotEmpty == true) {
+          return student['user'][field].toString();
+        }
+      }
+    }
+    
+    return 'N/A';
   }
+
+  // ✅ FIX: Get email with proper fallbacks
+  String getEmail() {
+    if (student['email']?.toString().isNotEmpty == true) {
+      return student['email'].toString();
+    }
+    if (student['user']?['email']?.toString().isNotEmpty == true) {
+      return student['user']['email'].toString();
+    }
+    return 'N/A';
+  }
+
+  // ✅ FIX: Get contact with proper fallbacks
+  String getContact() {
+    // Try different contact field names
+    final contactFields = [
+      'contact_number', 'phone', 'contact', 'phone_number', 
+      'mobile', 'mobile_number', 'student_contact'
+    ];
+    
+    for (final field in contactFields) {
+      if (student[field]?.toString().isNotEmpty == true) {
+        return student[field].toString();
+      }
+    }
+    
+    // Try user nested object
+    if (student['user'] != null) {
+      for (final field in contactFields) {
+        if (student['user'][field]?.toString().isNotEmpty == true) {
+          return student['user'][field].toString();
+        }
+      }
+    }
+    
+    return 'N/A';
+  }
+
+  // ✅ FIX: Get guardian info with proper fallbacks
+  String getGuardianName() {
+    final guardianFields = [
+      'guardian_name', 'parent_name', 'guardian', 'parent', 
+      'emergency_contact_name', 'contact_person'
+    ];
+    
+    for (final field in guardianFields) {
+      if (student[field]?.toString().isNotEmpty == true) {
+        return student[field].toString();
+      }
+    }
+    
+    return 'N/A';
+  }
+
+  String getGuardianContact() {
+    final guardianContactFields = [
+      'guardian_contact', 'parent_contact', 'guardian_phone', 'parent_phone',
+      'emergency_contact_number', 'contact_person_phone', 'guardian_contact_number'
+    ];
+    
+    for (final field in guardianContactFields) {
+      if (student[field]?.toString().isNotEmpty == true) {
+        return student[field].toString();
+      }
+    }
+    
+    return 'N/A';
+  }
+
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.grey[50],
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Student Details',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        
+        // ✅ UPDATED: Removed Student ID and Status, Added LRN
+        _buildDetailRow(Icons.person, 'Full Name', getFullName()),
+        _buildDetailRow(Icons.numbers, 'LRN', getLRN()), // ✅ ADDED LRN
+        _buildDetailRow(Icons.school, 'Grade & Section', 'Grade ${student['grade_level'] ?? 'Unknown'} ${student['section'] ?? 'Unknown'}'),
+        _buildDetailRow(Icons.email, 'Email', getEmail()),
+        _buildDetailRow(Icons.phone, 'Contact', getContact()),
+        _buildDetailRow(Icons.family_restroom, 'Guardian', getGuardianName()),
+        _buildDetailRow(Icons.contact_phone, 'Guardian Contact', getGuardianContact()),
+        
+        // ✅ KEEP: School year info (if available)
+        if (student['school_year']?.toString().isNotEmpty == true)
+          _buildDetailRow(Icons.calendar_today, 'School Year', student['school_year'].toString()),
+      ],
+    ),
+  );
+}
+
+// Make sure you have the updated _buildDetailRow method that accepts IconData
+Widget _buildDetailRow(IconData icon, String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Colors.grey.shade600),
+        const SizedBox(width: 10),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 
   // Helper method to build student violations section
   Widget _buildStudentViolationsSection(List<Map<String, dynamic>> violations) {
@@ -1363,36 +1944,59 @@ Widget build(BuildContext context) {
 
   // Helper method to build action buttons for student
   Widget _buildStudentActionButtons(Map<String, dynamic> student, bool needsAttention) {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () => _showAddViolationDialog(student),
-            icon: const Icon(Icons.add_alert, size: 16),
-            label: const Text('Add Violation', style: TextStyle(fontSize: 12)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 8),
+  return Column(
+    children: [
+      // First row: Add Violation + Edit Student
+      Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => _showAddViolationDialog(student),
+              icon: const Icon(Icons.add_alert, size: 16),
+              label: const Text('Add Violation', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
+          const SizedBox(width: 8),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => _showEditStudentDialog(student),
+              icon: const Icon(Icons.edit, size: 16),
+              label: const Text('Edit Student', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+      
+      // Second row: Schedule Counseling (if needs attention)
+      if (needsAttention) ...[
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () => _showEditStudentDialog(student),
-            icon: const Icon(Icons.edit, size: 16),
-            label: const Text('Edit Student', style: TextStyle(fontSize: 12)),
+            onPressed: () => _showScheduleCounselingDialog(student),
+            icon: const Icon(Icons.psychology, size: 16),
+            label: const Text('Schedule Counseling Session', style: TextStyle(fontSize: 12)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: Colors.purple,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 10),
             ),
           ),
         ),
       ],
-    );
-  }
+    ],
+  );
+}
 
 
 
@@ -1451,72 +2055,442 @@ Widget build(BuildContext context) {
   }
 
   void _exportStudentsList() async {
-    try {
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+  try {
+    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
+    // ✅ Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Expanded(
+              child: Text('Generating CSV export...'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final selectedSchoolYear = counselorProvider.selectedSchoolYear;
+    
+    print('🔍 EXPORT DEBUG:');
+    print('   - Selected school year: $selectedSchoolYear');
+    print('   - Total students in list: ${counselorProvider.studentsList.length}');
+    print('   - Total violations in system: ${counselorProvider.studentViolations.length}');
+    print('   - Total student reports: ${counselorProvider.studentReports.length}');
+    print('   - Total teacher reports: ${counselorProvider.teacherReports.length}');
+    
+    // Filter students by school year first
+    List<Map<String, dynamic>> yearFilteredStudents;
+    if (selectedSchoolYear == 'all') {
+      yearFilteredStudents = counselorProvider.studentsList;
+    } else {
+      yearFilteredStudents = counselorProvider.studentsList.where((student) {
+        final studentSchoolYear = student['school_year']?.toString() ?? '';
+        return studentSchoolYear == selectedSchoolYear;
+      }).toList();
+    }
+
+    print('   - Students after school year filter: ${yearFilteredStudents.length}');
+
+    // Apply current filters
+    final filteredStudents = yearFilteredStudents.where((student) {
+      final matchesGrade = _selectedGrade == 'All' || student['grade_level']?.toString() == _selectedGrade;
+      final matchesSection = _selectedSection == 'All' || student['section']?.toString() == _selectedSection;
+      final matchesSearch = _searchQuery.isEmpty ||
+          (student['name']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+          (student['student_id']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+      return matchesSearch && matchesGrade && matchesSection;
+    }).toList();
+
+    // ✅ Sort students by grade (7-12), then section, then name
+    filteredStudents.sort((a, b) {
+      final gradeA = int.tryParse(a['grade_level']?.toString() ?? '0') ?? 0;
+      final gradeB = int.tryParse(b['grade_level']?.toString() ?? '0') ?? 0;
+      final gradeCompare = gradeA.compareTo(gradeB);
+      
+      if (gradeCompare != 0) return gradeCompare;
+      
+      final sectionA = a['section']?.toString() ?? '';
+      final sectionB = b['section']?.toString() ?? '';
+      final sectionCompare = sectionA.compareTo(sectionB);
+      
+      if (sectionCompare != 0) return sectionCompare;
+      
+      final nameA = a['name']?.toString() ?? '';
+      final nameB = b['name']?.toString() ?? '';
+      return nameA.compareTo(nameB);
+    });
+
+    // ✅ Generate CSV content
+    final StringBuffer csvContent = StringBuffer();
+    
+    // CSV Header
+    csvContent.writeln('School Year,Grade,Section,LRN,Last Name,First Name,Total Tallied Violations,Violation Types,Source Breakdown');
+
+    // ✅ Track section totals
+    final Map<String, int> sectionTotals = {};
+    final Map<String, Map<String, int>> sectionViolationTypes = {};
+
+    // ✅ CSV Data Rows - Student violations
+    for (final student in filteredStudents) {
+      final primaryStudentId = student['id']?.toString();
+      
+      // ✅ UPDATED: Get ALL tallied violations (matching dashboard overview logic)
+      final allViolations = counselorProvider.studentViolations;
+      
+      final talliedViolations = allViolations.where((violation) {
+        final violationStudentId = violation['student_id']?.toString() ??
+                                  violation['student']?['id']?.toString();
+        
+        if (violationStudentId != primaryStudentId) return false;
+        
+        // ✅ MATCH DASHBOARD: Include both report-linked AND counselor-recorded
+        final hasRelatedReport = violation['related_report_id'] != null || 
+                                 violation['related_report'] != null ||
+                                 violation['related_student_report_id'] != null ||
+                                 violation['related_student_report'] != null ||
+                                 violation['related_teacher_report_id'] != null ||
+                                 violation['related_teacher_report'] != null;
+        
+        final isCounselorRecorded = violation['counselor'] != null || 
+                                   violation['recorded_by'] == 'counselor';
+        
+        // ✅ Must have EITHER a related report OR be counselor-recorded
+        if (!hasRelatedReport && !isCounselorRecorded) return false;
+        
+        // School year filter
+        if (selectedSchoolYear != 'all') {
+          final violationSchoolYear = violation['school_year']?.toString() ?? '';
+          if (violationSchoolYear.isEmpty) {
+            final studentSchoolYear = student['school_year']?.toString() ?? '';
+            if (studentSchoolYear.isNotEmpty && studentSchoolYear != selectedSchoolYear) {
+              return false;
+            }
+          } else if (violationSchoolYear != selectedSchoolYear) {
+            return false;
+          }
+        }
+        
+        return true;
+      }).toList();
+
+      print('   📝 Student: ${student['name']} (${student['section']})');
+      print('      - Tallied Violations (incl. counselor reports): ${talliedViolations.length}');
+
+      final totalViolations = talliedViolations.length;
+      
+      // ✅ Get list of violation types with source tracking
+      final Map<String, Map<String, int>> violationsByType = {}; // {type: {source: count}}
+      final Map<String, int> sourceCount = {
+        'student_report': 0,
+        'teacher_report': 0,
+        'counselor_report': 0,
+      };
+      
+      for (final violation in talliedViolations) {
+        // Determine violation type
+        String violationType = violation['violation_type']?['name']?.toString() ?? 
+                              violation['type']?.toString() ?? 
+                              violation['name']?.toString() ??
+                              violation['violation_type']?.toString() ??
+                              'Unknown';
+        
+        // ✅ IMPROVED: Determine source with better detection
+        String source;
+        
+        // Check if it's counselor-recorded (no related report)
+        final hasNoReport = violation['related_report_id'] == null && 
+                           violation['related_report'] == null &&
+                           violation['related_student_report_id'] == null &&
+                           violation['related_student_report'] == null &&
+                           violation['related_teacher_report_id'] == null &&
+                           violation['related_teacher_report'] == null;
+        
+        final isCounselorRecorded = violation['counselor'] != null || 
+                                   violation['recorded_by'] == 'counselor';
+        
+        if (hasNoReport && isCounselorRecorded) {
+          // Directly recorded by counselor (no report)
+          source = 'counselor_report';
+        } else if (violation['source'] == 'counselor' || violation['report_type'] == 'counselor_report') {
+          // From counselor report
+          source = 'counselor_report';
+        } else if (violation['source'] == 'teacher' || 
+                  violation['report_type'] == 'teacher_report' ||
+                  violation['related_teacher_report_id'] != null ||
+                  violation['related_teacher_report'] != null) {
+          // From teacher report
+          source = 'teacher_report';
+        } else {
+          // From student report (default)
+          source = 'student_report';
+        }
+        
+        // Count by type and source
+        if (!violationsByType.containsKey(violationType)) {
+          violationsByType[violationType] = {};
+        }
+        violationsByType[violationType]![source] = (violationsByType[violationType]![source] ?? 0) + 1;
+        sourceCount[source] = (sourceCount[source] ?? 0) + 1;
+      }
+
+      // Format violation types with counts
+      final violationTypesStr = violationsByType.entries
+          .map((e) {
+            final typeTotal = e.value.values.fold<int>(0, (sum, count) => sum + count);
+            return '${e.key} ($typeTotal)';
+          })
+          .join('; ');
+
+      // Format source breakdown
+      final sourceBreakdown = sourceCount.entries
+          .where((e) => e.value > 0)
+          .map((e) {
+            final sourceName = {
+              'student_report': 'Student Reports',
+              'teacher_report': 'Teacher Reports',
+              'counselor_report': 'Counselor Reports',
+            }[e.key] ?? e.key;
+            return '$sourceName (${e.value})';
+          })
+          .join('; ');
+
+      // ✅ Update section totals
+      final section = student['section']?.toString() ?? 'Unknown';
+      final grade = student['grade_level']?.toString() ?? 'Unknown';
+      final sectionKey = 'Grade $grade - $section';
+      
+      sectionTotals[sectionKey] = (sectionTotals[sectionKey] ?? 0) + totalViolations;
+      
+      // Track violation types per section
+      if (!sectionViolationTypes.containsKey(sectionKey)) {
+        sectionViolationTypes[sectionKey] = {};
+      }
+      for (final entry in violationsByType.entries) {
+        final type = entry.key;
+        final count = entry.value.values.fold<int>(0, (sum, c) => sum + c);
+        sectionViolationTypes[sectionKey]![type] = 
+            (sectionViolationTypes[sectionKey]![type] ?? 0) + count;
+      }
+
+      // Helper to escape CSV values
+      String escapeCsv(String? value) {
+        if (value == null || value.isEmpty) return '';
+        if (value.contains(',') || value.contains('"') || value.contains('\n')) {
+          return '"${value.replaceAll('"', '""')}"';
+        }
+        return value;
+      }
+
+      // ✅ Get student data
+      final schoolYear = student['school_year']?.toString() ?? selectedSchoolYear;
+      final gradeLevel = student['grade_level']?.toString() ?? '';
+      final sectionName = student['section']?.toString() ?? '';
+      
+      // Get LRN
+      final lrn = student['lrn']?.toString() ?? 
+                 student['LRN']?.toString() ?? 
+                 student['learner_reference_number']?.toString() ?? 
+                 student['user']?['lrn']?.toString() ?? '';
+      
+      // Parse name
+      String firstName = '';
+      String lastName = '';
+      
+      if (student['first_name']?.toString().isNotEmpty == true) {
+        firstName = student['first_name'].toString();
+        lastName = student['last_name']?.toString() ?? '';
+      }
+      else if (student['user']?['first_name']?.toString().isNotEmpty == true) {
+        firstName = student['user']['first_name'].toString();
+        lastName = student['user']['last_name']?.toString() ?? '';
+      }
+      else if (student['full_name']?.toString().isNotEmpty == true) {
+        final fullName = student['full_name'].toString();
+        final nameParts = fullName.split(' ');
+        firstName = nameParts.isNotEmpty ? nameParts.first : '';
+        lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+      }
+      else if (student['user']?['full_name']?.toString().isNotEmpty == true) {
+        final fullName = student['user']['full_name'].toString();
+        final nameParts = fullName.split(' ');
+        firstName = nameParts.isNotEmpty ? nameParts.first : '';
+        lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+      }
+      else if (student['name']?.toString().isNotEmpty == true) {
+        final fullName = student['name'].toString();
+        final nameParts = fullName.split(' ');
+        firstName = nameParts.isNotEmpty ? nameParts.first : '';
+        lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+      }
+      else {
+        firstName = student['username']?.toString() ?? '';
+        lastName = '';
+      }
+
+      // ✅ Write row with violation types AND source breakdown
+      csvContent.writeln(
+        '${escapeCsv(schoolYear)},'
+        '${escapeCsv(gradeLevel)},'
+        '${escapeCsv(sectionName)},'
+        '${escapeCsv(lrn)},'
+        '${escapeCsv(lastName)},'
+        '${escapeCsv(firstName)},'
+        '$totalViolations,'
+        '${escapeCsv(violationTypesStr)},'
+        '${escapeCsv(sourceBreakdown)}'
+      );
+    }
+
+    // ✅ PRINT SECTION TOTALS FOR DEBUGGING
+    print('\n📊 SECTION TOTALS (including counselor reports):');
+    sectionTotals.forEach((section, total) {
+      print('   - $section: $total violations');
+    });
+
+    // ✅ ADD SECTION TOTALS at the end
+    csvContent.writeln('');
+    csvContent.writeln('SECTION TOTALS');
+    csvContent.writeln('Grade,Section,Total Tallied Violations,Violation Breakdown');
+    
+    // Sort section keys
+    final sortedSections = sectionTotals.keys.toList()..sort((a, b) {
+      final gradeA = int.tryParse(a.split(' ')[1].split(' - ')[0]) ?? 0;
+      final gradeB = int.tryParse(b.split(' ')[1].split(' - ')[0]) ?? 0;
+      if (gradeA != gradeB) return gradeA.compareTo(gradeB);
+      return a.compareTo(b);
+    });
+
+    for (final sectionKey in sortedSections) {
+      final parts = sectionKey.split(' - ');
+      final grade = parts[0].replaceAll('Grade ', '');
+      final section = parts[1];
+      final total = sectionTotals[sectionKey] ?? 0;
+      
+      // Get violation type breakdown
+      final violationBreakdown = sectionViolationTypes[sectionKey]?.entries
+          .map((e) => '${e.key} (${e.value})')
+          .join('; ') ?? '';
+      
+      csvContent.writeln('$grade,$section,$total,"$violationBreakdown"');
+    }
+
+    // ✅ Generate filename with timestamp
+    final now = DateTime.now();
+    final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
+                     '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    final syLabel = selectedSchoolYear == 'all' ? 'AllYears' : 'SY${selectedSchoolYear.replaceAll('-', '_')}';
+    final gradeLabel = _selectedGrade == 'All' ? 'AllGrades' : 'Grade$_selectedGrade';
+    final sectionLabel = _selectedSection == 'All' ? 'AllSections' : _selectedSection.replaceAll(' ', '_');
+    
+    final filename = 'Student_Violations_${syLabel}_${gradeLabel}_${sectionLabel}_$timestamp.csv';
+
+    // ✅ Download the CSV file
+    final bytes = utf8.encode(csvContent.toString());
+    final blob = html.Blob([bytes], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', filename)
+      ..click();
+    
+    html.Url.revokeObjectUrl(url);
+
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Row(
             children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Text('Exporting students list...'),
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '✅ Export Successful',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Exported ${filteredStudents.length} students with ALL tallied violations (including counselor reports)',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
         ),
       );
-
-      final success = await counselorProvider.exportStudentsList(
-        gradeFilter: _selectedGrade,
-        sectionFilter: _selectedSection,
+    }
+  } catch (e) {
+    debugPrint('❌ Export error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
       );
-
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(success
-                ? 'Students list exported successfully'
-                : 'Failed to export students list'),
-            backgroundColor: success ? Colors.green : Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Export failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
+}
 
   void _showTallyReportDialog(BuildContext context) {
   final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
 
-  // Fetch reviewed reports if not already loaded
+  // Fetch both student and teacher reports if not already loaded
   if (counselorProvider.counselorStudentReports.isEmpty) {
     counselorProvider.fetchCounselorStudentReports();
+  }
+  if (counselorProvider.teacherReports.isEmpty) {
+    counselorProvider.fetchTeacherReports();
   }
 
   showDialog(
     context: context,
     builder: (context) => Consumer<CounselorProvider>(
       builder: (context, provider, child) {
-        // ✅ Filter for ONLY reviewed reports (after counseling, validated)
-        final reviewedReports = provider.counselorStudentReports
+        // ✅ FIX: Include both student reports and teacher reports
+        final reviewedStudentReports = provider.counselorStudentReports
             .where((report) {
               final status = report['status']?.toString().toLowerCase();
-              return status == 'reviewed'; // Only show reviewed reports ready for tallying
+              return status == 'reviewed' || status == 'verified';
             })
+            .map((report) => {...report, 'report_source': 'student_report'})
             .toList();
+
+        final reviewedTeacherReports = provider.teacherReports
+            .where((report) {
+              final status = report['status']?.toString().toLowerCase();
+              return status == 'reviewed' || status == 'verified';
+            })
+            .map((report) => {...report, 'report_source': 'teacher_report'})
+            .toList();
+
+        // ✅ Combine both lists
+        final allReviewedReports = [...reviewedStudentReports, ...reviewedTeacherReports];
+
+        // Sort by date (newest first)
+        allReviewedReports.sort((a, b) {
+          final dateA = DateTime.tryParse(a['created_at']?.toString() ?? '') ?? DateTime.now();
+          final dateB = DateTime.tryParse(b['created_at']?.toString() ?? '') ?? DateTime.now();
+          return dateB.compareTo(dateA);
+        });
 
         return AlertDialog(
           title: Row(
@@ -1524,10 +2498,10 @@ Widget build(BuildContext context) {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade100,
+                  color: Colors.green.shade100,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.assignment, color: Colors.orange.shade700, size: 20),
+                child: Icon(Icons.assignment, color: Colors.green.shade700, size: 20),
               ),
               const SizedBox(width: 12),
               const Expanded(
@@ -1541,23 +2515,25 @@ Widget build(BuildContext context) {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Info box
+                // ✅ UPDATED Info box
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    color: Colors.green.shade50,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.shade200),
+                    border: Border.all(color: Colors.green.shade200),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                      Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 20),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'These reports have been reviewed after counseling and are confirmed valid. '
-                          'Tally them to add violations to student records.',
+                          '✅ Ready for Tallying:\n'
+                          '• Student Reports: After counseling meeting (reviewed/valid)\n'
+                          '• Teacher Reports: After validation by counselor\n\n'
+                          'Tally them to officially record violations.',
                           style: TextStyle(fontSize: 11),
                         ),
                       ),
@@ -1568,9 +2544,9 @@ Widget build(BuildContext context) {
 
                 // Reports list
                 Expanded(
-                  child: provider.isLoadingCounselorStudentReports
+                  child: provider.isLoadingCounselorStudentReports || provider.isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : reviewedReports.isEmpty
+                      : allReviewedReports.isEmpty
                           ? Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1578,15 +2554,13 @@ Widget build(BuildContext context) {
                                   Icon(Icons.assignment_outlined, size: 48, color: Colors.grey),
                                   const SizedBox(height: 16),
                                   const Text(
-                                    'No reviewed reports to tally',
+                                    'No reports ready for tallying',
                                     style: TextStyle(fontSize: 16, color: Colors.grey),
                                   ),
                                   const SizedBox(height: 8),
                                   const Text(
-                                    'Reports must be:\n'
-                                    '• Summoned (student notified)\n'
-                                    '• Counseled (session completed)\n'
-                                    '• Marked as "Reviewed" (validated)',
+                                    'Reports appear here when marked as:\n'
+                                    '✅ "Reviewed" or "Verified" (validated reports)',
                                     style: TextStyle(fontSize: 12, color: Colors.grey),
                                     textAlign: TextAlign.center,
                                   ),
@@ -1594,15 +2568,26 @@ Widget build(BuildContext context) {
                               ),
                             )
                           : ListView.builder(
-                              itemCount: reviewedReports.length,
+                              itemCount: allReviewedReports.length,
                               itemBuilder: (context, index) {
-                                final report = reviewedReports[index];
+                                final report = allReviewedReports[index];
+                                final isTeacherReport = report['report_source'] == 'teacher_report';
+                                final studentName = report['reported_student_name'] ?? 
+                                                   report['student_name'] ?? 
+                                                   'Unknown';
+                                final reporterName = isTeacherReport 
+                                    ? (report['reported_by']?['username'] ?? 'Unknown Teacher')
+                                    : (report['reported_by']?['name'] ?? report['reporter_name'] ?? 'Unknown Reporter');
+                                
                                 return Card(
                                   margin: const EdgeInsets.symmetric(vertical: 4),
                                   child: ListTile(
                                     leading: CircleAvatar(
-                                      backgroundColor: Colors.green.shade100,
-                                      child: Icon(Icons.check_circle, color: Colors.green.shade700),
+                                      backgroundColor: isTeacherReport ? Colors.blue.shade100 : Colors.green.shade100,
+                                      child: Icon(
+                                        isTeacherReport ? Icons.school : Icons.verified, 
+                                        color: isTeacherReport ? Colors.blue.shade700 : Colors.green.shade700,
+                                      ),
                                     ),
                                     title: Text(
                                       report['title'] ?? 'Untitled Report',
@@ -1611,10 +2596,36 @@ Widget build(BuildContext context) {
                                     subtitle: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
-                                          style: const TextStyle(fontSize: 12),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.person_off, size: 14, color: Colors.red),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                'Violator: $studentName',
+                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                              ),
+                                            ),
+                                          ],
                                         ),
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              isTeacherReport ? Icons.school : Icons.person, 
+                                              size: 14, 
+                                              color: isTeacherReport ? Colors.blue : Colors.orange,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                '${isTeacherReport ? "Teacher" : "Reporter"}: $reporterName',
+                                                style: const TextStyle(fontSize: 12),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
                                         Text(
                                           'Date: ${_formatDate(report['created_at'] ?? report['date'])}',
                                           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
@@ -1624,29 +2635,38 @@ Widget build(BuildContext context) {
                                             'Type: ${report['violation_type']}',
                                             style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
                                           ),
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 4),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.green.shade100,
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.verified, size: 12, color: Colors.green.shade700),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'Reviewed & Validated',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.green.shade700,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
+                                        // ✅ Show source badge
+Container(
+  margin: const EdgeInsets.only(top: 4),
+  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // ✅ Reduced padding
+  decoration: BoxDecoration(
+    color: isTeacherReport ? Colors.blue.shade100 : Colors.green.shade100,
+    borderRadius: BorderRadius.circular(12),
+  ),
+  child: Row(
+    mainAxisSize: MainAxisSize.min, // ✅ Already has this
+    children: [
+      Icon(
+        isTeacherReport ? Icons.school : Icons.fact_check, 
+        size: 10, // ✅ Reduced from 12 to 10
+        color: isTeacherReport ? Colors.blue.shade700 : Colors.green.shade700,
+      ),
+      const SizedBox(width: 3), // ✅ Reduced from 4 to 3
+      Flexible( // ✅ ADD Flexible wrapper
+        child: Text(
+          isTeacherReport ? 'TEACHER' : 'STUDENT', // ✅ Shortened text
+          style: TextStyle(
+            fontSize: 9, // ✅ Reduced from 10 to 9
+            color: isTeacherReport ? Colors.blue.shade700 : Colors.green.shade700,
+            fontWeight: FontWeight.bold,
+          ),
+          overflow: TextOverflow.ellipsis, // ✅ Add overflow handling
+          maxLines: 1,
+        ),
+      ),
+    ],
+  ),
+),
                                       ],
                                     ),
                                     trailing: ElevatedButton.icon(
@@ -1683,333 +2703,340 @@ Widget build(BuildContext context) {
   );
 }
 
-  void _showSendGuidanceNoticeDialog(BuildContext context) {
-  final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-
-  if (counselorProvider.studentReports.isEmpty) {
-    counselorProvider.fetchStudentReports();
-  }
-
+  void _showSendGuidanceNoticeDialog() async {
+  // ✅ SAVE PARENT CONTEXT IMMEDIATELY
+  final parentContext = context;
+  
+  // ✅ Get provider BEFORE showing dialog
+  final counselorProvider = Provider.of<CounselorProvider>(parentContext, listen: false);
+  
+  // Fetch student reports first
+  await counselorProvider.fetchCounselorStudentReports();
+  
+  if (!parentContext.mounted) return;
+  
   showDialog(
-    context: context,
-    builder: (context) => Consumer<CounselorProvider>(
-      builder: (context, provider, child) {
-        // ✅ DEBUG: Print all reports to see their statuses
-        print('📊 Total student reports: ${provider.studentReports.length}');
-        for (var report in provider.studentReports) {
-          print('  Report #${report['id']}: status="${report['status']}", type="${report['report_type']}", reported_by_role="${report['reported_by']?['role']}"');
-        }
-
-        // ✅ FIX: Updated filter - show ALL summoned student reports regardless of type
-        final summonedReports = provider.studentReports
-            .where((report) {
-              final status = report['status']?.toString().toLowerCase();
-              
-              // ✅ DEBUG: Show which reports match
-              if (status == 'summoned') {
-                print('✅ Found summoned report: #${report['id']} - ${report['title']}');
-              }
-              
-              // ✅ FIX: Just check for summoned status, don't filter by report_type
-              // All reports in studentReports are already student-related reports
-              return status == 'summoned';
-            })
-            .toList();
-
-        print('📢 Summoned reports to display: ${summonedReports.length}');
-
-        return AlertDialog(
-          title: Row(
+    context: parentContext,
+    barrierDismissible: true,
+    builder: (dialogContext) {
+      return Dialog(
+        child: Container(
+          width: MediaQuery.of(dialogContext).size.width * 0.95,
+          height: MediaQuery.of(dialogContext).size.height * 0.85,
+          padding: const EdgeInsets.all(20),
+          child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.notifications_active, color: Colors.orange.shade700, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text('📢 Summoned Students', style: TextStyle(fontSize: 18)),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: MediaQuery.of(context).size.width * 0.9,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Info box
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.shade200),
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.notifications_active, color: Colors.orange.shade700, size: 28),
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Summoned Students',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Students awaiting counseling after summons',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+              const Divider(height: 30),
+              
+              // Content
+              Expanded(
+                child: Consumer<CounselorProvider>(
+                  builder: (context, provider, child) {
+                    if (provider.isLoadingCounselorStudentReports) {
+                      return const Center(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 20),
+                            Text('Loading summoned students...', style: TextStyle(fontSize: 15)),
+                            SizedBox(height: 10),
                             Text(
-                              'Post-Counseling Validation (${summonedReports.length} students):',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'These students have been summoned for counseling to validate their reports.\n\n'
-                              '• Mark as REVIEWED if report is valid (will appear in Tally Report)\n'
-                              '• Mark as INVALID if report is false or unsubstantiated',
-                              style: TextStyle(fontSize: 11),
+                              'First load may take 30-60 seconds\n(Backend cold starting)',
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                              textAlign: TextAlign.center,
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Reports list
-                Expanded(
-                  child: provider.isLoadingCounselorStudentReports
-                      ? const Center(child: CircularProgressIndicator())
-                      : summonedReports.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.groups, size: 48, color: Colors.grey),
-                                  const SizedBox(height: 16),
-                                  const Text(
-                                    'No summoned students',
-                                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Students will appear here after sending guidance notices from the Student Reports tab',
-                                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  ElevatedButton.icon(
-                                    onPressed: () async {
-                                      await provider.fetchStudentReports();
-                                    },
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text('Refresh'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.blue,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ],
+                      );
+                    }
+
+                    // ✅ Filter for SUMMONED reports
+                    final summonedReports = provider.counselorStudentReports
+                        .where((report) => 
+                          report['status']?.toString().toLowerCase() == 'summoned')
+                        .toList();
+
+                    print('📢 Summoned reports count: ${summonedReports.length}');
+
+                    // Error state
+                    if (provider.error != null && summonedReports.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.cloud_off, size: 70, color: Colors.grey),
+                            const SizedBox(height: 20),
+                            Text(
+                              provider.error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.grey, fontSize: 15),
+                            ),
+                            const SizedBox(height: 20),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                await provider.fetchCounselorStudentReports(forceRefresh: true);
+                              },
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                               ),
-                            )
-                          : ListView.builder(
-                              itemCount: summonedReports.length,
-                              itemBuilder: (context, index) {
-                                final report = summonedReports[index];
-                                
-                                // ✅ Better handling of report type display
-                                String reportTypeDisplay = 'Student Report';
-                                if (report['report_type'] == 'peer_report') {
-                                  reportTypeDisplay = 'Peer Report';
-                                } else if (report['report_type'] == 'self_report') {
-                                  reportTypeDisplay = 'Self-Report';
-                                }
-                                
-                                return Card(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  color: Colors.orange.shade50,
-                                  child: ExpansionTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: Colors.orange.shade700,
-                                      child: const Icon(Icons.person, color: Colors.white),
-                                    ),
-                                    title: Text(
-                                      report['title'] ?? 'Untitled Report',
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
-                                    ),
-                                    subtitle: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Student: ${report['reported_student_name'] ?? report['student_name'] ?? 'Unknown'}',
-                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                        ),
-                                        Text(
-                                          'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'} ($reportTypeDisplay)',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                        Text(
-                                          'Summoned: ${_formatDate(report['updated_at'] ?? report['created_at'])}',
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                        ),
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 4),
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.orange.shade700,
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.schedule, size: 10, color: Colors.white),
-                                              SizedBox(width: 3),
-                                              Flexible(
-                                                child: Text(
-                                                  'AWAITING VALIDATION',
-                                                  style: TextStyle(
-                                                    fontSize: 8,
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                  overflow: TextOverflow.ellipsis,
-                                                  maxLines: 1,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // Empty state
+                    if (summonedReports.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.inbox_outlined, size: 80, color: Colors.grey.shade400),
+                            const SizedBox(height: 20),
+                            Text(
+                              'No summoned students',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Students appear here when their reports\nare marked as "summoned" for counseling',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // List of summoned students
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Info banner
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.orange.shade700, size: 22),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Text(
+                                  'Found ${summonedReports.length} student(s) summoned for counseling. '
+                                  'After counseling, mark reports as Reviewed (valid) or Invalid.',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Student cards
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: summonedReports.length,
+                            itemBuilder: (context, index) {
+                              final report = summonedReports[index];
+                              final studentName = report['reported_student_name']?.toString() ?? 
+                                                 report['student_name']?.toString() ?? 
+                                                 'Unknown Student';
+                              
+                              final reporterName = report['reported_by']?['name']?.toString() ?? 
+                                                  report['reporter_name']?.toString() ?? 
+                                                  'Unknown Reporter';
+                              
+                              final violationType = report['violation_type']?.toString() ?? 'Unknown Violation';
+                              final reportTitle = report['title']?.toString() ?? 'Untitled Report';
+                              final reportDate = _formatDate(report['created_at']?.toString() ?? report['date']?.toString());
+                              
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 14),
+                                elevation: 3,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(color: Colors.orange.shade200, width: 2),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(16),
-                                        color: Colors.white,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            // Report Details
-                                            Text(
-                                              'Report Details:',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey.shade700,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            if (report['violation_type'] != null)
-                                              _buildDetailRow('Violation', report['violation_type'].toString()),
-                                            if (report['content'] != null)
-                                              _buildDetailRow('Description', report['content'].toString()),
-                                            _buildDetailRow('Report Type', reportTypeDisplay),
-                                            _buildDetailRow('Report ID', '#${report['id']}'),
-                                            
-                                            const SizedBox(height: 16),
-                                            const Divider(),
-                                            const SizedBox(height: 16),
-
-                                            // Validation Instructions
-                                            Container(
-                                              padding: const EdgeInsets.all(12),
-                                              decoration: BoxDecoration(
-                                                color: Colors.blue.shade50,
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(color: Colors.blue.shade200),
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 16),
-                                                  const SizedBox(width: 8),
-                                                  const Expanded(
-                                                    child: Text(
-                                                      'After validating the report through counseling, choose an action:',
-                                                      style: TextStyle(fontSize: 11),
-                                                    ),
+                                      // Header with student avatar
+                                      Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 28,
+                                            backgroundColor: Colors.orange.shade100,
+                                            child: Icon(Icons.person, color: Colors.orange.shade700, size: 28),
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  studentName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 17,
                                                   ),
-                                                ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.orange.shade100,
+                                                    borderRadius: BorderRadius.circular(14),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.notifications_active, size: 14, color: Colors.orange.shade700),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        'SUMMONED',
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors.orange.shade700,
+                                                          fontWeight: FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      
+                                      const Divider(height: 24),
+                                      
+                                      // Report details
+                                      _buildDetailRow(Icons.report, 'Report', reportTitle),
+                                      const SizedBox(height: 8),
+                                      _buildDetailRow(Icons.warning, 'Violation', violationType),
+                                      const SizedBox(height: 8),
+                                      _buildDetailRow(Icons.person_outline, 'Reported by', reporterName),
+                                      const SizedBox(height: 8),
+                                      _buildDetailRow(Icons.calendar_today, 'Date', reportDate),
+                                      
+                                      const SizedBox(height: 16),
+                                      
+                                      // Action buttons
+                                      Row(
+                                        children: [
+                                          // Mark as Reviewed (Valid)
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(dialogContext).pop();
+                                                _showMarkAsReviewedDialog(parentContext, report);
+                                              },
+                                              icon: const Icon(Icons.check_circle, size: 18),
+                                              label: const Text(
+                                                'Mark Reviewed',
+                                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.green,
+                                                foregroundColor: Colors.white,
+                                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                                elevation: 2,
                                               ),
                                             ),
-
-                                            const SizedBox(height: 12),
-
-                                            // Action Buttons
-                                            Row(
-  children: [
-    // Mark as Reviewed (Valid Report)
-    Expanded(
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.of(context).pop();
-          _showMarkAsReviewedDialog(context, report);
-        },
-        icon: const Icon(Icons.check_circle, size: 16),
-        label: const Text(
-          'Valid Report\n(Mark Reviewed)',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 10),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-      ),
-    ),
-    const SizedBox(width: 8),
-    // Mark as Invalid (False Report)
-    Expanded(
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.of(context).pop();
-          _showMarkAsInvalidDialog(context, report);
-        },
-        icon: const Icon(Icons.cancel, size: 16),
-        label: const Text(
-          'False Report\n(Mark Invalid)',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 10),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.red,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-      ),
-    ),
-  ],
-),
-                                          ],
-                                        ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          // Mark as Invalid
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(dialogContext).pop();
+                                                _showMarkAsInvalidDialog(parentContext, report);
+                                              },
+                                              icon: const Icon(Icons.cancel, size: 18),
+                                              label: const Text(
+                                                'Mark Invalid',
+                                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.red,
+                                                foregroundColor: Colors.white,
+                                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                                elevation: 2,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
-                                );
-                              },
-                            ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.close),
-              label: const Text('Close'),
-            ),
-            if (summonedReports.isNotEmpty)
-              TextButton.icon(
-                onPressed: () async {
-                  await provider.fetchStudentReports();
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refresh'),
               ),
-          ],
-        );
-      },
-    ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -2017,590 +3044,1009 @@ Widget build(BuildContext context) {
   final notesController = TextEditingController(
     text: 'Counseling session completed. Violation confirmed after discussion with student and review of evidence.',
   );
+  bool _isDisposed = false;
 
-  // ✅ FIX: Get the reported student's name (the one who committed the violation)
+  // ✅ SAVE CONTEXT-DEPENDENT DATA BEFORE DIALOG
   final reportedStudentName = report['reported_student_name']?.toString() ?? 
                               report['student_name']?.toString() ?? 
                               report['student']?['name']?.toString() ?? 
                               'Unknown Student';
 
+  // ✅ Create a GlobalKey for the dialog's own ScaffoldMessenger
+  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
   showDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.green.shade100,
-              borderRadius: BorderRadius.circular(8),
+    barrierDismissible: false,
+    builder: (dialogContext) => ScaffoldMessenger(
+      key: scaffoldMessengerKey,
+      child: Builder(
+        builder: (messengerContext) => WillPopScope(
+          onWillPop: () async {
+            if (!_isDisposed) {
+              notesController.dispose();
+              _isDisposed = true;
+            }
+            return true;
+          },
+          child: AlertDialog(
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.check_circle, color: Colors.green.shade700),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Mark as Reviewed')),
+              ],
             ),
-            child: Icon(Icons.check_circle, color: Colors.green.shade700),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(child: Text('Mark as Reviewed')),
-        ],
-      ),
-      content: SizedBox(
-        width: MediaQuery.of(context).size.width * 0.8,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.green.shade700),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Marking as REVIEWED confirms the violation. '
-                        'This report will be available for tallying.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Student Information - REPORTED STUDENT (violator)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50, // Changed to red to indicate violator
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
+            content: SizedBox(
+              width: MediaQuery.of(context).size.width * 0.8,
+              child: SingleChildScrollView(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person, size: 20, color: Colors.red.shade700),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Reported Student (Violator):',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.warning, size: 18, color: Colors.red),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            reportedStudentName,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 16),
-                    Row(
-                      children: [
-                        const Icon(Icons.report, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Report: ${report['title'] ?? 'Untitled'}',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (report['violation_type'] != null) ...[
-                      const SizedBox(height: 8),
-                      Row(
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
                         children: [
-                          const Icon(Icons.gavel, size: 16, color: Colors.orange),
+                          Icon(Icons.info_outline, color: Colors.green.shade700),
                           const SizedBox(width: 8),
-                          Expanded(
+                          const Expanded(
                             child: Text(
-                              'Violation: ${report['violation_type']}',
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                              'Marking as REVIEWED confirms the violation. '
+                              'This report will be available for tallying.',
+                              style: TextStyle(fontSize: 12),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.person_outline, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Student Information
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.person, size: 20, color: Colors.red.shade700),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Reported Student (Violator):',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.warning, size: 18, color: Colors.red),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  reportedStudentName,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 16),
+                          Row(
+                            children: [
+                              const Icon(Icons.report, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Report: ${report['title'] ?? 'Untitled'}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (report['violation_type'] != null) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.gavel, size: 16, color: Colors.orange),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Violation: ${report['violation_type']}',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}',
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Reported: ${_formatDate(report['created_at'])}',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Counseling Session Notes:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Document your counseling session with $reportedStudentName',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Reported: ${_formatDate(report['created_at'])}',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
+                    TextField(
+                      controller: notesController,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        hintText: 'e.g., $reportedStudentName admitted to the violation during counseling...',
+                        helperText: 'These notes will be attached to the report',
+                      ),
+                      maxLines: 5,
                     ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              const Text(
-                'Counseling Session Notes:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Document your counseling session with $reportedStudentName',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: notesController,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  hintText: 'e.g., $reportedStudentName admitted to the violation during counseling...',
-                  helperText: 'These notes will be attached to the report',
-                ),
-                maxLines: 5,
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Important Note
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.shade200),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.lightbulb_outline, color: Colors.amber.shade700, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'After marking as reviewed, this violation by $reportedStudentName will appear in the "Tally Report" section where you can officially record it.',
-                        style: const TextStyle(fontSize: 11),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Important Note
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.lightbulb_outline, color: Colors.amber.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'After marking as reviewed, this violation by $reportedStudentName will appear in the "Tally Report" section where you can officially record it.',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  if (!_isDisposed) {
+                    notesController.dispose();
+                    _isDisposed = true;
+                  }
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  // ✅ Validate using dialog's own messenger
+                  if (notesController.text.trim().isEmpty) {
+                    scaffoldMessengerKey.currentState?.showSnackBar(
+                      const SnackBar(
+                        content: Text('Please add counseling notes'),
+                        backgroundColor: Colors.orange,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    return;
+                  }
+
+                  // ✅ SAVE ALL DATA BEFORE ASYNC
+                  final outerContext = context; // Parent page context
+                  final notes = notesController.text.trim();
+                  final reportId = report['id'];
+                  final reportType = report['report_type']?.toString() ?? 'student_report';
+                  final studentName = reportedStudentName;
+                  
+                  // ✅ Get provider BEFORE disposing
+                  final counselorProvider = Provider.of<CounselorProvider>(outerContext, listen: false);
+                  
+                  // ✅ Dispose BEFORE navigation
+                  if (!_isDisposed) {
+                    notesController.dispose();
+                    _isDisposed = true;
+                  }
+                  
+                  // ✅ Close dialog
+                  Navigator.of(dialogContext).pop();
+                  
+                  // ✅ Show loading
+                  if (outerContext.mounted) {
+                    showDialog(
+                      context: outerContext,
+                      barrierDismissible: false,
+                      builder: (loadingContext) => const Center(
+                        child: Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text('Marking report as reviewed...'),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  // ✅ Do async operation
+                  final success = await counselorProvider.updateReportStatus(
+                    reportId,
+                    'verified',
+                    notes: notes,
+                    reportType: reportType,
+                  );
+
+                  // ✅ Close loading
+                  if (outerContext.mounted) {
+                    Navigator.of(outerContext).pop();
+                  }
+
+                  // ✅ Refresh in background
+                  counselorProvider.fetchStudentReports().catchError((e) {
+                    debugPrint('⚠️ Failed to refresh reports: $e');
+                  });
+
+                  // ✅ Show result using parent context
+                  if (outerContext.mounted) {
+                    if (success) {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.white),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      '✅ Report Marked as REVIEWED',
+                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      'Violation by $studentName confirmed - ready for tallying',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 5),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(outerContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('❌ Failed to mark report as reviewed'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.check),
+                label: const Text('Confirm Verified'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 ),
               ),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            notesController.dispose();
-            Navigator.of(context).pop();
-          },
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton.icon(
-  onPressed: () async {
-    if (notesController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please add counseling notes'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-    
-    // ✅ FIX: Use updateReportStatus with report_type parameter
-    final reportType = report['report_type']?.toString() ?? 'student_report';
-    
-    final success = await counselorProvider.updateReportStatus(
-      report['id'],
-      'reviewed',
-      notes: notesController.text.trim(),
-      reportType: reportType, // ✅ Pass the report type
-    );
-
-    if (success && context.mounted) {
-      notesController.dispose();
-      Navigator.of(context).pop();
-      
-      await counselorProvider.fetchStudentReports();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '✅ Report Marked as REVIEWED',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Violation by $reportedStudentName is now ready for tallying',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    } else if (context.mounted) {
-      notesController.dispose();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('❌ Failed to mark report as reviewed'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  },
-  icon: const Icon(Icons.check),
-  label: const Text('Confirm Reviewed'),
-  style: ElevatedButton.styleFrom(
-    backgroundColor: Colors.green,
-    foregroundColor: Colors.white,
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-  ),
-),
-      ],
     ),
   );
 }
 
 void _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic> report) {
   final reasonController = TextEditingController();
+  bool _isDisposed = false;
   
-  // ✅ FIX: Get the reported student's name (the one who was accused)
+  // ✅ SAVE PARENT CONTEXT AT THE START
+  final parentContext = context;
+  
+  // ✅ SAVE CONTEXT-DEPENDENT DATA BEFORE DIALOG
   final reportedStudentName = report['reported_student_name']?.toString() ?? 
                               report['student_name']?.toString() ?? 
                               report['student']?['name']?.toString() ?? 
                               'Unknown Student';
   
+  // ✅ CREATE A GLOBALKEY FOR DIALOG'S OWN SCAFFOLDMESSENGER
+  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  
   showDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.cancel, color: Colors.red),
-          SizedBox(width: 8),
-          Expanded(child: Text('Mark Report as Invalid')),
-        ],
-      ),
-      content: SizedBox(
-        width: MediaQuery.of(context).size.width * 0.8,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning, color: Colors.red.shade700),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'This report will be marked as INVALID and closed. '
-                        'It will NOT be tallied as a violation.',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Student Information - REPORTED STUDENT (accused student)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50, // Changed to blue since report is invalid
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
+    barrierDismissible: false,
+    builder: (dialogContext) => ScaffoldMessenger(
+      key: scaffoldMessengerKey,
+      child: Builder(
+        builder: (messengerContext) => WillPopScope(
+          onWillPop: () async {
+            if (!_isDisposed) {
+              reasonController.dispose();
+              _isDisposed = true;
+            }
+            return true;
+          },
+          child: AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.cancel, color: Colors.red),
+                SizedBox(width: 8),
+                Expanded(child: Text('Mark Report as Invalid')),
+              ],
+            ),
+            content: SizedBox(
+              width: MediaQuery.of(parentContext).size.width * 0.8,
+              child: SingleChildScrollView(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person, size: 20, color: Colors.blue.shade700),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Reported Student (Accused):',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.shield, size: 18, color: Colors.green),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            reportedStudentName,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
+                    // ✅ WARNING BOX
                     Container(
-                      padding: const EdgeInsets.all(6),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.green.shade200),
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Row(
                         children: [
-                          Icon(Icons.check_circle, size: 12, color: Colors.green),
-                          SizedBox(width: 4),
-                          Text(
-                            'Will be cleared - Report is false/unsubstantiated',
-                            style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 16),
-                    Row(
-                      children: [
-                        const Icon(Icons.report, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Report: ${report['title'] ?? 'Untitled'}',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (report['violation_type'] != null) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+                          Icon(Icons.warning, color: Colors.red.shade700),
                           const SizedBox(width: 8),
-                          Expanded(
+                          const Expanded(
                             child: Text(
-                              'Alleged Violation: ${report['violation_type']}',
-                              style: const TextStyle(fontSize: 13),
+                              'Marking as INVALID will clear the student of all charges. '
+                              'This report will be dismissed and not counted as a violation.',
+                              style: TextStyle(fontSize: 12),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.person_outline, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Reported by: ${report['reported_by']?['name'] ?? 'Unknown'}',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ),
-                      ],
                     ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              const Text(
-                'Reason for Marking as Invalid: *',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Explain why the accusation against $reportedStudentName is invalid',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: reasonController,
-                decoration: InputDecoration(
-                  hintText: 'e.g., After investigation, $reportedStudentName was found innocent. The report was unsubstantiated, no evidence found, false accusation...',
-                  border: const OutlineInputBorder(),
-                  helperText: 'Provide a clear explanation for dismissing this accusation',
-                  helperMaxLines: 2,
-                ),
-                maxLines: 4,
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Warning Note
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
+                    const SizedBox(height: 16),
+                    
+                    // ✅ STUDENT INFORMATION
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'What happens next:',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          Row(
+                            children: [
+                              Icon(Icons.person, size: 20, color: Colors.green.shade700),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Student Being Cleared:',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '• $reportedStudentName will NOT receive any violation record\n'
-                            '• Both the reporter and $reportedStudentName will be notified\n'
-                            '• The report will be closed and archived\n'
-                            '• This action can be reviewed in audit logs',
-                            style: const TextStyle(fontSize: 11),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  reportedStudentName,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 16),
+                          Row(
+                            children: [
+                              const Icon(Icons.report, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Report: ${report['title'] ?? 'Untitled'}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (report['violation_type'] != null) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.gavel, size: 16, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Accusation: ${report['violation_type']}',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // ✅ REASON INPUT
+                    const Text(
+                      'Reason for Marking as Invalid:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Explain why this report is false or unsubstantiated (minimum 20 characters)',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: reasonController,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        hintText: 'e.g., After investigation, $reportedStudentName provided evidence...',
+                        helperText: 'This reason will be permanently recorded',
+                      ),
+                      maxLines: 5,
+                      maxLength: 20,
+                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+                        return Text(
+                          '$currentLength/$maxLength characters',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: currentLength < 20 ? Colors.red : Colors.grey,
+                          ),
+                        );
+                      },
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // ✅ IMPORTANT NOTE
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '$reportedStudentName will be notified that the accusation has been dismissed.',
+                              style: const TextStyle(fontSize: 11),
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  if (!_isDisposed) {
+                    reasonController.dispose();
+                    _isDisposed = true;
+                  }
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  // ✅ VALIDATION: Use dialog's own messenger
+                  final reason = reasonController.text.trim();
+                  
+                  if (reason.isEmpty) {
+                    scaffoldMessengerKey.currentState?.showSnackBar(
+                      const SnackBar(
+                        content: Text('Please provide a reason for marking as invalid'),
+                        backgroundColor: Colors.orange,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (reason.length < 20) {
+                    scaffoldMessengerKey.currentState?.showSnackBar(
+                      const SnackBar(
+                        content: Text('Please provide a more detailed reason (at least 20 characters)'),
+                        backgroundColor: Colors.orange,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    return;
+                  }
+
+                  // ✅ SAVE ALL DATA BEFORE ASYNC OPERATIONS
+                  final reportId = report['id'];
+                  final studentName = reportedStudentName;
+                  
+                  // ✅ Get provider IMMEDIATELY using saved parent context
+                  final counselorProvider = Provider.of<CounselorProvider>(parentContext, listen: false);
+                  
+                  // ✅ Dispose controller BEFORE async operations
+                  if (!_isDisposed) {
+                    reasonController.dispose();
+                    _isDisposed = true;
+                  }
+                  
+                  // ✅ Close dialog immediately
+                  Navigator.of(dialogContext).pop();
+                  
+                  // ✅ Show loading dialog using parent context
+                  if (parentContext.mounted) {
+                    showDialog(
+                      context: parentContext,
+                      barrierDismissible: false,
+                      builder: (loadingContext) => const Center(
+                        child: Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text('Marking report as invalid...'),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  // ✅ Do async operation with saved provider reference
+                  final success = await counselorProvider.markReportAsInvalid(
+                    reportId: reportId,
+                    reason: reason,
+                  );
+
+                  // ✅ Close loading dialog
+                  if (parentContext.mounted) {
+                    Navigator.of(parentContext).pop();
+                  }
+
+                  // ✅ Refresh reports in background
+                  counselorProvider.fetchStudentReports().catchError((e) {
+                    debugPrint('⚠️ Failed to refresh reports: $e');
+                  });
+
+                  // ✅ Show result using parent context
+                  if (parentContext.mounted) {
+                    ScaffoldMessenger.of(parentContext).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            Icon(
+                              success ? Icons.check_circle : Icons.error,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    success 
+                                      ? '✅ Report Marked as INVALID'
+                                      : '❌ Failed to mark report as invalid',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  if (success)
+                                    Text(
+                                      '$studentName has been cleared - accusation dismissed',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: success ? Colors.orange : Colors.red,
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.cancel),
+                label: const Text('Confirm Invalid'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 ),
               ),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            reasonController.dispose();
-            Navigator.of(context).pop();
-          },
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton.icon(
-          onPressed: () async {
-            if (reasonController.text.trim().isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Please provide a reason for marking as invalid'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-              return;
-            }
-
-            if (reasonController.text.trim().length < 20) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Please provide a more detailed reason (at least 20 characters)'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-              return;
-            }
-
-            final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-            
-            final success = await counselorProvider.markReportAsInvalid(
-              reportId: report['id'],
-              reason: reasonController.text.trim(),
-            );
-
-            if (success && context.mounted) {
-              reasonController.dispose();
-              Navigator.of(context).pop();
-              
-              await counselorProvider.fetchStudentReports();
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Icon(Icons.info, color: Colors.white),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              '✅ Report Marked as INVALID',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              '$reportedStudentName has been cleared - accusation dismissed',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: Colors.orange,
-                  duration: const Duration(seconds: 5),
-                ),
-              );
-            } else if (context.mounted) {
-              reasonController.dispose();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('❌ Failed to mark report as invalid'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-          icon: const Icon(Icons.cancel),
-          label: const Text('Confirm Invalid'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          ),
-        ),
-      ],
     ),
+  );
+}
+
+
+void _showScheduleCounselingDialog(Map<String, dynamic> student) {
+  final descriptionController = TextEditingController();
+  final notesController = TextEditingController();
+  DateTime selectedDate = DateTime.now();
+  String selectedActionType = 'Individual Counseling';
+  bool _isSubmitting = false;
+  
+  // ✅ SAVE PARENT CONTEXT BEFORE SHOWING DIALOG
+  final parentContext = context;
+  
+  // ✅ Create a GlobalKey for the ScaffoldMessenger
+  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      return ScaffoldMessenger(
+        key: scaffoldMessengerKey,
+        child: Builder(
+          builder: (messengerContext) {
+            return StatefulBuilder(
+              builder: (builderContext, setState) => AlertDialog(
+                title: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.event_note, color: Colors.blue.shade700),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Schedule Counseling Session\n${student['name']}',
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: MediaQuery.of(dialogContext).size.width * 0.9,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.warning, color: Colors.orange.shade700, size: 20),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Student requires counseling',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text('ID: ${student['student_id'] ?? student['id']}'),
+                              Text('Grade: ${student['grade_level']} ${student['section']}'),
+                              if (student['contact_number'] != null && student['contact_number'].toString().isNotEmpty)
+                                Text('Contact: ${student['contact_number']}'),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        const Text('Session Type:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: selectedActionType,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: [
+                            'Individual Counseling',
+                            'Group Session',
+                            'Parent Conference',
+                            'Behavioral Intervention',
+                            'Follow-up Meeting',
+                            'Crisis Intervention',
+                          ].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
+                          onChanged: _isSubmitting ? null : (value) => setState(() => selectedActionType = value!),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        const Text('Scheduled Date:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: _isSubmitting ? null : () async {
+                            final DateTime? picked = await showDatePicker(
+                              context: dialogContext,
+                              initialDate: selectedDate,
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) {
+                              setState(() => selectedDate = picked);
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.calendar_today, size: 20),
+                                const SizedBox(width: 12),
+                                Text(
+                                  '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        TextField(
+                          controller: descriptionController,
+                          enabled: !_isSubmitting,
+                          decoration: const InputDecoration(
+                            labelText: 'Reason for Counseling *',
+                            hintText: 'Why does this student need counseling?',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        TextField(
+                          controller: notesController,
+                          enabled: !_isSubmitting,
+                          decoration: const InputDecoration(
+                            labelText: 'Initial Notes (Optional)',
+                            hintText: 'Any observations or concerns',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _isSubmitting ? null : () {
+                      // ✅ Dispose controllers safely when canceling
+                      descriptionController.dispose();
+                      notesController.dispose();
+                      Navigator.of(dialogContext).pop();
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _isSubmitting ? null : () async {
+                      // ✅ Validate using the dialog's own ScaffoldMessenger
+                      final description = descriptionController.text.trim();
+                      if (description.isEmpty) {
+                        scaffoldMessengerKey.currentState?.showSnackBar(
+                          const SnackBar(
+                            content: Text('Please provide a reason for counseling'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
+                      
+                      // ✅ Save all data BEFORE any state changes
+                      final notes = notesController.text.trim();
+                      final studentId = student['id'];
+                      final studentName = student['name'];
+                      final actionType = selectedActionType;
+                      final scheduledDate = selectedDate;
+                      
+                      // ✅ Get provider using SAVED parent context
+                      final counselorProvider = Provider.of<CounselorProvider>(parentContext, listen: false);
+                      
+                      setState(() => _isSubmitting = true);
+                      
+                      // ✅ DO NOT dispose yet - wait until after navigation
+                      
+                      // ✅ Show loading using parent context
+                      if (parentContext.mounted) {
+                        showDialog(
+                          context: parentContext,
+                          barrierDismissible: false,
+                          builder: (loadingContext) => const Center(
+                            child: Card(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(),
+                                    SizedBox(height: 16),
+                                    Text('Scheduling session...'),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      
+                      // ✅ Do async operation
+                      final success = await counselorProvider.logCounselingAction({
+                        'student_id': studentId,
+                        'action_type': actionType,
+                        'description': description,
+                        'notes': notes,
+                        'scheduled_date': scheduledDate.toUtc().toIso8601String(),
+                        'mark_completed': false,
+                      });
+                      
+                      // ✅ NOW safe to dispose after async completes
+                      descriptionController.dispose();
+                      notesController.dispose();
+                      
+                      // ✅ Close dialogs
+                      if (parentContext.mounted) {
+                        Navigator.of(parentContext).pop(); // Close loading
+                      }
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop(); // Close form dialog
+                      }
+                      
+                      // ✅ Show result using parent context
+                      if (parentContext.mounted) {
+                        if (success) {
+                          ScaffoldMessenger.of(parentContext).showSnackBar(
+                            SnackBar(
+                              content: Row(
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.white),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text(
+                                          '✅ Counseling Session Scheduled',
+                                          style: TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          'For $studentName on ${scheduledDate.day}/${scheduledDate.month}/${scheduledDate.year}',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              backgroundColor: Colors.green,
+                              duration: const Duration(seconds: 4),
+                            ),
+                          );
+                          
+                          _fetchData().catchError((e) {
+                            debugPrint('⚠️ Failed to refresh data: $e');
+                          });
+                        } else {
+                          ScaffoldMessenger.of(parentContext).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to schedule session: ${counselorProvider.error}'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    icon: _isSubmitting 
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.schedule),
+                    label: Text(_isSubmitting ? 'Scheduling...' : 'Schedule Session'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    },
   );
 }
 
@@ -2617,8 +4063,213 @@ void _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic> report)
     );
   }
 
+  Widget _buildNavigationDrawer() {
+  return Drawer(
+    child: Column(
+      children: [
+        // Header - Match dashboard style
+        DrawerHeader(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, size: 32, color: Colors.blue.shade700),
+              ),
+              const SizedBox(height: 12),
+              Consumer<AuthProvider>(
+                builder: (context, authProvider, child) {
+                  return Text(
+                    authProvider.username ?? 'Counselor',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  );
+                },
+              ),
+              const Text(
+                'Counselor',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        // Navigation Items - SAME AS DASHBOARD
+        ListTile(
+          leading: const Icon(Icons.dashboard),
+          title: const Text('Overview'),
+          onTap: () {
+            Navigator.pop(context); // Close drawer
+            Navigator.pop(context); // Go back to dashboard
+          },
+        ),
+        
+        ListTile(
+          leading: const Icon(Icons.people, color: Colors.blue),
+          title: const Text(
+            'Manage Students',
+            style: TextStyle(
+              color: Colors.blue,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          selected: true,
+          selectedTileColor: Colors.blue.withOpacity(0.1),
+          onTap: () {
+            Navigator.pop(context); // Just close drawer, already on this page
+          },
+        ),
+        
+        ListTile(
+          leading: const Icon(Icons.report),
+          title: const Text('Student Reports'),
+          onTap: () {
+            Navigator.pop(context); // Close drawer
+            Navigator.pop(context); // Go back to dashboard
+            // Dashboard will handle navigation to student reports tab
+          },
+        ),
+        
+        ListTile(
+          leading: const Icon(Icons.school),
+          title: const Text('Teacher Reports'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.pop(context);
+          },
+        ),
+        
+        ListTile(
+          leading: const Icon(Icons.analytics),
+          title: const Text('Analytics'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.pop(context);
+          },
+        ),
+        
+        const Divider(),
+        
+        // Quick Actions - SAME AS DASHBOARD
+        ListTile(
+          leading: const Icon(Icons.event_note),
+          title: const Text('Counseling Sessions'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CounselingSessionsPage(),
+              ),
+            );
+          },
+        ),
+        
+        ListTile(
+          leading: const Icon(Icons.settings),
+          title: const Text('Settings'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.pushNamed(context, AppRoutes.counselorSettings);
+          },
+        ),
+        
+        const Spacer(),
+        
+        // View Toggle (at bottom) - UNIQUE TO THIS PAGE
+        Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _showFolderView ? Icons.folder : Icons.list,
+                color: Colors.blue.shade700,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _showFolderView ? 'Folder View' : 'List View',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Switch(
+                value: _showFolderView,
+                onChanged: (value) {
+                  setState(() => _showFolderView = value);
+                  Navigator.pop(context);
+                },
+                activeColor: Colors.blue,
+              ),
+            ],
+          ),
+        ),
+        
+        // Logout - SAME AS DASHBOARD
+        ListTile(
+          leading: const Icon(Icons.logout, color: Colors.red),
+          title: const Text(
+            'Logout',
+            style: TextStyle(color: Colors.red),
+          ),
+          onTap: () async {
+            final shouldLogout = await _showLogoutConfirmation();
+            if (shouldLogout) {
+              final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+              await counselorProvider.logout();
+              if (context.mounted) {
+                Navigator.pushReplacementNamed(context, AppRoutes.login);
+              }
+            }
+          },
+        ),
+        
+        const SizedBox(height: 16),
+      ],
+    ),
+  );
+}
 
-
+  Future<bool> _showLogoutConfirmation() async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
 }
 
 // Add Student Dialog
@@ -2837,58 +4488,72 @@ class _AddStudentDialogState extends State<_AddStudentDialog> {
   }
 
   Future<void> _addStudent() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+  // ✅ SAVE CONTEXT AND MESSENGER BEFORE ANY ASYNC OPERATIONS
+  final dialogContext = context;
+  final scaffoldMessenger = ScaffoldMessenger.of(context);
+  
+  setState(() => _isLoading = true);
 
-    try {
-      final studentData = {
-        'first_name': _firstNameController.text.trim(),
-        'last_name': _lastNameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'student_id': _studentIdController.text.trim(),
-        'grade_level': _selectedGrade,
-        'section': _selectedSection,
-        'contact_number': _contactController.text.trim(),
-        'guardian_name': _guardianNameController.text.trim(),
-        'guardian_contact': _guardianContactController.text.trim(),
-      };
+  try {
+    final studentData = {
+      'first_name': _firstNameController.text.trim(),
+      'last_name': _lastNameController.text.trim(),
+      'email': _emailController.text.trim(),
+      'student_id': _studentIdController.text.trim(),
+      'grade_level': _selectedGrade,
+      'section': _selectedSection,
+      'contact_number': _contactController.text.trim(),
+      'guardian_name': _guardianNameController.text.trim(),
+      'guardian_contact': _guardianContactController.text.trim(),
+    };
 
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-      final success = await counselorProvider.addStudent(studentData);
+    // ✅ Save data before async
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
 
-      if (mounted) {
-        if (success) {
-          Navigator.of(context).pop();
-          widget.onStudentAdded();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Student ${_firstNameController.text} ${_lastNameController.text} added successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to add student: ${counselorProvider.error}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+    // ✅ Get provider BEFORE closing dialog
+    final counselorProvider = Provider.of<CounselorProvider>(dialogContext, listen: false);
+    
+    final success = await counselorProvider.addStudent(studentData);
+
+    // ✅ Check if still mounted before UI updates
+    if (dialogContext.mounted) {
+      Navigator.of(dialogContext).pop();
+      widget.onStudentAdded();
+      
+      // ✅ Use saved messenger
+      if (success) {
+        scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('Error adding student: $e'),
+            content: Text('Student $firstName $lastName added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to add student: ${counselorProvider.error}'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+  } catch (e) {
+    // ✅ Use saved messenger for errors
+    if (dialogContext.mounted) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error adding student: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   @override
   void dispose() {
@@ -3159,57 +4824,71 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
   }
 
   Future<void> _updateStudent() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+  // ✅ SAVE CONTEXT AND MESSENGER BEFORE ANY ASYNC OPERATIONS
+  final dialogContext = context;
+  final scaffoldMessenger = ScaffoldMessenger.of(context);
+  
+  setState(() => _isLoading = true);
 
-    try {
-      final studentData = {
-        'first_name': _firstNameController.text.trim(),
-        'last_name': _lastNameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'grade_level': _selectedGrade,
-        'section': _selectedSection,
-        'contact_number': _contactController.text.trim(),
-        'guardian_name': _guardianNameController.text.trim(),
-        'guardian_contact': _guardianContactController.text.trim(),
-      };
+  try {
+    final studentData = {
+      'first_name': _firstNameController.text.trim(),
+      'last_name': _lastNameController.text.trim(),
+      'email': _emailController.text.trim(),
+      'grade_level': _selectedGrade,
+      'section': _selectedSection,
+      'contact_number': _contactController.text.trim(),
+      'guardian_name': _guardianNameController.text.trim(),
+      'guardian_contact': _guardianContactController.text.trim(),
+    };
 
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-      final success = await counselorProvider.updateStudent(widget.student['id'], studentData);
+    // ✅ Save data before async
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
 
-      if (mounted) {
-        if (success) {
-          Navigator.of(context).pop();
-          widget.onStudentUpdated();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Student ${_firstNameController.text} ${_lastNameController.text} updated successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to update student: ${counselorProvider.error}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+    // ✅ Get provider BEFORE closing dialog
+    final counselorProvider = Provider.of<CounselorProvider>(dialogContext, listen: false);
+    
+    final success = await counselorProvider.updateStudent(widget.student['id'], studentData);
+
+    // ✅ Check if still mounted before UI updates
+    if (dialogContext.mounted) {
+      Navigator.of(dialogContext).pop();
+      widget.onStudentUpdated();
+      
+      // ✅ Use saved messenger
+      if (success) {
+        scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('Error updating student: $e'),
+            content: Text('Student $firstName $lastName updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to update student: ${counselorProvider.error}'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+  } catch (e) {
+    // ✅ Use saved messenger for errors
+    if (dialogContext.mounted) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error updating student: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   void _showDeleteConfirmation() {
     showDialog(
@@ -3226,50 +4905,55 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop(); // Close confirmation dialog
-              
-              // Proceed with deletion
-              try {
-                final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-                final success = await counselorProvider.deleteStudent(widget.student['id']);
-                
-                if (mounted) {
-                  if (success) {
-                    Navigator.of(context).pop(); // Close edit dialog
-                    widget.onStudentUpdated(); // Refresh the list
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Student deleted successfully'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to delete student: ${counselorProvider.error}'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error deleting student: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+  onPressed: () async {
+    Navigator.of(context).pop(); // Close confirmation dialog
+    
+    // ✅ SAVE REFERENCES BEFORE ASYNC
+    final parentContext = context; // Edit dialog context
+    final scaffoldMessenger = ScaffoldMessenger.of(parentContext);
+    
+    try {
+      final counselorProvider = Provider.of<CounselorProvider>(parentContext, listen: false);
+      final success = await counselorProvider.deleteStudent(widget.student['id']);
+      
+      if (parentContext.mounted) {
+        Navigator.of(parentContext).pop(); // Close edit dialog
+        widget.onStudentUpdated(); // Refresh the list
+        
+        // ✅ Use saved messenger
+        if (success) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Student deleted successfully'),
+              backgroundColor: Colors.green,
             ),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          );
+        } else {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete student: ${counselorProvider.error}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (parentContext.mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error deleting student: $e'),
+            backgroundColor: Colors.red,
           ),
+        );
+      }
+    }
+  },
+  style: ElevatedButton.styleFrom(
+    backgroundColor: Colors.red,
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+  ),
+  child: const Text('Delete', style: TextStyle(color: Colors.white)),
+),
         ],
       ),
     );
@@ -3448,80 +5132,93 @@ class _RecordViolationDialogState extends State<_RecordViolationDialog> {
   }
 
   Future<void> _recordViolation() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+  // ✅ CRITICAL: Save context and messenger BEFORE any async operations
+  final dialogContext = context;
+  final scaffoldMessenger = ScaffoldMessenger.of(context);
+  
+  setState(() => _isLoading = true);
 
-    try {
-      // Add null safety for the violation data
-      final studentId = widget.preSelectedStudent['id']?.toString() ?? 
-                       widget.preSelectedStudent['student_id']?.toString();
-        
-      if (studentId == null) {
-        throw Exception('Student ID is required but not found');
-      }
+  try {
+    final studentId = widget.preSelectedStudent['id']?.toString() ?? 
+                     widget.preSelectedStudent['student_id']?.toString();
+      
+    if (studentId == null) {
+      throw Exception('Student ID is required but not found');
+    }
 
-      final violationTypeId = _selectedViolationType!['id'];
-      if (violationTypeId == null) {
-        throw Exception('Violation type ID is required but not found');
-      }
+    final violationTypeId = _selectedViolationType!['id'];
+    if (violationTypeId == null) {
+      throw Exception('Violation type ID is required but not found');
+    }
 
-      final violationData = {
-        'student_id': studentId,
-        'violation_type_id': violationTypeId,
-        'incident_date': DateTime.now().toIso8601String(),
-        'description': _descriptionController.text.trim(),
-        'location': '',
-        'witnesses': '',
-        'counselor_notes': '',
-        'action_taken': '',
-        'follow_up_required': false,
-        'severity_override': _selectedViolationType!['severity_level']?.toString() ?? 'Medium',
-        'parent_notified': false,
-        'is_repeat_offense': false,
-        'violation_count_for_student': 1,
-      };
+    // ✅ Save all needed data BEFORE any state changes
+    final studentName = widget.preSelectedStudent['name']?.toString() ?? 
+                       widget.preSelectedStudent['full_name']?.toString() ?? 
+                       'the student';
+    
+    final violationTypeName = _selectedViolationType!['name']?.toString() ?? 'violation';
+    final description = _descriptionController.text.trim();
+    final severity = _selectedViolationType!['severity_level']?.toString() ?? 'Medium';
 
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-      final success = await counselorProvider.recordViolation(violationData);
+    // ✅ Get provider reference BEFORE closing dialog
+    final counselorProvider = Provider.of<CounselorProvider>(dialogContext, listen: false);
+    
+    // ✅ SIMPLIFIED: Just record the violation directly
+    final violationData = {
+      'title': 'Manual Violation Record - $violationTypeName',
+      'description': description,
+      'violation_type': violationTypeName,
+      'reported_student_id': studentId,
+      'severity': severity,
+    };
 
-      if (mounted) {
-        if (success) {
-          Navigator.of(context).pop();
-          widget.onViolationRecorded();
-          
-          final studentName = widget.preSelectedStudent['name']?.toString() ?? 
-                             widget.preSelectedStudent['full_name']?.toString() ?? 
-                             'the student';
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Violation recorded for $studentName'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to record violation: ${counselorProvider.error ?? 'Unknown error'}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+    final success = await counselorProvider.createSystemReport(violationData);
+
+    // ✅ Check if dialog is still mounted before showing messages
+    if (dialogContext.mounted) {
+      // Close the dialog first
+      Navigator.of(dialogContext).pop();
+      
+      // Call the callback to refresh
+      widget.onViolationRecorded();
+      
+      // Show result using saved messenger
+      if (success) {
+        scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('Error recording violation: $e'),
+            content: Text('✅ Violation recorded for $studentName'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to record violation: ${counselorProvider.error ?? 'Unknown error'}'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    }
+  } catch (e) {
+    // ✅ Use saved messenger for error messages
+    if (dialogContext.mounted) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error recording violation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    // ✅ Only update state if still mounted
+    if (mounted && dialogContext.mounted) {
+      setState(() => _isLoading = false);
     }
   }
+}
 
   @override
   void dispose() {
@@ -3793,87 +5490,100 @@ class _BulkAddStudentsDialogState extends State<_BulkAddStudentsDialog> {
   }
 
   Future<void> _bulkAddStudents() async {
-    if (_selectedGrade == null || _selectedSection == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select grade and section'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+  // ✅ SAVE CONTEXT AND MESSENGER FIRST
+  final dialogContext = context;
+  final scaffoldMessenger = ScaffoldMessenger.of(context);
+  
+  if (_selectedGrade == null || _selectedSection == null) {
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Please select grade and section'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
+
+  if (_textController.text.trim().isEmpty) {
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Please enter student names'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final lines = _textController.text.trim().split('\n');
+    final students = <Map<String, dynamic>>[];
+
+    for (final line in lines) {
+      if (line.trim().isEmpty) continue;
+      
+      final parts = line.split(',');
+      final fullName = parts[0].trim();
+      final email = parts.length > 1 ? parts[1].trim() : '';
+
+      final nameParts = fullName.split(' ');
+      final firstName = nameParts.isNotEmpty ? nameParts.first : '';
+      final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+
+      students.add({
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': email,
+        'grade_level': _selectedGrade,
+        'section': _selectedSection,
+      });
     }
 
-    if (_textController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter student names'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    // ✅ Save count before async
+    final studentCount = students.length;
 
-    setState(() => _isLoading = true);
+    // ✅ Get provider BEFORE closing dialog
+    final counselorProvider = Provider.of<CounselorProvider>(dialogContext, listen: false);
+    
+    final success = await counselorProvider.bulkAddStudents(students);
 
-    try {
-      final lines = _textController.text.trim().split('\n');
-      final students = <Map<String, dynamic>>[];
-
-      for (final line in lines) {
-        if (line.trim().isEmpty) continue;
-        
-        final parts = line.split(',');
-        final fullName = parts[0].trim();
-        final email = parts.length > 1 ? parts[1].trim() : '';
-
-        final nameParts = fullName.split(' ');
-        final firstName = nameParts.isNotEmpty ? nameParts.first : '';
-        final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
-
-        students.add({
-          'first_name': firstName,
-          'last_name': lastName,
-          'email': email,
-          'grade_level': _selectedGrade,
-          'section': _selectedSection,
-        });
-      }
-
-      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-      final success = await counselorProvider.bulkAddStudents(students);
-
-      if (mounted) {
-        if (success) {
-          Navigator.of(context).pop();
-          widget.onStudentsAdded();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${students.length} students added successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to add students: ${counselorProvider.error}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+    // ✅ Check if still mounted
+    if (dialogContext.mounted) {
+      Navigator.of(dialogContext).pop();
+      widget.onStudentsAdded();
+      
+      // ✅ Use saved messenger
+      if (success) {
+        scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('Error adding students: $e'),
+            content: Text('$studentCount students added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to add students: ${counselorProvider.error}'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+  } catch (e) {
+    // ✅ Use saved messenger for errors
+    if (dialogContext.mounted) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error adding students: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   @override
   void dispose() {

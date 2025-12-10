@@ -31,9 +31,14 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
 
   String get reportStatus => widget.report['status']?.toString().toLowerCase() ?? '';
   bool get isPending => reportStatus == 'pending';
-  bool get isSummoned => reportStatus == 'summoned';
-  bool get isReviewed => reportStatus == 'reviewed';  // ✅ Add reviewed state
-  bool get canTally => isSummoned || isReviewed;  // ✅ Both can be tallied
+  bool get isSummoned => reportStatus == 'summoned' || reportStatus == 'summons_sent';
+  
+  // ✅ FIX: Add more status checks for reviewed reports
+  bool get isReviewed => reportStatus == 'reviewed' || 
+                         reportStatus == 'verified' || 
+                         reportStatus == 'validated';
+  
+  bool get canTally => isSummoned || isReviewed; // ✅ Both can be tallied
 
   @override
   void initState() {
@@ -91,48 +96,51 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
     );
 
     if (success && mounted) {
-      Navigator.of(context).pop();
-      widget.onViolationTallied();
-      
-      final studentName = widget.report['reported_student_name']?.toString() ?? 
-                         widget.report['student']?['name']?.toString() ?? 
-                         widget.report['student_name']?.toString() ??
-                         'the student';
+  final scaffoldContext = context; // Save context before pop
+  Navigator.of(context).pop();
+  widget.onViolationTallied();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.notifications_active, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '📢 Guidance Notice Sent!',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    Text(
-                      '$studentName has been notified to report to the guidance office.',
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                    ),
-                  ],
-                ),
+  final studentName = widget.report['reported_student_name']?.toString() ?? 
+                     widget.report['student']?['name']?.toString() ?? 
+                     widget.report['student_name']?.toString() ??
+                     'the student';
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.notifications_active, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '📢 Guidance Notice Sent!',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  Text(
+                    '$studentName has been notified to report to the guidance office.',
+                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                  ),
+                ],
               ),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: Colors.white,
-            onPressed: () {},
-          ),
+            ),
+          ],
         ),
-      );
-    } else {
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {},
+        ),
+      ),
+    );
+  });
+} else {
       throw Exception('Failed to send guidance notice');
     }
   } catch (e) {
@@ -153,53 +161,52 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
 
   Future<void> _markAsInvalid() async {
   if (!_formKey.currentState!.validate()) return;
-
   setState(() => _isSending = true);
 
   try {
     final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-    
-    // ✅ FIX: Get report type from report data
-    final reportType = widget.report['report_type']?.toString() ?? 'student_report';
-    
+
     final success = await counselorProvider.markReportAsInvalid(
       reportId: widget.report['id'],
       reason: _invalidReasonController.text.trim(),
-      reportType: reportType, // ✅ Pass report type
     );
 
-    if (success && mounted) {
-      Navigator.of(context).pop();
-      widget.onViolationTallied();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.cancel, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '✅ Report Marked as Invalid',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+    if (success) {
+      if (mounted) {
+        final scaffoldContext = context;
+        Navigator.of(context).pop();
+        widget.onViolationTallied();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.cancel, color: Colors.white),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '✅ Report Marked as Invalid',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        Text(
+                          'Notifications sent to student and reporter',
+                          style: TextStyle(fontSize: 12, color: Colors.white),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'Notifications sent to student and reporter',
-                      style: TextStyle(fontSize: 12, color: Colors.white),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 4),
-        ),
-      );
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        });
+      }
     } else {
       throw Exception('Failed to mark report as invalid');
     }
@@ -220,16 +227,29 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
 }
 
   void _proceedToTally() {
-    Navigator.of(context).pop();
-    showDialog(
-      context: context,
-      builder: (context) => _TallyConfirmationDialog(
+  debugPrint('🟡 _proceedToTally called');
+  debugPrint('   Report Status: ${widget.report['status']}');
+  debugPrint('   isReviewed: $isReviewed');
+  debugPrint('   canTally: $canTally');
+  
+  Navigator.of(context).pop();
+  
+  debugPrint('🟡 Showing TallyConfirmationDialog...');
+  showDialog(
+    context: context,
+    barrierDismissible: false, // ✅ Prevent accidental dismissal
+    builder: (context) {
+      debugPrint('🟢 TallyConfirmationDialog builder called');
+      return _TallyConfirmationDialog(
         report: widget.report,
         violationTypes: widget.violationTypes,
         onViolationTallied: widget.onViolationTallied,
-      ),
-    );
-  }
+      );
+    },
+  ).then((value) {
+    debugPrint('🔴 TallyConfirmationDialog dismissed with value: $value');
+  });
+}
 
   @override
   Widget build(BuildContext context) {
@@ -579,7 +599,21 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
                           ),
                           child: Column(
                             children: [
-                              Row(        ),
+                              Row(crossAxisAlignment: CrossAxisAlignment.start,  // ✅ ADD THIS LINE
+            children: [
+              Icon(Icons.warning, color: Colors.orange, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.report['title'] ?? 'Untitled Report',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
                               if (widget.report['counselor_notes'] != null) ...[
                                 const Divider(height: 16),
                                 Row(
@@ -837,6 +871,7 @@ class _TallyViolationDialogState extends State<TallyViolationDialog> {
 
   @override
   void dispose() {
+    debugPrint('🔴 [TallyConfirmationDialog] Disposing and disposing controllers');
     _messageController.dispose();
     _invalidReasonController.dispose();
     super.dispose();
@@ -928,115 +963,178 @@ class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
   setState(() => _isTallying = true);
 
   try {
-    final studentId = widget.report['reported_student_id']?.toString() ??
+    debugPrint('🟡 [TallyViolation] mounted: $mounted');
+    // ✅ FIX: ALWAYS get the REPORTED student ID (who committed the violation)
+    // Priority: reported_student.id > reported_student_id > student.id > student_id
+    final studentId = widget.report['reported_student']?['id']?.toString() ??
+        widget.report['reported_student_id']?.toString() ??
         widget.report['student']?['id']?.toString() ??
         widget.report['student_id']?.toString();
 
-    if (studentId == null) {
-      throw Exception('Student ID not found in report');
+    // ✅ Get the reported student's name (who gets the violation)
+    final reportedStudentName = widget.report['reported_student']?['name']?.toString() ??
+                                widget.report['reported_student_name']?.toString() ??
+                                widget.report['student']?['name']?.toString() ??
+                                widget.report['student_name']?.toString();
+
+    // ✅ Get reporter's name (who filed the report) - for description only
+    final reporterName = widget.report['reported_by']?['name']?.toString() ??
+                        widget.report['reporter_student']?['name']?.toString() ??
+                        widget.report['reporter_student_name']?.toString() ??
+                        'Unknown';
+
+    debugPrint('🎯 TALLYING VIOLATION:');
+    debugPrint('   ✅ Student being reported (gets violation): $reportedStudentName (ID: $studentId)');
+    debugPrint('   📝 Reporter (filed report): $reporterName');
+    debugPrint('   📋 Report ID: ${widget.report['id']}');
+    debugPrint('   ⚠️  Violation Type: ${_selectedViolationType?['name']}');
+
+    if (studentId == null || studentId.isEmpty) {
+      throw Exception('Cannot identify the student being reported. Please check the report data.');
     }
 
     if (_selectedViolationType == null) {
       throw Exception('Please select a violation type');
     }
 
+    // ✅ Build comprehensive description
+    final reporterClass = widget.report['reported_by']?['grade_section']?.toString() ??
+                         widget.report['reporter_student']?['grade_section']?.toString() ??
+                         widget.report['reporter_class']?.toString() ??
+                         'Grade/Section not specified';
+
+    final reporterUsername = widget.report['reported_by']?['username']?.toString() ??
+                            widget.report['reporter_student']?['username']?.toString() ??
+                            widget.report['reporter_username']?.toString() ??
+                            'N/A';
+
     final violationData = {
-      'student_id': studentId,
+      'student_id': int.parse(studentId),  // ✅ This is the REPORTED student (who gets the violation)
       'violation_type_id': _selectedViolationType!['id'],
       'incident_date': _incidentDate.toIso8601String(),
-      'description': 'Report Title: ${widget.report['title'] ?? 'N/A'}\n\n'
-                    'Reported by: ${widget.report['reported_by']?['name'] ?? 'Unknown'}\n\n'
-                    'Original Report:\n${widget.report['content'] ?? widget.report['description'] ?? 'No description available'}\n\n'
-                    'Counseling Notes:\n${_counselorNotesController.text.trim()}',
+      'description': '''Report Title: ${widget.report['title'] ?? 'N/A'}
+
+STUDENT BEING REPORTED (Violator):
+Name: $reportedStudentName
+Student ID: ${widget.report['reported_student']?['id'] ?? widget.report['reported_student_id'] ?? 'N/A'}
+
+REPORTED BY (Who filed the report):
+Name: $reporterName
+Class: $reporterClass
+Username: $reporterUsername
+
+INCIDENT DETAILS:
+${widget.report['content'] ?? widget.report['description'] ?? widget.report['details'] ?? 'No description available'}
+
+COUNSELING NOTES:
+${_counselorNotesController.text.trim()}
+
+---
+This violation is recorded on ${reportedStudentName}'s student record.
+Report filed by $reporterName on ${DateTime.parse(widget.report['created_at'] ?? DateTime.now().toIso8601String()).toString().split('.')[0]}
+''',
       'location': widget.report['location'] ?? '',
       'severity_override': _severity,
       'related_report_id': widget.report['id'],
+      'report_type': widget.report['report_type'] ?? 'student_report',  // ✅ Add report type
       'status': 'active',
       'counselor_notes': _counselorNotesController.text.trim(),
     };
 
+    debugPrint('🎯 Recording violation with data:');
+    debugPrint('   student_id: ${violationData['student_id']} (REPORTED STUDENT)');
+    debugPrint('   violation_type_id: ${violationData['violation_type_id']}');
+    debugPrint('   report_id: ${violationData['related_report_id']}');
+
     final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-    
     final success = await counselorProvider.recordViolation(violationData);
 
     if (success && mounted) {
-      // ✅ FIX: Get report type and pass to updateReportStatus
+      debugPrint('🔴 [TallyViolation] Widget disposed before async operation, aborting.');
       final reportType = widget.report['report_type']?.toString() ?? 'student_report';
-      
-      // Mark report as resolved
+
       await counselorProvider.updateReportStatus(
         widget.report['id'],
         'resolved',
-        reportType: reportType, // ✅ Pass report type
+        reportType: reportType,
       );
-      
-      // Refresh all data
+
       await Future.wait([
         counselorProvider.fetchStudentsList(),
-        counselorProvider.fetchStudentViolations(),
+        counselorProvider.fetchStudentViolations(forceRefresh: true),
         counselorProvider.fetchCounselorStudentReports(forceRefresh: true),
-        counselorProvider.fetchTeacherReports(), // ✅ Also refresh teacher reports
+        counselorProvider.fetchTeacherReports(),
       ]);
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-        widget.onViolationTallied();
-        
-        final studentName = widget.report['reported_student_name']?.toString() ?? 
-                           widget.report['student']?['name']?.toString() ?? 
-                           widget.report['student_name']?.toString() ??
-                           'student';
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '✅ Violation Tallied Successfully',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      Text(
-                        'Notifications sent to $studentName and the reporter',
-                        style: const TextStyle(fontSize: 12, color: Colors.white),
-                      ),
-                    ],
-                  ),
+      if (mounted) {
+  debugPrint('🔴 [TallyViolation] Widget disposed after async operation, aborting.');
+  final scaffoldContext = context;
+  Navigator.of(context).pop();
+  widget.onViolationTallied();
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    debugPrint('🟡 [Snackbar] Showing after dialog pop. Context still valid? ${scaffoldContext != null}');
+    try {
+      debugPrint('🟡 Attempting to show snackbar after dialog pop. Context: $scaffoldContext');
+      ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '✅ Violation Recorded Successfully',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      'Violation recorded on $reportedStudentName\'s record',
+                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'View',
-              textColor: Colors.white,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const StudentViolationsPage(),
-                  ),
-                );
-              },
-            ),
+              ),
+            ],
           ),
-        );
-      }
-    } else {
-      throw Exception('Failed to tally violation');
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'View',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.push(
+                scaffoldContext,
+                MaterialPageRoute(
+                  builder: (context) => const StudentViolationsPage(),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } catch (err, stack) {
+      debugPrint('🔴 ERROR showing snackbar after dialog pop: $err');
+      debugPrint('🔴 STACK: $stack');
     }
-  } catch (e) {
+  });
+}
+    } else {
+      throw Exception('Failed to record violation');
+    }
+  } catch (e, stack) {
+    debugPrint('❌ Error tallying violation: $e');
+    debugPrint('❌ STACK: $stack');
     if (mounted) {
+      debugPrint('🟡 [TallyViolation] Showing error snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error: $e'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
         ),
       );
     }
@@ -1182,41 +1280,48 @@ class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
                 const SizedBox(height: 16),
 
                 // Severity
-                const Text(
-                  'Severity Level *',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: _severity,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: ['Low', 'Medium', 'High', 'Critical'].map((severity) {
-                    return DropdownMenuItem(
-                      value: severity,
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.circle,
-                            size: 12,
-                            color: severity == 'Low' 
-                                ? Colors.green 
-                                : severity == 'Medium' 
-                                    ? Colors.orange 
-                                    : severity == 'High'
-                                        ? Colors.red
-                                        : Colors.purple,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(severity),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) => setState(() => _severity = value ?? 'Medium'),
-                ),
+const Text(
+  'Severity Level *',
+  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+),
+const SizedBox(height: 8),
+DropdownButtonFormField<String>(
+  value: _severity,
+  decoration: const InputDecoration(
+    border: OutlineInputBorder(),
+    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  ),
+  items: ['Low', 'Medium', 'High', 'Critical'].map((severity) {
+    return DropdownMenuItem(
+      value: severity,
+      child: Row(
+        mainAxisSize: MainAxisSize.min, // ✅ ADD THIS
+        children: [
+          Icon(
+            Icons.circle, // ✅ FIX: Complete the icon (was Icons.c)
+            size: 10, // ✅ REDUCE SIZE from 12 to 10
+            color: severity == 'Low' 
+                ? Colors.green 
+                : severity == 'Medium' 
+                    ? Colors.orange 
+                    : severity == 'High'
+                        ? Colors.red
+                        : Colors.purple,
+          ),
+          const SizedBox(width: 4), // ✅ REDUCE from 8 to 4
+          Flexible( // ✅ ADD Flexible wrapper
+            child: Text(
+              severity,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }).toList(),
+  onChanged: (value) => setState(() => _severity = value ?? 'Medium'),
+),
                 
                 const SizedBox(height: 16),
 
@@ -1300,6 +1405,7 @@ class _TallyConfirmationDialogState extends State<_TallyConfirmationDialog> {
 
   @override
   void dispose() {
+    debugPrint('Disposing TallyConfirmationDialog and controllers');
     _counselorNotesController.dispose();
     super.dispose();
   }

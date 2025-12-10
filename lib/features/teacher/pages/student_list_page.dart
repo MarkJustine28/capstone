@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/teacher_provider.dart';
+import '../../../config/routes.dart';
 
 class StudentListPage extends StatefulWidget {
   const StudentListPage({Key? key}) : super(key: key);
@@ -13,14 +14,14 @@ class _StudentListPageState extends State<StudentListPage> {
   String _searchQuery = '';
   String _selectedGradeFilter = 'All';
   String _selectedStrandFilter = 'All';
-  bool _editMode = false; // ✅ NEW: Edit mode for updating student info
+  bool _editMode = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
-      teacherProvider.fetchAdvisingStudents();
+      await teacherProvider.fetchAdvisingStudents();
     });
   }
 
@@ -32,7 +33,6 @@ class _StudentListPageState extends State<StudentListPage> {
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
         actions: [
-          // ✅ NEW: Toggle Edit Mode Button
           IconButton(
             icon: Icon(_editMode ? Icons.check : Icons.edit),
             onPressed: () {
@@ -40,7 +40,6 @@ class _StudentListPageState extends State<StudentListPage> {
                 _editMode = !_editMode;
               });
               if (!_editMode) {
-                // Show save confirmation
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Changes will be saved automatically'),
@@ -84,6 +83,24 @@ class _StudentListPageState extends State<StudentListPage> {
             );
           }
 
+          final profile = teacherProvider.teacherProfile;
+          final isAdviser = profile != null &&
+            (profile['advising_grade']?.toString().isNotEmpty ?? false) &&
+            (profile['advising_section']?.toString().isNotEmpty ?? false);
+
+          if (!isAdviser) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text(
+                  'You are not assigned as an adviser for any class.\nStudent list is only available for advisers.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ),
+            );
+          }
+
           final allStudents = teacherProvider.advisingStudents;
           final filteredStudents = _filterStudents(allStudents);
 
@@ -105,20 +122,13 @@ class _StudentListPageState extends State<StudentListPage> {
 
           return Column(
             children: [
-              // Advising Class Info Header
               _buildAdvisingClassHeader(teacherProvider),
-              
-              // ✅ NEW: Edit Mode Banner
               if (_editMode) _buildEditModeBanner(),
-              
-              // Search and Filter Section
               _buildSearchAndFilterSection(),
-              
-              // Students List
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: () async {
-                    teacherProvider.fetchAdvisingStudents();
+                    await teacherProvider.fetchAdvisingStudents();
                   },
                   child: filteredStudents.isEmpty
                       ? const Center(
@@ -148,18 +158,9 @@ class _StudentListPageState extends State<StudentListPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.pushNamed(context, '/teacher/submit-report');
-        },
-        icon: const Icon(Icons.add_circle),
-        label: const Text('Report Violation'),
-        backgroundColor: Colors.red.shade600,
-      ),
     );
   }
 
-  // ✅ NEW: Edit Mode Banner
   Widget _buildEditModeBanner() {
     return Container(
       width: double.infinity,
@@ -236,7 +237,6 @@ class _StudentListPageState extends State<StudentListPage> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Search Bar
           TextField(
             decoration: InputDecoration(
               hintText: 'Search students...',
@@ -254,7 +254,6 @@ class _StudentListPageState extends State<StudentListPage> {
           
           const SizedBox(height: 12),
           
-          // Filter Row
           Consumer<TeacherProvider>(
             builder: (context, teacherProvider, child) {
               final students = teacherProvider.advisingStudents;
@@ -336,7 +335,6 @@ class _StudentListPageState extends State<StudentListPage> {
     final fullName = '${student['first_name'] ?? ''} ${student['last_name'] ?? ''}'.trim();
     final displayName = fullName.isNotEmpty ? fullName : student['username'] ?? 'Unknown';
     
-    // ✅ NEW: Get violation counts
     final violationsCurrent = student['violations_current_year'] ?? 0;
     final violationsAllTime = student['violations_all_time'] ?? 0;
     
@@ -357,9 +355,8 @@ class _StudentListPageState extends State<StudentListPage> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('ID: ${student['student_id'] ?? 'N/A'}'),
+            Text('LRN: ${student['lrn'] ?? student['student_id'] ?? 'N/A'}'),
             Text(_getStudentGradeInfo(student)),
-            // ✅ NEW: Show violation counts
             if (violationsAllTime > 0)
               Row(
                 children: [
@@ -384,7 +381,7 @@ class _StudentListPageState extends State<StudentListPage> {
                 onPressed: () {
                   Navigator.pushNamed(
                     context,
-                    '/teacher/submit-report',
+                    AppRoutes.teacherSubmitReport,
                     arguments: {'selected_student': student},
                   );
                 },
@@ -396,7 +393,6 @@ class _StudentListPageState extends State<StudentListPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ✅ NEW: Edit Mode or View Mode
                 if (_editMode)
                   _buildEditStudentForm(student)
                 else
@@ -409,7 +405,6 @@ class _StudentListPageState extends State<StudentListPage> {
     );
   }
 
-  // ✅ NEW: Edit Student Form
   Widget _buildEditStudentForm(Map<String, dynamic> student) {
     final gradeController = TextEditingController(text: student['grade_level']?.toString() ?? '');
     final sectionController = TextEditingController(text: student['section']?.toString() ?? '');
@@ -424,7 +419,6 @@ class _StudentListPageState extends State<StudentListPage> {
         ),
         const SizedBox(height: 12),
         
-        // Grade Level
         TextField(
           controller: gradeController,
           decoration: const InputDecoration(
@@ -436,7 +430,6 @@ class _StudentListPageState extends State<StudentListPage> {
         ),
         const SizedBox(height: 12),
         
-        // Section
         TextField(
           controller: sectionController,
           decoration: const InputDecoration(
@@ -447,7 +440,6 @@ class _StudentListPageState extends State<StudentListPage> {
         ),
         const SizedBox(height: 12),
         
-        // Strand (for Grade 11-12)
         if (['11', '12'].contains(student['grade_level']?.toString()))
           TextField(
             controller: strandController,
@@ -460,7 +452,6 @@ class _StudentListPageState extends State<StudentListPage> {
         
         const SizedBox(height: 16),
         
-        // Save Button
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -485,7 +476,6 @@ class _StudentListPageState extends State<StudentListPage> {
     );
   }
 
-  // ✅ NEW: View Student Info (existing content)
   Widget _buildViewStudentInfo(Map<String, dynamic> student) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,7 +491,6 @@ class _StudentListPageState extends State<StudentListPage> {
         
         const SizedBox(height: 16),
         
-        // ✅ NEW: Violation History Button
         if (student['violations_all_time'] != null && student['violations_all_time'] > 0)
           OutlinedButton.icon(
             onPressed: () => _showViolationHistoryDialog(student),
@@ -517,7 +506,6 @@ class _StudentListPageState extends State<StudentListPage> {
         
         const SizedBox(height: 12),
         
-        // Action Buttons
         Row(
           children: [
             Expanded(
@@ -525,7 +513,7 @@ class _StudentListPageState extends State<StudentListPage> {
                 onPressed: () {
                   Navigator.pushNamed(
                     context,
-                    '/teacher/submit-report',
+                    AppRoutes.teacherSubmitReport,
                     arguments: {'selected_student': student},
                   );
                 },
@@ -553,7 +541,6 @@ class _StudentListPageState extends State<StudentListPage> {
     );
   }
 
-  // ✅ NEW: Update Student Info Function
   Future<void> _updateStudentInfo(
     int studentId,
     String gradeLevel,
@@ -584,7 +571,6 @@ class _StudentListPageState extends State<StudentListPage> {
           ),
         );
         
-        // Refresh list
         await teacherProvider.fetchAdvisingStudents();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -597,22 +583,19 @@ class _StudentListPageState extends State<StudentListPage> {
     }
   }
 
-  // ✅ NEW: Show Violation History Dialog
   void _showViolationHistoryDialog(Map<String, dynamic> student) async {
     final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
     
-    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
     
-    // Fetch violation history
     final history = await teacherProvider.fetchStudentViolationHistory(student['id']);
     
     if (!mounted) return;
-    Navigator.pop(context); // Close loading dialog
+    Navigator.pop(context);
     
     if (history == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -624,7 +607,6 @@ class _StudentListPageState extends State<StudentListPage> {
       return;
     }
     
-    // Show history dialog
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -647,7 +629,6 @@ class _StudentListPageState extends State<StudentListPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Summary
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -676,7 +657,6 @@ class _StudentListPageState extends State<StudentListPage> {
                 
                 const SizedBox(height: 16),
                 
-                // Violations by school year
                 ...((history['violations_by_school_year'] as List?) ?? []).map((yearData) {
                   final schoolYear = yearData['school_year'];
                   final violations = (yearData['violations'] as List?) ?? [];
@@ -766,7 +746,6 @@ class _StudentListPageState extends State<StudentListPage> {
 
   List<Map<String, dynamic>> _filterStudents(List<Map<String, dynamic>> students) {
     return students.where((student) {
-      // Search filter
       if (_searchQuery.isNotEmpty) {
         final fullName = '${student['first_name'] ?? ''} ${student['last_name'] ?? ''}'.toLowerCase();
         final username = student['username']?.toString().toLowerCase() ?? '';
@@ -779,14 +758,12 @@ class _StudentListPageState extends State<StudentListPage> {
         }
       }
       
-      // Grade filter
       if (_selectedGradeFilter != 'All') {
         if (student['grade_level']?.toString() != _selectedGradeFilter) {
           return false;
         }
       }
       
-      // Strand filter
       if (_selectedStrandFilter != 'All') {
         if (student['strand']?.toString() != _selectedStrandFilter) {
           return false;
@@ -838,7 +815,7 @@ class _StudentListPageState extends State<StudentListPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDialogInfoRow('Student ID', student['student_id'] ?? 'N/A'),
+              _buildDialogInfoRow('LRN', student['lrn'] ?? student['student_id'] ?? 'N/A'),
               _buildDialogInfoRow('Username', student['username'] ?? 'N/A'),
               _buildDialogInfoRow('Grade Info', _getStudentGradeInfo(student)),
               _buildDialogInfoRow('Email', student['email'] ?? 'Not provided'),
@@ -865,7 +842,7 @@ class _StudentListPageState extends State<StudentListPage> {
               Navigator.pop(context);
               Navigator.pushNamed(
                 context,
-                '/teacher/submit-report',
+                AppRoutes.teacherSubmitReport,
                 arguments: {'selected_student': student},
               );
             },

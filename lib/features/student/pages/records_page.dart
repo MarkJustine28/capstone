@@ -33,38 +33,51 @@ class _ViewRecordsPageState extends State<ViewRecordsPage> {
   }
 
   List<Map<String, dynamic>> _getFilteredAndSortedReports(List<Map<String, dynamic>> reports) {
-    // Filter reports
-    List<Map<String, dynamic>> filteredReports = reports;
-    
-    if (_selectedFilter != 'all') {
-      filteredReports = reports.where((report) {
-        final status = (report['status'] ?? '').toString().toLowerCase();
-        return status == _selectedFilter;
-      }).toList();
-    }
-
-    // Sort reports
-    filteredReports.sort((a, b) {
-      switch (_selectedSortBy) {
-        case 'newest':
-          final dateA = _parseDate(a['created_at'] ?? a['date']);
-          final dateB = _parseDate(b['created_at'] ?? b['date']);
-          return dateB.compareTo(dateA);
-        case 'oldest':
-          final dateA = _parseDate(a['created_at'] ?? a['date']);
-          final dateB = _parseDate(b['created_at'] ?? b['date']);
-          return dateA.compareTo(dateB);
-        case 'title':
-          return (a['title'] ?? '').toString().compareTo((b['title'] ?? '').toString());
-        case 'status':
-          return (a['status'] ?? '').toString().compareTo((b['status'] ?? '').toString());
-        default:
-          return 0;
+  debugPrint('📊 Total reports from backend: ${reports.length}');
+  
+  // ✅ SIMPLIFIED: Backend already filters, we just filter by status here
+  List<Map<String, dynamic>> filteredReports = reports;
+  
+  // Filter by status if needed
+  if (_selectedFilter != 'all') {
+    filteredReports = reports.where((report) {
+      final status = (report['status'] ?? '').toString().toLowerCase();
+      final matches = status == _selectedFilter;
+      
+      if (!matches) {
+        debugPrint('   ❌ Report ID ${report['id']} status "$status" does not match filter "$_selectedFilter"');
       }
-    });
-
-    return filteredReports;
+      
+      return matches;
+    }).toList();
+    
+    debugPrint('📊 After status filter "$_selectedFilter": ${filteredReports.length} reports');
   }
+
+  // Sort reports
+  filteredReports.sort((a, b) {
+    switch (_selectedSortBy) {
+      case 'newest':
+        final dateA = _parseDate(a['created_at'] ?? a['date']);
+        final dateB = _parseDate(b['created_at'] ?? b['date']);
+        return dateB.compareTo(dateA);
+      case 'oldest':
+        final dateA = _parseDate(a['created_at'] ?? a['date']);
+        final dateB = _parseDate(b['created_at'] ?? b['date']);
+        return dateA.compareTo(dateB);
+      case 'title':
+        return (a['title'] ?? '').toString().compareTo((b['title'] ?? '').toString());
+      case 'status':
+        return (a['status'] ?? '').toString().compareTo((b['status'] ?? '').toString());
+      default:
+        return 0;
+    }
+  });
+
+  debugPrint('✅ Final filtered and sorted reports: ${filteredReports.length}');
+  
+  return filteredReports;
+}
 
   DateTime _parseDate(dynamic dateValue) {
     if (dateValue == null) return DateTime.now();

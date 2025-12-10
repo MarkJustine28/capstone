@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+// ❌ REMOVE: import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
+
+import '../../core/constants/app_breakpoints.dart';
+import '../../config/env.dart'; // ✅ ADD: Import your Env class
 
 // Routes
 import '../../config/routes.dart';
@@ -33,7 +36,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    serverIp = dotenv.env['SERVER_IP'];
+    
+    // ✅ FIXED: Use Env class instead of dotenv directly
+    final serverIpValue = Env.serverIp;
+    serverIp = serverIpValue;
     debugPrint("🌐 Loaded SERVER_IP: $serverIp");
 
     _animationController = AnimationController(
@@ -80,184 +86,224 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   }
 
   Future<void> loginUser() async {
-    if (serverIp == null || serverIp!.isEmpty) {
-      _showErrorSnackBar("Server IP not configured");
-      return;
-    }
+  if (serverIp == null || serverIp!.isEmpty) {
+    _showErrorSnackBar("Server IP not configured");
+    return;
+  }
 
-    setState(() => isLoading = true);
+  setState(() => isLoading = true);
 
-    try {
-      String baseUrl = serverIp!;
-      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-        baseUrl = 'http://$baseUrl';
-      }
-      
-      final url = Uri.parse("$baseUrl/api/login/");
-      debugPrint("🌐 Attempting login to: $url");
-      
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "username": usernameController.text.trim(),
-          "password": passwordController.text.trim(),
-        }),
-      );
-
-      debugPrint("📩 Status Code: ${response.statusCode}");
-      debugPrint("📩 Raw Response: ${response.body}");
-      
-      // ✅ Handle 403 - Teacher approval status
-      if (response.statusCode == 403) {
-        setState(() => isLoading = false);
-        
-        try {
-          final decoded = jsonDecode(response.body);
-          final Map<String, dynamic> data = _safeCastToStringMap(decoded);
-          final approvalStatus = data['approval_status'];
-          
-          if (approvalStatus == 'pending') {
-            _showPendingApprovalDialog();
-          } else if (approvalStatus == 'rejected') {
-            _showRejectedDialog();
-          } else {
-            _showErrorSnackBar(data['error']?.toString() ?? 'Access denied');
-          }
-        } catch (e) {
-          _showErrorSnackBar('Access denied');
-        }
-        return;
-      }
-      
-      if (response.statusCode == 200) {
   try {
-    final decoded = jsonDecode(response.body);
-    debugPrint("🔍 Decoded type: ${decoded.runtimeType}");
-    debugPrint("🔍 Decoded data: $decoded");
-
-    final Map<String, dynamic> data = _safeCastToStringMap(decoded);
-
-    if (data["success"] == true) {
-      final token = data["token"]?.toString();
-      final userMap = data["user"];
-      final username = usernameController.text.trim();
-
-      String? role;
-      int? userId;
-      String? firstName;
-      String? lastName;
-      
-      if (userMap != null && userMap is Map) {
-        role = userMap["role"]?.toString();
-        userId = userMap["id"] as int?;
-        // ✅ FIXED: Extract first_name and last_name properly
-        firstName = userMap["first_name"]?.toString().trim();
-        lastName = userMap["last_name"]?.toString().trim();
-      }
-
-      if (token == null || role == null || userId == null) {
-        setState(() => isLoading = false);
-        debugPrint("❌ Missing data - Token: $token, Role: $role, UserId: $userId");
-        _showErrorSnackBar("Invalid response: missing required data");
-        return;
-      }
-
-      debugPrint("✅ TOKEN: $token");
-      debugPrint("✅ ROLE: $role");
-      debugPrint("✅ USERNAME: $username");
-      debugPrint("✅ USER_ID: $userId");
-      debugPrint("✅ FIRST_NAME: ${firstName ?? '(none)'}");
-      debugPrint("✅ LAST_NAME: ${lastName ?? '(none)'}");
-
-      try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        debugPrint("🔧 Setting auth provider...");
-        
-        // ✅ FIXED: Use new login method signature with all parameters
-        await authProvider.login(
-          token: token,
-          username: username,
-          role: role,
-          userId: userId,
-          firstName: firstName?.isNotEmpty == true ? firstName : null,
-          lastName: lastName?.isNotEmpty == true ? lastName : null,
-        );
-
-        debugPrint("✅ AuthProvider login completed");
-        debugPrint("   Display Name: ${authProvider.displayName}");
-
-        if (role == "student") {
-          debugPrint("🔧 Setting student provider...");
-          final studentProvider = Provider.of<StudentProvider>(context, listen: false);
-          studentProvider.setToken(token);
-        } else if (role == "counselor") {
-          debugPrint("🔧 Setting counselor provider...");
-          final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-          counselorProvider.setToken(token);
-        } else if (role == "teacher") {
-          debugPrint("🔧 Setting teacher provider...");
-          final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
-          teacherProvider.setToken(token);
-        }
-
-        debugPrint("✅ All providers set successfully");
-        
-        setState(() => isLoading = false);
-        _showSuccessSnackBar(data["message"]?.toString() ?? "Welcome back, ${authProvider.displayName}!");
-
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        try {
-          if (role == "student") {
-            debugPrint("🚀 Navigating to student dashboard...");
-            Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
-          } else if (role == "teacher") {
-            debugPrint("🚀 Navigating to teacher dashboard...");
-            Navigator.pushReplacementNamed(
-              context, 
-              AppRoutes.teacherDashboard,
-              arguments: {
-                'username': username,
-                'role': role,
-              },
-            );
-          } else if (role == "counselor") {
-            debugPrint("🚀 Navigating to counselor dashboard...");
-            Navigator.pushReplacementNamed(
-              context, 
-              AppRoutes.counselorDashboard,
-              arguments: {
-                'username': username,
-                'role': role,
-              },
-            );
-          } else {
-            debugPrint("❌ Unknown role: $role");
-            _showErrorSnackBar("Unknown user role: $role");
-          }
-          debugPrint("✅ Navigation completed");
-        } catch (navigationError) {
-          debugPrint("❌ Navigation error: $navigationError");
-          _showErrorSnackBar("Navigation error: $navigationError");
-        }
-
-      } catch (providerError) {
-        setState(() => isLoading = false);
-        debugPrint("❌ Provider error: $providerError");
-        _showErrorSnackBar("Provider setup error: $providerError");
-      }
-
-    } else {
-      setState(() => isLoading = false);
-      _showErrorSnackBar(data['error']?.toString() ?? 'Login failed');
+    String baseUrl = serverIp!;
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = 'http://$baseUrl';
     }
     
-  } catch (parseError) {
-    setState(() => isLoading = false);
-    debugPrint("❌ JSON parsing error: $parseError");
-    _showErrorSnackBar("Response parsing error. Please try again.");
-  }
+    final url = Uri.parse("$baseUrl/api/login/");
+    debugPrint("🌐 Attempting login to: $url");
+    
+    final response = await http.post(
+      url,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "username": usernameController.text.trim(),
+        "password": passwordController.text.trim(),
+      }),
+    );
+
+    debugPrint("📩 Status Code: ${response.statusCode}");
+    debugPrint("📩 Raw Response: ${response.body}");
+    
+    // ✅ NEW: Handle 429 - Account locked
+    if (response.statusCode == 429) {
+      setState(() => isLoading = false);
+      
+      try {
+        final decoded = jsonDecode(response.body);
+        final Map<String, dynamic> data = _safeCastToStringMap(decoded);
+        _showAccountLockedDialog(data);
+      } catch (e) {
+        _showErrorSnackBar('Account temporarily locked due to too many failed attempts');
+      }
+      return;
+    }
+    
+    // ✅ Handle 403 - Teacher approval status (existing code)
+    if (response.statusCode == 403) {
+      setState(() => isLoading = false);
+      
+      try {
+        final decoded = jsonDecode(response.body);
+        final Map<String, dynamic> data = _safeCastToStringMap(decoded);
+        final approvalStatus = data['approval_status'];
+        
+        if (approvalStatus == 'pending') {
+          _showPendingApprovalDialog();
+        } else if (approvalStatus == 'rejected') {
+          _showRejectedDialog();
+        } else {
+          _showErrorSnackBar(data['error']?.toString() ?? 'Access denied');
+        }
+      } catch (e) {
+        _showErrorSnackBar('Access denied');
+      }
+      return;
+    }
+    
+    // ✅ Handle 401 - Invalid credentials with attempt warning
+    if (response.statusCode == 401) {
+      setState(() => isLoading = false);
+      
+      try {
+        final decoded = jsonDecode(response.body);
+        final Map<String, dynamic> data = _safeCastToStringMap(decoded);
+        
+        final errorMessage = data['error']?.toString() ?? 'Invalid credentials';
+        final failedAttempts = data['failed_attempts'] ?? 0;
+        final remainingAttempts = data['remaining_attempts'] ?? 0;
+        
+        // Show warning if close to lockout
+        if (remainingAttempts > 0 && remainingAttempts <= 2) {
+          _showErrorSnackBar(
+            '$errorMessage\n⚠️ Warning: $remainingAttempts attempt(s) remaining before lockout',
+          );
+        } else {
+          _showErrorSnackBar(errorMessage);
+        }
+      } catch (e) {
+        _showErrorSnackBar('Invalid credentials');
+      }
+      return;
+    }
+      
+      if (response.statusCode == 200) {
+        try {
+          final decoded = jsonDecode(response.body);
+          debugPrint("🔍 Decoded type: ${decoded.runtimeType}");
+          debugPrint("🔍 Decoded data: $decoded");
+
+          final Map<String, dynamic> data = _safeCastToStringMap(decoded);
+
+          if (data["success"] == true) {
+            final token = data["token"]?.toString();
+            final userMap = data["user"];
+            final username = usernameController.text.trim();
+
+            String? role;
+            int? userId;
+            String? firstName;
+            String? lastName;
+            
+            if (userMap != null && userMap is Map) {
+              role = userMap["role"]?.toString();
+              userId = userMap["id"] as int?;
+              firstName = userMap["first_name"]?.toString().trim();
+              lastName = userMap["last_name"]?.toString().trim();
+            }
+
+            if (token == null || role == null || userId == null) {
+              setState(() => isLoading = false);
+              debugPrint("❌ Missing data - Token: $token, Role: $role, UserId: $userId");
+              _showErrorSnackBar("Invalid response: missing required data");
+              return;
+            }
+
+            debugPrint("✅ TOKEN: $token");
+            debugPrint("✅ ROLE: $role");
+            debugPrint("✅ USERNAME: $username");
+            debugPrint("✅ USER_ID: $userId");
+            debugPrint("✅ FIRST_NAME: ${firstName ?? '(none)'}");
+            debugPrint("✅ LAST_NAME: ${lastName ?? '(none)'}");
+
+            try {
+              final authProvider = Provider.of<AuthProvider>(context, listen: false);
+              debugPrint("🔧 Setting auth provider...");
+              
+              await authProvider.login(
+                token: token,
+                username: username,
+                role: role,
+                userId: userId,
+                firstName: firstName?.isNotEmpty == true ? firstName : null,
+                lastName: lastName?.isNotEmpty == true ? lastName : null,
+                email: userMap["email"]?.toString(), // ✅ ADD THIS
+                password: passwordController.text.trim(),
+              );
+
+              debugPrint("✅ AuthProvider login completed");
+              debugPrint("   Display Name: ${authProvider.displayName}");
+
+              if (role == "student") {
+                debugPrint("🔧 Setting student provider...");
+                final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+                studentProvider.setToken(token);
+              } else if (role == "counselor") {
+                debugPrint("🔧 Setting counselor provider...");
+                final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+                counselorProvider.setToken(token);
+              } else if (role == "teacher") {
+                debugPrint("🔧 Setting teacher provider...");
+                final teacherProvider = Provider.of<TeacherProvider>(context, listen: false);
+                teacherProvider.setToken(token);
+              }
+
+              debugPrint("✅ All providers set successfully");
+              
+              setState(() => isLoading = false);
+              _showSuccessSnackBar(data["message"]?.toString() ?? "Welcome back, ${authProvider.displayName}!");
+
+              await Future.delayed(const Duration(milliseconds: 500));
+
+              try {
+                if (role == "student") {
+                  debugPrint("🚀 Navigating to student dashboard...");
+                  Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+                } else if (role == "teacher") {
+                  debugPrint("🚀 Navigating to teacher dashboard...");
+                  Navigator.pushReplacementNamed(
+                    context, 
+                    AppRoutes.teacherDashboard,
+                    arguments: {
+                      'username': username,
+                      'role': role,
+                    },
+                  );
+                } else if (role == "counselor") {
+                  debugPrint("🚀 Navigating to counselor dashboard...");
+                  Navigator.pushReplacementNamed(
+                    context, 
+                    AppRoutes.counselorDashboard,
+                    arguments: {
+                      'username': username,
+                      'role': role,
+                    },
+                  );
+                } else {
+                  debugPrint("❌ Unknown role: $role");
+                  _showErrorSnackBar("Unknown user role: $role");
+                }
+                debugPrint("✅ Navigation completed");
+              } catch (navigationError) {
+                debugPrint("❌ Navigation error: $navigationError");
+                _showErrorSnackBar("Navigation error: $navigationError");
+              }
+
+            } catch (providerError) {
+              setState(() => isLoading = false);
+              debugPrint("❌ Provider error: $providerError");
+              _showErrorSnackBar("Provider setup error: $providerError");
+            }
+
+          } else {
+            setState(() => isLoading = false);
+            _showErrorSnackBar(data['error']?.toString() ?? 'Login failed');
+          }
+          
+        } catch (parseError) {
+          setState(() => isLoading = false);
+          debugPrint("❌ JSON parsing error: $parseError");
+          _showErrorSnackBar("Response parsing error. Please try again.");
+        }
         
       } else {
         setState(() => isLoading = false);
@@ -286,12 +332,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
-  // ✅ NEW: Show pending approval dialog
   void _showPendingApprovalDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(Icons.pending_actions, color: Colors.orange, size: 28),
@@ -366,12 +412,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  // ✅ NEW: Show rejected dialog
   void _showRejectedDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(Icons.cancel, color: Colors.red, size: 28),
@@ -445,6 +491,139 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
+  void _showAccountLockedDialog(Map<String, dynamic> data) {
+  final failedAttempts = data['failed_attempts'] ?? 5;
+  final remainingMinutes = data['lockout_minutes_remaining'] ?? 30;
+  final message = data['message'] ?? 'Your account is temporarily locked due to too many failed login attempts.';
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(
+        children: [
+          Icon(Icons.lock_clock, color: Colors.red.shade700, size: 28),
+          SizedBox(width: 12),
+          Expanded(child: Text('Account Locked', style: TextStyle(color: Colors.red.shade700))),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200, width: 2),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.warning_amber_rounded, size: 56, color: Colors.red.shade700),
+                  SizedBox(height: 16),
+                  Text(
+                    'Too Many Failed Attempts',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: Colors.red.shade900,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  SizedBox(height: 16),
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.shade300),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              '$failedAttempts failed attempts detected',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.timer, color: Colors.orange.shade700, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Locked for $remainingMinutes more minute(s)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 20),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'What you can do:',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  Text('• Wait $remainingMinutes minutes before trying again', style: TextStyle(fontSize: 13)),
+                  Text('• Make sure you\'re using the correct credentials', style: TextStyle(fontSize: 13)),
+                  Text('• Use "Forgot Password" if you can\'t remember your password', style: TextStyle(fontSize: 13)),
+                  Text('• Contact the administrator if you need immediate access', style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('OK', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    ),
+  );
+}
+
   void _showErrorSnackBar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -487,254 +666,358 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  Widget _buildFeatureItem(IconData icon, String text) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: Colors.white, size: 24),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = AppBreakpoints.isDesktop(screenWidth);
+    final isTablet = AppBreakpoints.isTablet(screenWidth);
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/bg.jpg'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(Colors.black26, BlendMode.darken),
           ),
         ),
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
+              padding: EdgeInsets.all(AppBreakpoints.getPadding(screenWidth)),
               child: FadeTransition(
                 opacity: _fadeAnimation,
                 child: SlideTransition(
                   position: _slideAnimation,
-                  child: Container(
+                  child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: screenWidth > 400 ? 400 : screenWidth * 0.9,
+                      maxWidth: isDesktop ? 1200 : (isTablet ? 900 : screenWidth * 0.9),
                     ),
-                    child: Card(
-                      elevation: 20,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(32.0),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Logo and Title
-                              Container(
-                                width: 80,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                                  ),
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF667eea).withOpacity(0.3),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Left side - Welcome section (Desktop & Tablet only)
+                        if (isDesktop || isTablet)
+                          Expanded(
+                            flex: isDesktop ? 5 : 4,
+                            child: Padding(
+                              padding: EdgeInsets.only(right: isDesktop ? 48 : 32),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [                                  
+                                  // Title
+                                  Text(
+                                    'Welcome to\nInciTrack',
+                                    style: TextStyle(
+                                      fontSize: isDesktop ? 48 : 36,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      height: 1.2,
+                                      letterSpacing: -0.5,
                                     ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.school,
-                                  color: Colors.white,
-                                  size: 40,
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              const Text(
-                                "Welcome Back!",
-                                style: TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF2D3748),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "Sign in to your account",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(height: 32),
-
-                              // Username Field
-                              TextFormField(
-                                controller: usernameController,
-                                decoration: InputDecoration(
-                                  labelText: "Username",
-                                  prefixIcon: const Icon(Icons.person_outline),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
                                   ),
-                                  filled: true,
-                                  fillColor: const Color(0xFFF7FAFC),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 16,
-                                  ),
-                                ),
-                                validator: (value) =>
-                                    value == null || value.isEmpty ? "Enter username" : null,
-                              ),
-                              const SizedBox(height: 20),
-
-                              // Password Field
-                              TextFormField(
-                                controller: passwordController,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  labelText: "Password",
-                                  prefixIcon: const Icon(Icons.lock_outline),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                  SizedBox(height: isDesktop ? 20 : 16),
+                                  
+                                  // Subtitle
+                                  Text(
+                                    'Empowering educators and students with comprehensive guidance management',
+                                    style: TextStyle(
+                                      fontSize: isDesktop ? 18 : 16,
+                                      color: Colors.white.withOpacity(0.9),
+                                      height: 1.6,
                                     ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
                                   ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  filled: true,
-                                  fillColor: const Color(0xFFF7FAFC),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 16,
-                                  ),
-                                ),
-                                validator: (value) =>
-                                    value == null || value.isEmpty ? "Enter password" : null,
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Forgot Password
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () {
-                                    Navigator.pushNamed(context, AppRoutes.forgotPassword);
-                                  },
-                                  child: const Text(
-                                    "Forgot Password?",
-                                    style: TextStyle(color: Color(0xFF667eea)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-
-                              // Login Button
-                              isLoading
-                                  ? Container(
-                                      width: double.infinity,
-                                      height: 54,
-                                      child: const Center(
-                                        child: CircularProgressIndicator(
-                                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                                  SizedBox(height: isDesktop ? 40 : 32),
+                                  
+                                  // Features
+                                  _buildFeatureItem(Icons.analytics_outlined, 'Real-time Analytics & Insights'),
+                                  const SizedBox(height: 20),
+                                  _buildFeatureItem(Icons.security_outlined, 'Secure Data Management'),
+                                  const SizedBox(height: 20),
+                                  _buildFeatureItem(Icons.people_outline, 'Multi-role Support'),
+                                  const SizedBox(height: 20),
+                                  _buildFeatureItem(Icons.notifications_active_outlined, 'Instant Notifications'),
+                                  
+                                  if (isDesktop) ...[
+                                    SizedBox(height: 40),
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.2),
+                                          width: 1,
                                         ),
                                       ),
-                                    )
-                                  : Container(
-                                      width: double.infinity,
-                                      height: 54,
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF667eea).withOpacity(0.3),
-                                            blurRadius: 20,
-                                            offset: const Offset(0, 10),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.info_outline, color: Colors.white, size: 20),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              'Sign in with your valid credentials',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.white.withOpacity(0.95),
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ),
-                                      child: ElevatedButton(
-                                        onPressed: () {
-                                          if (_formKey.currentState!.validate()) {
-                                            loginUser();
-                                          }
-                                        },
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.transparent,
-                                          shadowColor: Colors.transparent,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          "Sign In",
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
                                     ),
-                              const SizedBox(height: 24),
-
-                              // Divider
-                              Row(
-                                children: [
-                                  Expanded(child: Divider(color: Colors.grey[300])),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                                    child: Text(
-                                      "OR",
-                                      style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(child: Divider(color: Colors.grey[300])),
+                                  ],
                                 ],
                               ),
-                              const SizedBox(height: 24),
+                            ),
+                          ),
 
-                              // Register Button
-                              SizedBox(
-                                width: double.infinity,
-                                height: 54,
-                                child: OutlinedButton(
-                                  onPressed: () {
-                                    Navigator.pushNamed(context, AppRoutes.register);
-                                  },
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: Color(0xFF667eea), width: 2),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    "Create an Account",
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF667eea),
-                                    ),
+                        // Right side - Login form
+                        Flexible(
+                          flex: isDesktop ? 4 : (isTablet ? 5 : 1),
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: isDesktop ? 480 : 400,
+                            ),
+                            child: Card(
+                              color: Colors.white.withOpacity(0.7),
+                              elevation: 24,
+                              shadowColor: Colors.black.withOpacity(0.3),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(isDesktop ? 48.0 : (isTablet ? 40.0 : 32.0)),
+                                child: Form(
+                                  key: _formKey,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Title
+                                      Text(
+                                        "Welcome Back!",
+                                        style: TextStyle(
+                                          fontSize: isDesktop ? 32 : 28,
+                                          fontWeight: FontWeight.bold,
+                                          color: const Color(0xFF2D3748),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        "Sign in to continue",
+                                        style: TextStyle(
+                                          fontSize: isDesktop ? 18 : 16,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                      SizedBox(height: isDesktop ? 40 : 32),
+
+                                      // Username Field
+                                      TextFormField(
+                                        controller: usernameController,
+                                        decoration: InputDecoration(
+                                          labelText: "Username",
+                                          hintText: "Enter your username",
+                                          prefixIcon: const Icon(Icons.person_outline),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF7FAFC),
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: isDesktop ? 20 : 16,
+                                          ),
+                                        ),
+                                        validator: (value) =>
+                                            value == null || value.isEmpty ? "Enter your username" : null,
+                                      ),
+                                      const SizedBox(height: 20),
+
+                                      // Password Field
+                                      TextFormField(
+                                        controller: passwordController,
+                                        obscureText: _obscurePassword,
+                                        decoration: InputDecoration(
+                                          labelText: "Password",
+                                          hintText: "Enter your password",
+                                          prefixIcon: const Icon(Icons.lock_outline),
+                                          suffixIcon: IconButton(
+                                            icon: Icon(
+                                              _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _obscurePassword = !_obscurePassword;
+                                              });
+                                            },
+                                          ),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF7FAFC),
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: isDesktop ? 20 : 16,
+                                          ),
+                                        ),
+                                        validator: (value) =>
+                                            value == null || value.isEmpty ? "Enter your password" : null,
+                                      ),
+                                      const SizedBox(height: 16),
+
+                                      // Forgot Password
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TextButton(
+                                          onPressed: () {
+                                            Navigator.pushNamed(context, AppRoutes.forgotPassword);
+                                          },
+                                          child: const Text(
+                                            "Forgot Password?",
+                                            style: TextStyle(
+                                              color: Color.fromARGB(255, 58, 58, 58),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(height: isDesktop ? 32 : 24),
+
+                                      // Login Button
+                                      isLoading
+                                          ? Container(
+                                              width: double.infinity,
+                                              height: isDesktop ? 58 : 54,
+                                              child: const Center(
+                                                child: CircularProgressIndicator(
+                                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                                                ),
+                                              ),
+                                            )
+                                          : Container(
+                                              width: double.infinity,
+                                              height: isDesktop ? 58 : 54,
+                                              decoration: BoxDecoration(
+                                                gradient: const LinearGradient(
+                                                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                                                ),
+                                                borderRadius: BorderRadius.circular(12),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFF667eea).withOpacity(0.4),
+                                                    blurRadius: 20,
+                                                    offset: const Offset(0, 10),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: ElevatedButton(
+                                                onPressed: () {
+                                                  if (_formKey.currentState!.validate()) {
+                                                    loginUser();
+                                                  }
+                                                },
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.transparent,
+                                                  shadowColor: Colors.transparent,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(12),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  "Sign In",
+                                                  style: TextStyle(
+                                                    fontSize: isDesktop ? 18 : 16,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                      SizedBox(height: isDesktop ? 32 : 24),
+
+                                      // Divider
+                                      Row(
+                                        children: [
+                                          Expanded(child: Divider(color: Colors.grey[300])),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                                            child: Text(
+                                              "OR",
+                                              style: TextStyle(
+                                                color: Colors.grey[600],
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(child: Divider(color: Colors.grey[300])),
+                                        ],
+                                      ),
+                                      SizedBox(height: isDesktop ? 32 : 24),
+
+                                      // Register Button
+                                      SizedBox(
+                                        width: double.infinity,
+                                        height: isDesktop ? 58 : 54,
+                                        child: OutlinedButton(
+                                          onPressed: () {
+                                            Navigator.pushNamed(context, AppRoutes.register);
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Color(0xFF667eea), width: 2),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            "Create an Account",
+                                            style: TextStyle(
+                                              fontSize: isDesktop ? 18 : 16,
+                                              fontWeight: FontWeight.w600,
+                                              color: const Color(0xFF667eea),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 
 class AuthProvider with ChangeNotifier {
   String? _token;
@@ -9,18 +10,19 @@ class AuthProvider with ChangeNotifier {
   String? _lastName;
   int? _userId;
   bool _isAuthenticated = false;
+  
+  final firebase_auth.FirebaseAuth _firebaseAuth = firebase_auth.FirebaseAuth.instance;
 
   // Getters
   String? get token => _token;
   String? get username => _username;
   String? get role => _role;
-  String? get userRole => _role; // Alias for compatibility
+  String? get userRole => _role;
   String? get firstName => _firstName;
   String? get lastName => _lastName;
   int? get userId => _userId;
   bool get isAuthenticated => _isAuthenticated;
 
-  // ✅ Display name with fallback chain
   String get displayName {
     final firstName = _firstName ?? '';
     final lastName = _lastName ?? '';
@@ -38,7 +40,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // ✅ First name or username fallback
   String get firstNameOrUsername {
     if (_firstName != null && _firstName!.isNotEmpty) {
       return _firstName!;
@@ -49,7 +50,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // ✅ Full name (empty string if no names)
   String get fullName {
     final firstName = _firstName ?? '';
     final lastName = _lastName ?? '';
@@ -63,7 +63,6 @@ class AuthProvider with ChangeNotifier {
     _loadFromPreferences();
   }
 
-  /// Load authentication data from SharedPreferences
   Future<void> _loadFromPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -90,7 +89,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// ✅ NEW: Login method with named parameters
   Future<void> login({
     required String token,
     required String username,
@@ -98,16 +96,18 @@ class AuthProvider with ChangeNotifier {
     required int userId,
     String? firstName,
     String? lastName,
+    String? email,
+    String? password,
   }) async {
     debugPrint('🔐 AuthProvider.login called');
     debugPrint('   Token: ${token.isNotEmpty ? '✅' : '❌'}');
     debugPrint('   Username: $username');
     debugPrint('   Role: $role');
     debugPrint('   UserId: $userId');
+    debugPrint('   Email: ${email ?? '(none)'}');
     debugPrint('   First Name: ${firstName ?? '(none)'}');
     debugPrint('   Last Name: ${lastName ?? '(none)'}');
 
-    // ✅ Set state FIRST before saving to preferences
     _token = token;
     _username = username;
     _role = role;
@@ -119,16 +119,23 @@ class AuthProvider with ChangeNotifier {
     debugPrint('📱 State updated in memory');
     debugPrint('   Display Name: $displayName');
     
+    if (email != null && email.isNotEmpty && password != null && password.isNotEmpty) {
+      await _syncWithFirebase(email, password);
+    }
+    
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // ✅ Save to SharedPreferences
       await prefs.setString('token', token);
       await prefs.setString('username', username);
       await prefs.setString('role', role);
       await prefs.setInt('userId', userId);
       
-      // ✅ Save names only if they exist
+      if (email != null && email.isNotEmpty) {
+        await prefs.setString('email', email);
+        debugPrint('💾 Saved email: $email');
+      }
+      
       if (firstName != null && firstName.isNotEmpty) {
         await prefs.setString('first_name', firstName);
         debugPrint('💾 Saved first_name: $firstName');
@@ -156,17 +163,113 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Error saving preferences: $e');
-      // State is already set in memory, just notify listeners
       notifyListeners();
     }
   }
 
-  /// Logout and clear stored data
+  Future<void> _syncWithFirebase(String email, String password) async {
+    try {
+      debugPrint('🔥 Attempting Firebase sync for: $email');
+      
+      try {
+        await _firebaseAuth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+        debugPrint('✅ Firebase sign-in successful');
+      } on firebase_auth.FirebaseAuthException catch (e) {
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+          debugPrint('⚠️ Firebase user not found, creating new user...');
+          try {
+            final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
+              email: email,
+              password: password,
+            );
+            debugPrint('✅ Firebase user created successfully: ${userCredential.user?.email}');
+            
+            final firebaseUser = userCredential.user;
+            if (firebaseUser != null && fullName.isNotEmpty) {
+              await firebaseUser.updateDisplayName(fullName);
+              debugPrint('✅ Firebase display name updated: $fullName');
+            }
+          } on firebase_auth.FirebaseAuthException catch (createError) {
+            if (createError.code == 'email-already-in-use') {
+              debugPrint('⚠️ Firebase email already in use with different password');
+            } else {
+              debugPrint('❌ Failed to create Firebase user: ${createError.code} - ${createError.message}');
+            }
+          }
+        } else if (e.code == 'wrong-password') {
+          debugPrint('⚠️ Firebase password mismatch - passwords may be out of sync');
+        } else {
+          debugPrint('❌ Firebase auth error: ${e.code} - ${e.message}');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Firebase sync error: $e');
+    }
+  }
+
+  Future<void> register({
+    required String token,
+    required String username,
+    required String role,
+    required int userId,
+    String? firstName,
+    String? lastName,
+    required String email,
+    required String password,
+  }) async {
+    debugPrint('📝 AuthProvider.register called');
+    
+    try {
+      await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      debugPrint('✅ Firebase user created during registration');
+      
+      final firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser != null) {
+        final displayName = [firstName, lastName]
+            .where((name) => name != null && name.isNotEmpty)
+            .join(' ')
+            .trim();
+        
+        if (displayName.isNotEmpty) {
+          await firebaseUser.updateDisplayName(displayName);
+          debugPrint('✅ Firebase display name set: $displayName');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Firebase user creation failed during registration: $e');
+    }
+    
+    await login(
+      token: token,
+      username: username,
+      role: role,
+      userId: userId,
+      firstName: firstName,
+      lastName: lastName,
+      email: email,
+      password: password,
+    );
+  }
+
   Future<void> logout() async {
     try {
       debugPrint('🚪 Logging out...');
+      
+      try {
+        await _firebaseAuth.signOut();
+        debugPrint('✅ Firebase sign-out successful');
+      } catch (e) {
+        debugPrint('⚠️ Firebase sign-out error: $e');
+      }
+      
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear(); // Clear all preferences
+      await prefs.clear();
 
       _token = null;
       _username = null;
@@ -183,14 +286,12 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Check if user is authenticated (reload from SharedPreferences)
   Future<bool> checkAuthStatus() async {
     await _loadFromPreferences();
     debugPrint('🔍 Auth status checked: $_isAuthenticated');
     return _isAuthenticated;
   }
 
-  /// Update token (for refresh scenarios)
   void updateToken(String newToken) {
     _token = newToken;
     _saveToPreferences();
@@ -198,7 +299,6 @@ class AuthProvider with ChangeNotifier {
     debugPrint('🔄 Token updated');
   }
 
-  /// Save current state to preferences
   Future<void> _saveToPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -220,7 +320,6 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Clear authentication data from memory (no disk update)
   void clearAuth() {
     _token = null;
     _username = null;
@@ -233,13 +332,11 @@ class AuthProvider with ChangeNotifier {
     debugPrint('🗑️ Auth cleared from memory');
   }
 
-  /// Role helpers
   bool hasRole(String roleToCheck) => _role?.toLowerCase() == roleToCheck.toLowerCase();
   bool get isStudent => hasRole('student');
   bool get isTeacher => hasRole('teacher');
   bool get isCounselor => hasRole('counselor');
 
-  /// Get user info map
   Map<String, dynamic> getUserInfo() {
     return {
       'username': _username,
@@ -254,7 +351,6 @@ class AuthProvider with ChangeNotifier {
     };
   }
 
-  /// Debug print current state
   void debugPrintState() {
     debugPrint('📊 AuthProvider State:');
     debugPrint('   Token: ${_token != null ? "Present (${_token!.length} chars)" : "null"}');
@@ -264,10 +360,35 @@ class AuthProvider with ChangeNotifier {
     debugPrint('   Role: $_role');
     debugPrint('   UserId: $_userId');
     debugPrint('   Authenticated: $_isAuthenticated');
+    debugPrint('   Firebase User: ${_firebaseAuth.currentUser?.email ?? 'Not signed in'}');
   }
 
-  /// Reload from preferences (useful for debugging)
   Future<void> reload() async {
     await _loadFromPreferences();
+  }
+  
+  // ✅ NEW: Update user info method for profile updates
+  Future<void> updateUserInfo({
+    String? firstName,
+    String? lastName,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      if (firstName != null) {
+        _firstName = firstName;
+        await prefs.setString('first_name', firstName);
+      }
+      
+      if (lastName != null) {
+        _lastName = lastName;
+        await prefs.setString('last_name', lastName);
+      }
+      
+      notifyListeners();
+      debugPrint('✅ User info updated: $_firstName $_lastName');
+    } catch (e) {
+      debugPrint('❌ Error updating user info: $e');
+    }
   }
 }

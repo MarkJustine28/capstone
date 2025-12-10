@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 // Auth
 import '../features/auth/login_page.dart';
 import '../features/auth/register_page.dart';
-import '../features/auth/forgot_password_page.dart';
+import '../features/auth/forgot_password_page.dart' as forgot_pwd; // ✅ Add alias
 
 // Student
 import '../features/student/pages/dashboard_page.dart' as student;
@@ -22,7 +22,7 @@ import '../features/counselor/pages/dashboard_page.dart';
 import '../features/counselor/pages/student_report_page.dart';
 import '../features/counselor/pages/teacher_reports_page.dart';
 import '../features/counselor/pages/counseling_session_page.dart';
-import '../features/counselor/pages/settings_page.dart'; // ✅ NEW: Import counselor settings
+import '../features/counselor/pages/settings_page.dart';
 
 class AppRoutes {
   // Authentication
@@ -49,24 +49,23 @@ class AppRoutes {
   static const String counselorStudentReports = '/counselor-student-reports';
   static const String counselorTeacherReports = '/counselor-teacher-reports';
   static const String counselorAppointments = '/counselor-appointments';
-  static const String counselorSettings = '/counselor-settings'; // ✅ ADDED: Counselor settings route
+  static const String counselorSettings = '/counselor-settings';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
-    // Extract arguments if provided
     final args = settings.arguments as Map<String, dynamic>?;
 
     switch (settings.name) {
-      // Login
+      // Login - ✅ Remove const if LoginPage doesn't have const constructor
       case login:
-        return MaterialPageRoute(builder: (_) => const LoginPage());
+        return MaterialPageRoute(builder: (_) => LoginPage());
 
       // Register
       case register:
         return MaterialPageRoute(builder: (_) => const RegisterPage());
 
-      // Forgot Password
+      // Forgot Password - ✅ Use alias
       case forgotPassword:
-        return MaterialPageRoute(builder: (_) => const ForgotPasswordPage());
+        return MaterialPageRoute(builder: (_) => const forgot_pwd.ForgotPasswordPage());
 
       // Student Dashboard
       case studentDashboard:
@@ -85,7 +84,7 @@ class AppRoutes {
       case AppRoutes.settings:
         return MaterialPageRoute(builder: (_) => const StudentSettingsPage());
 
-      // Teacher Dashboard - No parameters needed (uses AuthProvider)
+      // Teacher Dashboard
       case teacherDashboard:
         return MaterialPageRoute(
           builder: (_) => const TeacherDashboardPage(),
@@ -97,7 +96,7 @@ class AppRoutes {
       case teacherSubmitReport:
         return MaterialPageRoute(builder: (_) => const SubmitReportPage());
 
-      // Counselor Dashboard - FIXED: Pass username and role parameters
+      // Counselor Dashboard
       case counselorDashboard:
         return MaterialPageRoute(
           builder: (_) => CounselorDashboardPage(
@@ -114,8 +113,6 @@ class AppRoutes {
       case counselorAppointments:
         return MaterialPageRoute(
             builder: (_) => const CounselingSessionPage());
-      
-      // ✅ NEW: Counselor Settings Route
       case counselorSettings:
         return MaterialPageRoute(builder: (_) => const CounselorSettingsPage());
 

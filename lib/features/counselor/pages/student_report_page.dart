@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/counselor_provider.dart';
 import '../../../widgets/school_year_banner.dart';
+import 'dart:async';
+import 'package:http/http.dart' as http;
 
 class StudentReportPage extends StatefulWidget {
   const StudentReportPage({super.key});
@@ -12,79 +14,380 @@ class StudentReportPage extends StatefulWidget {
 }
 
 class _StudentReportPageState extends State<StudentReportPage> {
-  final Set<int> _loadingReports = {}; // Track which reports are being updated
+  final Set<int> _loadingReports = {};
+  String _selectedStatus = 'all'; // ✅ ADD: Status filter
+  String _searchQuery = ''; // ✅ ADD: Search query
 
   @override
   void initState() {
     super.initState();
-    // ✅ Avoid calling notifyListeners during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchReports();
     });
   }
-  
-  Future<void> _fetchReports() async {
-  if (!mounted) return;
-  
-  try {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+  // ✅ NEW: Get filtered reports (like teacher reports)
+  List<Map<String, dynamic>> _getFilteredReports() {
     final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
-    
-    // Check token first
-    if (authProvider.token == null) {
-      debugPrint("❌ No authentication token available");
-      return;
+    var reports = counselorProvider.counselorStudentReports.isNotEmpty 
+        ? counselorProvider.counselorStudentReports 
+        : counselorProvider.studentReports;
+
+    // Filter by status
+    if (_selectedStatus != 'all') {
+      reports = reports.where((r) => (r['status'] ?? '').toLowerCase() == _selectedStatus).toList();
     }
-    
-    // Set token only if it's different (avoid unnecessary operations)
-    if (counselorProvider.token != authProvider.token) {
-      counselorProvider.setToken(authProvider.token!);
+
+    // Filter by search query
+    if (_searchQuery.isNotEmpty) {
+      reports = reports.where((r) {
+        final title = (r['title'] ?? '').toLowerCase();
+        final studentName = (r['reported_student_name'] ?? r['student_name'] ?? '').toLowerCase();
+        final content = (r['content'] ?? '').toLowerCase();
+        final query = _searchQuery.toLowerCase();
+        return title.contains(query) || studentName.contains(query) || content.contains(query);
+      }).toList();
     }
+
+    return reports;
+  }
+  
+  Future<void> _fetchReports({int retryCount = 0}) async {
+    if (!mounted) return;
     
-    // Add timeout and better error handling
-    debugPrint("🔍 Starting to fetch student reports...");
-    final stopwatch = Stopwatch()..start();
-    
-    await counselorProvider.fetchCounselorStudentReports().timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        throw Exception('Request timeout - please check your connection');
-      },
-    );
-    
-    stopwatch.stop();
-    debugPrint("✅ Student reports fetched in ${stopwatch.elapsedMilliseconds}ms");
-    
-  } catch (e) {
-    debugPrint("❌ Exception fetching student reports: $e");
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Failed to load reports: ${_getErrorMessage(e)}"),
-          backgroundColor: Colors.red,
-          action: SnackBarAction(
-            label: 'Retry',
-            textColor: Colors.white,
-            onPressed: () => _fetchReports(),
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
+      
+      if (authProvider.token == null) {
+        debugPrint("❌ No authentication token available");
+        return;
+      }
+      
+      if (counselorProvider.token != authProvider.token) {
+        counselorProvider.setToken(authProvider.token!);
+      }
+      
+      if (retryCount == 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    retryCount > 0 
+                        ? 'Retrying... (attempt ${retryCount + 1}/3)'
+                        : 'Loading student reports...',
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+      
+      debugPrint("🔍 Fetching student reports (attempt ${retryCount + 1})...");
+      final stopwatch = Stopwatch()..start();
+      
+      await counselorProvider.fetchCounselorStudentReports().timeout(
+        const Duration(seconds: 45),
+        onTimeout: () {
+          throw Exception('Server timeout - Render.com free tier may be starting up (this can take 50+ seconds)');
+        },
+      );
+      
+      stopwatch.stop();
+      debugPrint("✅ Student reports fetched in ${stopwatch.elapsedMilliseconds}ms");
+      
+      if (mounted && retryCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('✅ Reports loaded successfully!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      
+    } on TimeoutException catch (e) {
+      debugPrint("⏱️ Timeout fetching student reports: $e");
+      
+      if (retryCount < 2 && mounted) {
+        final waitSeconds = (retryCount + 1) * 5;
+        
+        debugPrint("⏳ Waiting ${waitSeconds}s before retry...");
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⏱️ Server is starting up...\n'
+              'Retrying in $waitSeconds seconds (attempt ${retryCount + 2}/3)',
+              style: const TextStyle(fontSize: 12),
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: waitSeconds),
+          ),
+        );
+        
+        await Future.delayed(Duration(seconds: waitSeconds));
+        
+        if (mounted) {
+          await _fetchReports(retryCount: retryCount + 1);
+        }
+      } else if (mounted) {
+        _showTimeoutErrorDialog();
+      }
+      
+    } on http.ClientException catch (e) {
+      debugPrint("🌐 Network error fetching student reports: $e");
+      
+      if (retryCount < 2 && mounted) {
+        final waitSeconds = (retryCount + 1) * 3;
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '🌐 Network error. Retrying in $waitSeconds seconds...',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: waitSeconds),
+            action: SnackBarAction(
+              label: 'Retry Now',
+              textColor: Colors.white,
+              onPressed: () => _fetchReports(retryCount: retryCount + 1),
+            ),
+          ),
+        );
+        
+        await Future.delayed(Duration(seconds: waitSeconds));
+        
+        if (mounted) {
+          await _fetchReports(retryCount: retryCount + 1);
+        }
+      } else if (mounted) {
+        _showNetworkErrorDialog();
+      }
+      
+    } catch (e) {
+      debugPrint("❌ Exception fetching student reports: $e");
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Failed to load reports: ${_getErrorMessage(e)}",
+              style: const TextStyle(fontSize: 12),
+            ),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: () => _fetchReports(),
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showTimeoutErrorDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_off, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Server Timeout'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'The server is taking longer than expected to respond.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Common Causes:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('• Render.com free tier "cold start" (can take 50+ seconds)'),
+                    const Text('• Server is processing large amounts of data'),
+                    const Text('• Network connection is slow'),
+                    const Text('• Server may be temporarily unavailable'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '💡 What to try:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    Text('1. Wait a moment and try again'),
+                    Text('2. Check your internet connection'),
+                    Text('3. Try refreshing the page'),
+                    Text('4. If problem persists, contact admin'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-      );
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _fetchReports();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Try Again'),
+          ),
+        ],
+      ),
+    );
   }
-}
 
-String _getErrorMessage(dynamic error) {
-  if (error.toString().contains('timeout')) {
-    return 'Connection timeout. Please check your internet.';
-  } else if (error.toString().contains('SocketException')) {
-    return 'No internet connection.';
-  } else if (error.toString().contains('401')) {
-    return 'Authentication failed. Please login again.';
-  } else if (error.toString().contains('500')) {
-    return 'Server error. Please try again later.';
+  void _showNetworkErrorDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.wifi_off, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Network Error'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Unable to connect to the server.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔍 Please check:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('✓ Your internet connection is active'),
+                    const Text('✓ You can access other websites'),
+                    const Text('✓ Your firewall isn\'t blocking the connection'),
+                    const Text('✓ The server URL is correct'),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Server: ${const String.fromEnvironment('SERVER_IP', defaultValue: 'Not configured')}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _fetchReports();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
-  return 'Unknown error occurred.';
-}
+
+  String _getErrorMessage(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+    
+    if (errorStr.contains('timeout')) {
+      return 'Server timeout - this can happen with Render.com free tier';
+    } else if (errorStr.contains('socketexception') || errorStr.contains('failed to fetch')) {
+      return 'Network error - check your connection';
+    } else if (errorStr.contains('401')) {
+      return 'Session expired - please login again';
+    } else if (errorStr.contains('500')) {
+      return 'Server error - please try again';
+    } else if (errorStr.contains('502') || errorStr.contains('503')) {
+      return 'Server temporarily unavailable';
+    }
+    return 'Connection error';
+  }
 
   Future<void> _showReportDetails(BuildContext context, Map<String, dynamic> report) async {
     showDialog(
@@ -102,7 +405,6 @@ String _getErrorMessage(dynamic error) {
               _buildDetailRow("Date", _formatDate(report["created_at"] ?? report["date"])),
               _buildDetailRow("Status", report["status"] ?? "pending"),
               
-              // Add violation type information if available
               if (report["violation_type"] != null)
                 _buildDetailRow("Violation Type", report["violation_type"].toString()),
               if (report["custom_violation"] != null && report["custom_violation"].toString().isNotEmpty)
@@ -128,7 +430,6 @@ String _getErrorMessage(dynamic error) {
                 ),
               ),
               
-              // Add guidance note
               if (report["status"] == "pending") ...[
                 const SizedBox(height: 16),
                 Container(
@@ -208,170 +509,151 @@ String _getErrorMessage(dynamic error) {
   }
 
   @override
-Widget build(BuildContext context) {
-  return Consumer<CounselorProvider>(
-    builder: (context, provider, child) {
-      // ✅ FIX: Apply school year filtering to reports
-      final allReports = provider.counselorStudentReports.isNotEmpty 
-          ? provider.counselorStudentReports 
-          : provider.studentReports;
-      
-      // ✅ Filter reports by selected school year
-      final reports = provider.selectedSchoolYear == 'all'
-          ? allReports
-          : allReports.where((report) {
-              // Try multiple fields to get school year
-              final reportSchoolYear = report['school_year']?.toString() ?? 
-                                      report['reported_student']?['school_year']?.toString() ?? 
-                                      report['student']?['school_year']?.toString() ?? '';
-              
-              debugPrint('🔍 Report #${report['id']}: school_year="$reportSchoolYear", filter="${provider.selectedSchoolYear}"');
-              
-              return reportSchoolYear == provider.selectedSchoolYear;
-            }).toList();
-      
-      final isLoading = provider.isLoadingCounselorStudentReports || provider.isLoading;
+  Widget build(BuildContext context) {
+    return Consumer<CounselorProvider>(
+      builder: (context, provider, child) {
+        // ✅ Use filtered reports instead
+        final filteredReports = _getFilteredReports();
+        final isLoading = provider.isLoadingCounselorStudentReports || provider.isLoading;
+        final schoolYear = provider.selectedSchoolYear;
 
-      debugPrint('📊 Student Reports Page:');
-      debugPrint('   - Total reports: ${allReports.length}');
-      debugPrint('   - Filtered reports: ${reports.length}');
-      debugPrint('   - Selected S.Y.: ${provider.selectedSchoolYear}');
+        debugPrint('📊 Student Reports Page:');
+        debugPrint('   - Filtered reports: ${filteredReports.length}');
+        debugPrint('   - Selected S.Y.: $schoolYear');
 
-      return Scaffold(
-        // Use AppBar instead of custom container for proper system padding
-        appBar: AppBar(
-          automaticallyImplyLeading: false, // Hide back button since we're in a tab
-          backgroundColor: Colors.blue.shade700,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Student Reports',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        return Scaffold(
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            backgroundColor: Colors.blue.shade700,
+            foregroundColor: Colors.white,
+            elevation: 4,
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Student Reports',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                '${reports.length} reports • S.Y. ${provider.selectedSchoolYear}', // ✅ Show filtered count
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
+                Text(
+                  '${filteredReports.length} reports • S.Y. $schoolYear',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
                 ),
+              ],
+            ),
+            actions: [
+              // Filter Button
+              IconButton(
+                icon: const Icon(Icons.filter_list, color: Colors.white),
+                onPressed: () => _showFilterDialog(),
+                tooltip: 'Filter Reports',
               ),
+              // Refresh Button
+              IconButton(
+                icon: isLoading 
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.refresh, color: Colors.white),
+                onPressed: isLoading ? null : () => _fetchReports(),
+                tooltip: 'Refresh',
+              ),
+              const SizedBox(width: 8),
             ],
           ),
-          actions: [
-            // Filter Button
-            IconButton(
-              icon: const Icon(Icons.filter_list, color: Colors.white),
-              onPressed: () => _showFilterDialog(),
-              tooltip: 'Filter Reports',
-            ),
-            // Refresh Button
-            IconButton(
-              icon: isLoading 
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Icon(Icons.refresh, color: Colors.white),
-              onPressed: isLoading ? null : () => _fetchReports(),
-              tooltip: 'Refresh',
-            ),
-            // Export Button
-            IconButton(
-              icon: const Icon(Icons.download, color: Colors.white),
-              onPressed: () => _exportReports(),
-              tooltip: 'Export Reports',
-            ),
-            const SizedBox(width: 8), // Add some padding from the edge
-          ],
-        ),
-        body: Column(
-          children: [
-            // ✅ School Year Banner
-            const SchoolYearBanner(),
-            
-            // ✅ Show filter info if not viewing all years
-            if (provider.selectedSchoolYear != 'all')
+          body: Column(
+            children: [
+              // School Year Banner
+              const SchoolYearBanner(),
+              
+              // ✅ NEW: Search Bar and Status Filter (like teacher reports)
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Colors.blue.shade50,
-                child: Row(
+                padding: const EdgeInsets.all(16),
+                color: Colors.grey.shade100,
+                child: Column(
                   children: [
-                    Icon(Icons.filter_list, size: 16, color: Colors.blue.shade700),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Showing reports for S.Y. ${provider.selectedSchoolYear} only (${reports.length} of ${allReports.length} total)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.w500,
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search reports...',
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
                         ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        provider.setSelectedSchoolYear('all');
-                        _fetchReports();
+                      onChanged: (value) {
+                        setState(() => _searchQuery = value);
                       },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: const Size(0, 0),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Status Filter
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip('All', 'all', Colors.grey),
+                          _buildFilterChip('Pending', 'pending', Colors.orange),
+                          _buildFilterChip('Reviewed', 'reviewed', Colors.green),
+                          _buildFilterChip('Resolved', 'resolved', Colors.green),
+                          _buildFilterChip('Dismissed', 'dismissed', Colors.red),
+                        ],
                       ),
-                      child: const Text('Show All', style: TextStyle(fontSize: 11)),
                     ),
                   ],
                 ),
               ),
-            
-            // Main content
-            Expanded(
-              child: isLoading && reports.isEmpty
-                  ? const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 16),
-                          Text("Loading student reports..."),
-                        ],
-                      ),
-                    )
-                  : reports.isEmpty
-                      ? _buildEmptyState(provider.selectedSchoolYear, allReports.length) // ✅ Pass total count
-                      : RefreshIndicator(
-                          onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
-                          child: ListView.builder(
-                            padding: const EdgeInsets.all(8),
-                            itemCount: reports.length,
-                            itemBuilder: (context, index) {
-                              final report = reports[index];
-                              final isLoading = _loadingReports.contains(index);
-                              
-                              return _buildReportCard(report, index, isLoading);
-                            },
-                          ),
+              
+              // Main content
+              Expanded(
+                child: isLoading && filteredReports.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text("Loading student reports..."),
+                          ],
                         ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
+                      )
+                    : filteredReports.isEmpty
+                        ? _buildEmptyState(schoolYear)
+                        : RefreshIndicator(
+                            onRefresh: () => provider.fetchCounselorStudentReports(forceRefresh: true),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(8),
+                              itemCount: filteredReports.length,
+                              itemBuilder: (context, index) {
+                                final report = filteredReports[index];
+                                final isLoading = _loadingReports.contains(index);
+                                
+                                return _buildReportCard(report, index, isLoading);
+                              },
+                            ),
+                          ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
+  // ✅ NEW: Filter dialog (like teacher reports)
   void _showFilterDialog() {
     showDialog(
       context: context,
@@ -382,17 +664,59 @@ Widget build(BuildContext context) {
           children: [
             ListTile(
               title: const Text('All Reports'),
-              onTap: () => Navigator.of(context).pop(),
+              onTap: () {
+                setState(() => _selectedStatus = 'all');
+                Navigator.of(context).pop();
+              },
             ),
             ListTile(
               title: const Text('Pending Only'),
-              onTap: () => Navigator.of(context).pop(),
+              onTap: () {
+                setState(() => _selectedStatus = 'pending');
+                Navigator.of(context).pop();
+              },
             ),
             ListTile(
               title: const Text('Reviewed Only'),
-              onTap: () => Navigator.of(context).pop(),
+              onTap: () {
+                setState(() => _selectedStatus = 'reviewed');
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              title: const Text('Dismissed Only'),
+              onTap: () {
+                setState(() => _selectedStatus = 'dismissed');
+                Navigator.of(context).pop();
+              },
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Filter chip widget (like teacher reports)
+  Widget _buildFilterChip(String label, String value, Color color) {
+    final isSelected = _selectedStatus == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (selected) {
+          setState(() => _selectedStatus = value);
+        },
+        backgroundColor: Colors.white,
+        selectedColor: color.withOpacity(0.2),
+        checkmarkColor: color,
+        labelStyle: TextStyle(
+          color: isSelected ? color : Colors.grey.shade700,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+        side: BorderSide(
+          color: isSelected ? color : Colors.grey.shade300,
+          width: isSelected ? 2 : 1,
         ),
       ),
     );
@@ -407,55 +731,48 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildEmptyState(String schoolYear, int totalReports) {
-  return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade400),
-        const SizedBox(height: 16),
-        Text(
-          "No Student Reports",
-          style: TextStyle(
-            fontSize: 18,
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          schoolYear == 'all'
-              ? 'No reports available across all years'
-              : 'No reports found for S.Y. $schoolYear\n($totalReports reports in other years)',
-          style: TextStyle(color: Colors.grey.shade500),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        if (schoolYear != 'all')
-          ElevatedButton.icon(
-            onPressed: () {
-              // Show all reports
-              final provider = Provider.of<CounselorProvider>(context, listen: false);
-              provider.setSelectedSchoolYear('all');
-              _fetchReports();
-            },
-            icon: const Icon(Icons.clear_all),
-            label: const Text('Show All Years'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
+  Widget _buildEmptyState(String schoolYear) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            _searchQuery.isNotEmpty
+                ? 'No reports match your search'
+                : "No Student Reports",
+            style: TextStyle(
+              fontSize: 18,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
             ),
-          )
-        else
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              schoolYear == 'all'
+                  ? 'No reports available across all years'
+                  : 'No reports found for S.Y. $schoolYear',
+              style: TextStyle(color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: () => _fetchReports(),
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
           ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildReportCard(Map<String, dynamic> report, int index, bool isLoading) {
   final status = report["status"]?.toString().toLowerCase() ?? 'pending';
@@ -761,7 +1078,7 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   final counselorProvider = Provider.of<CounselorProvider>(context, listen: false);
   final report = counselorProvider.counselorStudentReports[index];
 
-  // ✅ Show dialog to send guidance notice with both parties notified
+  // Show dialog to send guidance notice
   final sendNotice = await _showGuidanceNoticeDialog(context, report);
   if (!sendNotice) {
     return;
@@ -772,24 +1089,46 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
   });
 
   try {
-    // ✅ FIX: Get report type and pass it to sendGuidanceNotice
     final reportType = report['report_type']?.toString() ?? 'student_report';
     
     debugPrint('📢 Sending guidance notice for report #${report['id']} (type: $reportType)');
     
-    // ✅ NEW: Send guidance notice to BOTH reporter and reported student with report type
+    // ✅ Show progress
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            SizedBox(width: 12),
+            Text('Sending guidance notices...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+        backgroundColor: Colors.blue,
+      ),
+    );
+    
+    // Send guidance notice with timeout
     final success = await counselorProvider.sendGuidanceNotice(
       reportId: report['id'],
-      reportType: reportType, // ✅ Pass the report type
+      reportType: reportType,
       message: 'You are summoned to the guidance office regarding an incident report. Please report as soon as possible.',
       scheduledDate: DateTime.now(),
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => throw TimeoutException('Request timeout'),
     );
     
     if (mounted) {
       if (success) {
-        // Refresh the reports list
-        await counselorProvider.fetchCounselorStudentReports(forceRefresh: true);
-        
+        // ✅ Success feedback
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -806,8 +1145,8 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
-                        "✓ ${report['reported_student_name'] ?? report['student_name'] ?? 'Student'} notified to report to guidance office\n"
-                        "✓ ${report['reported_by']?['name'] ?? 'Reporter'} notified that student was summoned",
+                        "✓ ${report['reported_student_name'] ?? report['student_name'] ?? 'Student'} notified\n"
+                        "✓ ${report['reported_by']?['name'] ?? 'Reporter'} notified",
                         style: const TextStyle(fontSize: 11, color: Colors.white),
                       ),
                     ],
@@ -816,30 +1155,46 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
               ],
             ),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'OK',
-              textColor: Colors.white,
-              onPressed: () {},
-            ),
+            duration: const Duration(seconds: 4),
           ),
         );
+        
+        // Refresh with retry logic
+        await _refreshReportsWithRetry(counselorProvider, report['id']);
+        
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('❌ Failed to send guidance notices'),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
           ),
         );
       }
+    }
+  } on TimeoutException catch (e) {
+    debugPrint('⏱️ Timeout sending guidance notice: $e');
+    if (mounted) {
+      _showTimeoutErrorDialog();
+    }
+  } on http.ClientException catch (e) {
+    debugPrint('🌐 Network error sending guidance notice: $e');
+    if (mounted) {
+      _showNetworkErrorDialog();
     }
   } catch (e) {
     debugPrint('❌ Error sending guidance notice: $e');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error sending notices: $e'),
+          content: Text('Error: ${_getErrorMessage(e)}'),
           backgroundColor: Colors.red,
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: () => _verifyAndTallyReport(context, index),
+          ),
+          duration: const Duration(seconds: 4),
         ),
       );
     }
@@ -848,6 +1203,72 @@ Future<void> _verifyAndTallyReport(BuildContext context, int index) async {
       setState(() {
         _loadingReports.remove(index);
       });
+    }
+  }
+}
+
+// ✅ NEW: Retry logic for fetching reports
+Future<void> _refreshReportsWithRetry(CounselorProvider provider, int reportId, {int retries = 3}) async {
+  for (int attempt = 1; attempt <= retries; attempt++) {
+    try {
+      debugPrint('🔄 Attempt $attempt/$retries: Refreshing reports...');
+      
+      // Wait before retry (exponential backoff)
+      if (attempt > 1) {
+        await Future.delayed(Duration(seconds: attempt * 2));
+      }
+      
+      // Try to fetch reports
+      await Future.wait([
+        provider.fetchCounselorStudentReports(forceRefresh: true),
+        provider.fetchStudentReports(),
+      ], eagerError: false); // ✅ Don't stop on first error
+      
+      // ✅ Verify the report was updated
+      final updatedReport = provider.studentReports
+          .firstWhere((r) => r['id'] == reportId, orElse: () => {});
+      
+      if (updatedReport.isNotEmpty) {
+        debugPrint('✅ Report #$reportId successfully updated: status=${updatedReport['status']}');
+        return; // Success!
+      } else {
+        debugPrint('⚠️ Report #$reportId not found in updated list');
+      }
+      
+    } catch (e) {
+      debugPrint('⚠️ Attempt $attempt failed: $e');
+      
+      if (attempt == retries) {
+        debugPrint('❌ All retry attempts failed. Data may be stale.');
+        
+        // ✅ Show warning but don't fail
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notice sent successfully!\n'
+                      'List may not be updated yet. Pull to refresh.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.orange,
+              action: SnackBarAction(
+                label: 'Refresh Now',
+                textColor: Colors.white,
+                onPressed: () => _fetchReports(),
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
     }
   }
 }
@@ -1043,16 +1464,6 @@ Future<bool> _showGuidanceNoticeDialog(BuildContext context, Map<String, dynamic
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Mark as Invalid option
-            TextButton.icon(
-              onPressed: () async {
-                Navigator.of(context).pop(false);
-                await _showMarkAsInvalidDialog(context, report);
-              },
-              icon: const Icon(Icons.block, color: Colors.red),
-              label: const Text('Mark Invalid'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-            ),
             const SizedBox(width: 8),
             // Send Notice to Both button
             ElevatedButton.icon(
@@ -1171,7 +1582,6 @@ Future<void> _showMarkAsInvalidDialog(BuildContext context, Map<String, dynamic>
     final success = await counselorProvider.markReportAsInvalid(
       reportId: report['id'],
       reason: reasonController.text.trim(),
-      reportType: reportType, // ✅ Pass the report type
     );
     
     if (success && mounted) {

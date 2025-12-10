@@ -40,46 +40,82 @@ Future<void> _fetchInitialData() async {
   
   if (authProvider.token != null) {
     try {
-      // Fetch violation types
+      setState(() => _loadingStudentInfo = true);
+      
+      // Fetch student profile first
+      await studentProvider.fetchStudentInfo(authProvider.token!);
+      
+      // Then fetch violation types
       await studentProvider.fetchViolationTypes(authProvider.token!);
       
-      // Fetch student info
-      await _fetchStudentInfo();
-    } catch (e) {
-      debugPrint("❌ Error fetching initial data: $e");
-    }
-  } else {
-    debugPrint("❌ No auth token available");
-  }
-}
-
-  Future<void> _fetchStudentInfo() async {
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      // Set student info from provider
+      setState(() {
+        _studentInfo = studentProvider.studentInfo;
+        _loadingStudentInfo = false;
+      });
       
-      if (authProvider.token == null) {
-        debugPrint("❌ Missing token");
-        setState(() => _loadingStudentInfo = false);
-        return;
+      // ✅ Validate that we have required data
+      if (_studentInfo == null || 
+          _studentInfo!['grade_level'] == null || 
+          _studentInfo!['section'] == null) {
+        debugPrint("⚠️ Warning: Incomplete student info");
+        _showErrorDialog(
+          "Could not load your complete student information. "
+          "Your grade and section may not appear correctly."
+        );
       }
       
-      // Use existing auth provider data first
+      debugPrint("✅ Student info loaded:");
+      debugPrint("   Name: ${_studentInfo?['first_name']} ${_studentInfo?['last_name']}");
+      debugPrint("   Grade: ${_studentInfo?['grade_level']}");
+      debugPrint("   Section: ${_studentInfo?['section']}");
+      debugPrint("   Strand: ${_studentInfo?['strand']}");
+      
+    } catch (e) {
+      debugPrint("❌ Error fetching initial data: $e");
+      setState(() => _loadingStudentInfo = false);
+      
+      // Show error dialog
+      if (mounted) {
+        _showErrorDialog(
+          "Failed to load student information: $e\n\n"
+          "Please check your internet connection and try again."
+        );
+      }
+      
+      // Fallback to auth provider data
       setState(() {
         _studentInfo = {
           'first_name': authProvider.firstName,
           'last_name': authProvider.lastName,
           'username': authProvider.username,
-          // Add additional fields if available from profile API
+          'grade_level': 'Unknown',
+          'section': 'Unknown',
         };
-        _loadingStudentInfo = false;
       });
-      
-      debugPrint("✅ Using student info from auth provider");
-    } catch (e) {
-      debugPrint("❌ Error setting student info: $e");
-      setState(() => _loadingStudentInfo = false);
     }
+  } else {
+    debugPrint("❌ No auth token available");
+    setState(() => _loadingStudentInfo = false);
   }
+}
+
+Future<void> _fetchStudentInfo() async {
+  // This method is now handled by _fetchInitialData
+  // Keep it for compatibility but just call the provider
+  final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+  
+  setState(() {
+    _studentInfo = studentProvider.studentInfo ?? {
+      'first_name': Provider.of<AuthProvider>(context, listen: false).firstName,
+      'last_name': Provider.of<AuthProvider>(context, listen: false).lastName,
+      'username': Provider.of<AuthProvider>(context, listen: false).username,
+    };
+    _loadingStudentInfo = false;
+  });
+  
+  debugPrint("✅ Using student info from provider");
+}
 
   String _getSubmissionTitle() {
     if (_selectedViolationType?['name'] == 'Others') {
@@ -155,23 +191,72 @@ Future<void> _fetchInitialData() async {
   }
 
   String _getStudentGradeInfo() {
-    if (_studentInfo != null) {
-      final gradeLevel = _studentInfo!['grade_level']?.toString() ?? '';
-      final section = _studentInfo!['section']?.toString() ?? '';
-      final strand = _studentInfo!['strand']?.toString() ?? '';
-      
-      if (gradeLevel.isNotEmpty && section.isNotEmpty) {
-        if (strand.isNotEmpty && (gradeLevel == '11' || gradeLevel == '12')) {
-          return 'Grade $gradeLevel $strand - $section';
-        }
-        return 'Grade $gradeLevel - $section';
-      } else if (gradeLevel.isNotEmpty) {
-        return 'Grade $gradeLevel';
-      }
-    }
+  final studentProvider = Provider.of<StudentProvider>(context, listen: false);
+  
+  // ✅ Try to get from fetched student info first
+  if (_studentInfo != null) {
+    final gradeLevel = _studentInfo!['grade_level']?.toString() ?? '';
+    final section = _studentInfo!['section']?.toString() ?? '';
+    final strand = _studentInfo!['strand']?.toString() ?? '';
     
-    return 'Grade/Section not specified';
+    if (gradeLevel.isNotEmpty && section.isNotEmpty) {
+      // Include strand for Grade 11 and 12
+      if (strand.isNotEmpty && (gradeLevel == '11' || gradeLevel == '12')) {
+        return 'Grade $gradeLevel $strand - $section';
+      }
+      return 'Grade $gradeLevel - $section';
+    } else if (gradeLevel.isNotEmpty) {
+      return 'Grade $gradeLevel';
+    }
   }
+  
+  // ✅ Fallback to student provider
+  if (studentProvider.studentInfo != null) {
+    final gradeLevel = studentProvider.gradeLevel;
+    final section = studentProvider.section;
+    final strand = studentProvider.studentInfo?['strand']?.toString() ?? '';
+    
+    if (gradeLevel != 'N/A' && section != 'N/A') {
+      if (strand.isNotEmpty && (gradeLevel == '11' || gradeLevel == '12')) {
+        return 'Grade $gradeLevel $strand - $section';
+      }
+      return 'Grade $gradeLevel - $section';
+    } else if (gradeLevel != 'N/A') {
+      return 'Grade $gradeLevel';
+    }
+  }
+  
+  return 'Grade/Section not specified';
+}
+
+void _showErrorDialog(String message) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.error_outline, color: Colors.red),
+          SizedBox(width: 8),
+          Text("Error"),
+        ],
+      ),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            _fetchInitialData(); // Retry
+          },
+          child: const Text("Retry"),
+        ),
+      ],
+    ),
+  );
+}
 
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
@@ -323,73 +408,101 @@ ${_descriptionController.text.trim()}''';
                       const SizedBox(height: 12),
                       // Reporter Information Display
                       Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.red.shade200),
-                        ),
-                        child: _loadingStudentInfo 
-                          ? const Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text("Loading reporter info...", style: TextStyle(fontSize: 12)),
-                                ],
-                              ),
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(Icons.person, color: Colors.red.shade600, size: 18),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      "Report submitted by:",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  reporterName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  reporterGradeInfo,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                if (Provider.of<AuthProvider>(context, listen: false).username != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "Username: ${Provider.of<AuthProvider>(context, listen: false).username}",
-                                    style: TextStyle(
-                                      color: Colors.grey[500],
-                                      fontSize: 12,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                      ),
+  padding: const EdgeInsets.all(12),
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(8),
+    border: Border.all(color: Colors.red.shade200),
+  ),
+  child: _loadingStudentInfo 
+    ? const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text(
+                "Loading your information...", 
+                style: TextStyle(fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      )
+    : Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.person, color: Colors.red.shade600, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                "Report submitted by:",
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            reporterName,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                Icons.school_outlined, 
+                size: 14, 
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  reporterGradeInfo,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (Provider.of<AuthProvider>(context, listen: false).username != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  Icons.account_circle_outlined, 
+                  size: 14, 
+                  color: Colors.grey[500],
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  "Username: ${Provider.of<AuthProvider>(context, listen: false).username}",
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+),
                     ],
                   ),
                 ),

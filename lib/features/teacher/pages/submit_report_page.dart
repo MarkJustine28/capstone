@@ -278,31 +278,31 @@ ${_descriptionController.text.trim()}''';
       
       // Prepare report data for submission
       final reportData = {
-        'title': title,
-        'content': reportDescription,
-        'description': _descriptionController.text.trim(),
-        'report_type': 'teacher_report',
-        'incident_date': formattedDateTime,
-        'violation_type_id': _selectedViolationType?['id'],
-        'custom_violation': _selectedViolationType?['name'] == 'Other (Specify below)' 
-            ? _otherTitleController.text.trim() 
-            : null,
-        'student_name': studentName,
-        'teacher_name': teacherName,
-        'is_other_student': _isReportingOtherStudent,
-        'status': 'pending',
-        // Only include student_id if from advising section
-        if (!_isReportingOtherStudent && _selectedStudent != null) 
-          'student_id': _selectedStudent!['id'],
-        // Include other student details if reporting outside section
-        if (_isReportingOtherStudent) ...{
-          'other_student_name': _otherStudentNameController.text.trim(),
-          'other_student_id': _otherStudentIdController.text.trim(),
-          'other_student_grade': _otherStudentGradeController.text.trim(),
-          'other_student_section': _otherStudentSectionController.text.trim(),
-          'other_student_strand': _otherStudentStrandController.text.trim(),
-        },
-      };
+  'title': title,
+  'description': _descriptionController.text.trim(), // ✅ Send as 'description'
+  'content': reportDescription, // ✅ Keep 'content' for backward compatibility  
+  'report_type': 'teacher_report',
+  'incident_date': formattedDateTime,
+  'violation_type_id': _selectedViolationType?['id'],
+  'custom_violation': _selectedViolationType?['name'] == 'Other (Specify below)' 
+      ? _otherTitleController.text.trim() 
+      : null,
+  'student_name': studentName,
+  'teacher_name': teacherName,
+  'is_other_student': _isReportingOtherStudent,
+  'status': 'pending',
+  // Only include student_id if from advising section
+  if (!_isReportingOtherStudent && _selectedStudent != null) 
+    'student_id': _selectedStudent!['id'],
+  // Include other student details if reporting outside section
+  if (_isReportingOtherStudent) ...{
+    'other_student_name': _otherStudentNameController.text.trim(),
+    'other_student_id': _otherStudentIdController.text.trim(),
+    'other_student_grade': _otherStudentGradeController.text.trim(),
+    'other_student_section': _otherStudentSectionController.text.trim(),
+    'other_student_strand': _otherStudentStrandController.text.trim(),
+  },
+};
 
       debugPrint("📝 Report submitted by: $teacherName");
       debugPrint("📝 Student being reported: $studentName");

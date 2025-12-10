@@ -65,101 +65,100 @@ class NotificationProvider with ChangeNotifier {
 
   /// Mark notification as read
   Future<bool> markAsRead(int notificationId) async {
-    if (_token == null) return false;
+  if (_token == null) return false;
 
-    try {
-      debugPrint('🔄 Marking notification $notificationId as read...');
+  try {
+    debugPrint('🔄 Marking notification $notificationId as read...');
 
-      // ✅ Use ApiService
-      final result = await ApiService.instance.markNotificationAsRead(
-        token: _token!,
-        notificationId: notificationId,
-      );
-
-      if (result['success']) {
-        // Update local state
-        final index = _notifications.indexWhere((n) => n['id'] == notificationId);
-        if (index != -1) {
-          _notifications[index]['is_read'] = true;
-          _updateUnreadCount();
-          notifyListeners();
-        }
-        
-        debugPrint('✅ Notification $notificationId marked as read');
-        return true;
-      } else {
-        debugPrint('❌ Failed to mark notification as read: ${result['error']}');
-        return false;
-      }
-    } catch (e) {
-      debugPrint('❌ Error marking notification as read: $e');
-      return false;
+    // ✅ Update locally first for immediate UI feedback
+    final index = _notifications.indexWhere((n) => n['id'] == notificationId);
+    if (index != -1) {
+      _notifications[index]['is_read'] = true;
+      _updateUnreadCount();
+      notifyListeners();
     }
-  }
 
-  /// Mark all notifications as read
-  Future<bool> markAllAsRead() async {
-    if (_token == null) return false;
+    // ✅ Use the correct API method
+    final result = await ApiService.instance.markNotificationAsRead(
+      token: _token!,
+      notificationId: notificationId,
+    );
 
-    try {
-      debugPrint('🔄 Marking all notifications as read...');
-
-      // ✅ Use ApiService for bulk mark as read
-      final result = await ApiService.instance.post(
-        endpoint: '/notifications/mark-all-read/',
-        token: _token,
-        data: {},
-      );
-
-      if (result['success']) {
-        // Update all local notifications to read
-        for (var notification in _notifications) {
-          notification['is_read'] = true;
-        }
-        _updateUnreadCount();
-        notifyListeners();
-        
-        debugPrint('✅ All notifications marked as read');
-        return true;
-      } else {
-        debugPrint('❌ Failed to mark all as read: ${result['error']}');
-        return false;
-      }
-    } catch (e) {
-      debugPrint('❌ Error marking all as read: $e');
-      return false;
+    if (result['success']) {
+      debugPrint('✅ Backend synced: Notification $notificationId marked as read');
+      return true;
+    } else {
+      debugPrint('⚠️ Backend sync failed: ${result['error']}');
+      return true; // Still return true since local update succeeded
     }
+  } catch (e) {
+    debugPrint('❌ Error marking notification as read: $e');
+    return true; // Still return true since local update succeeded
   }
+}
 
-  /// Delete a notification
-  Future<bool> deleteNotification(int notificationId) async {
-    if (_token == null) return false;
+/// Mark all notifications as read
+Future<bool> markAllAsRead() async {
+  if (_token == null) return false;
 
-    try {
-      debugPrint('🔄 Deleting notification $notificationId...');
+  try {
+    debugPrint('🔄 Marking all notifications as read...');
 
-      // ✅ Use ApiService
-      final result = await ApiService.instance.delete(
-        endpoint: '/notifications/$notificationId/',
-        token: _token,
-      );
-
-      if (result['success']) {
-        _notifications.removeWhere((n) => n['id'] == notificationId);
-        _updateUnreadCount();
-        notifyListeners();
-        
-        debugPrint('✅ Notification $notificationId deleted');
-        return true;
-      } else {
-        debugPrint('❌ Failed to delete notification: ${result['error']}');
-        return false;
-      }
-    } catch (e) {
-      debugPrint('❌ Error deleting notification: $e');
-      return false;
+    // Update locally first
+    for (var notification in _notifications) {
+      notification['is_read'] = true;
     }
+    _updateUnreadCount();
+    notifyListeners();
+
+    // Sync with backend
+    final result = await ApiService.instance.markAllNotificationsAsRead(
+      token: _token!,
+    );
+
+    if (result['success']) {
+      debugPrint('✅ All notifications marked as read');
+      return true;
+    } else {
+      debugPrint('⚠️ Backend sync failed: ${result['error']}');
+      return true;
+    }
+  } catch (e) {
+    debugPrint('❌ Error marking all as read: $e');
+    return true;
   }
+}
+
+/// Delete notification
+Future<bool> deleteNotification(int notificationId) async {
+  if (_token == null) return false;
+
+  try {
+    debugPrint('🗑️ Deleting notification $notificationId...');
+
+    // Remove locally first
+    _notifications.removeWhere((n) => n['id'] == notificationId);
+    _updateUnreadCount();
+    notifyListeners();
+
+    // Sync with backend
+    final result = await ApiService.instance.deleteNotification(
+      token: _token!,
+      notificationId: notificationId,
+    );
+
+    if (result['success']) {
+      debugPrint('✅ Notification deleted');
+      return true;
+    } else {
+      debugPrint('⚠️ Backend deletion failed: ${result['error']}');
+      return true;
+    }
+  } catch (e) {
+    debugPrint('❌ Error deleting notification: $e');
+    return true;
+  }
+}
 
   /// Get notification icon based on type
   IconData getNotificationIcon(String? type) {
